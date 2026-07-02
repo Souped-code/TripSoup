@@ -25,12 +25,16 @@ _Produced 2026-07-02, start of the unattended PA→P5 run. Evidence: direct file
 - **No persistence of any kind.** §4 (AUDIT-RESOLVED) already anticipated this: `tripStore`
   port, file-backed adapter for dev/tests, Vercel KV adapter written but UNVERIFIED.
   Confirmed correct — there is no scaffolding to document beyond the above.
-- **No git repository.** `git rev-parse` fails here and in every parent. Initialised during PA
-  (with an initial commit of Phase 0 as-found) so the unattended run has checkpoints and the
-  Phase 0 baseline is provably untouched. `.gitignore` already existed, consistent with intent.
+- **No git repository.** `git rev-parse` fails here and in every parent. Initialised during PA;
+  the first commit bundles Phase 0 as-found together with the PA documents (AUDIT.md, STATE.md,
+  the handover) — Phase 0 is provably unmodified because the committed `resolvePlaces.ts`
+  matches the working tree, though there is no Phase-0-only baseline commit.
+  `.gitignore` already existed, consistent with intent.
 - **No tests, no CI, no API routes, no UI.**
-- **No key material.** No `.env*` anywhere in the tree; no `AIza` string in any file
-  (`grep` evidence this session). The key-removal protocol in §7 was executed before this run.
+- **No key material.** No `.env*` anywhere in the tree; no `AIza` string in any file at audit
+  time (`grep` evidence this session — note: AUDIT.md and STATE.md themselves now quote the
+  search pattern, so re-running the grep matches these two docs and nothing else). The
+  key-removal protocol in §7 was executed before this run.
 
 ## 3. Phase 0 → `mapsProvider` port mapping
 
