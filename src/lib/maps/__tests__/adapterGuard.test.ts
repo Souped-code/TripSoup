@@ -28,7 +28,8 @@ describe("adapter import guard (§3)", () => {
   });
 
   it("no test file imports the real adapter", () => {
-    const importPattern = /(?:from\s+|require\()\s*["'][^"']*realAdapter["']/;
+    // covers static import, require(), and dynamic import()
+    const importPattern = /(?:from\s+|require\(|import\()\s*["'][^"']*realAdapter["']/;
     for (const file of testFiles) {
       const content = fs.readFileSync(file, "utf8");
       expect({ file, importsRealAdapter: importPattern.test(content) }).toEqual({
