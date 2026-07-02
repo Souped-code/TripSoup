@@ -165,4 +165,24 @@ was committed as part of the P2 commit (72547cd), not the P1 commit.
 
 **UNVERIFIED (live):** KV store adapter (no credentials, by design); real-adapter plan flow.
 
-## P5 — Share + LIVE-CHECKLIST (NOT STARTED)
+## P5 — Share read-only view + LIVE-CHECKLIST (COMPLETE)
+
+**Built:** `app/share/[id]/page.tsx` — server component, fetches the doc through the
+tripStore port, recomputes each day via `planTripDay` (deterministic solver ⇒ recompute
+reproduces exactly what the owner saw, persisted leg toggles included), renders `PlanView`
+in read-only mode (no toggles, no editing controls). `LIVE-CHECKLIST.md` finalised, six
+steps ordered exactly per §6, each with what-verified-looks-like.
+
+**Deviations:** none.
+
+**Verified and how (tool output this session):**
+- `npx tsc --noEmit` → exit 0. `npx playwright test` → **6/6 passed**: the share spec builds
+  a day, optimizes, toggles an eligible leg (and waits for the re-plan), then loads
+  `/share/<id>` and asserts identical entry order, identical times, identical leg modes
+  (toggle honoured), and zero toggle/optimize/paste controls in the share view.
+- First share-spec run failed on a TEST race (owner times captured before the post-toggle
+  re-plan landed; the share view was actually correct). Fixed by waiting for the toggled
+  leg to render "drive" before capturing. Recorded per the reporting rule; not a product bug.
+
+**UNVERIFIED (live):** share round-trip on a deployed app with Vercel KV from a phone —
+LIVE-CHECKLIST step 5.
