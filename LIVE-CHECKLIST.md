@@ -52,6 +52,14 @@ the same items from the build side)._
   **UNVERIFIED** — it has never talked to a real KV instance).
 - Deploy. Create a trip, build a day, open `/share/<tripId>` from a phone.
 - **Verified when:** the shared plan renders read-only with the same order/times.
+- ⚠️ **Deploy-time gap to resolve here:** the real adapter's matrix cache is a local file
+  (`.cache/matrix-cache.json` — `src/lib/config.ts`), which works on your machine but NOT on
+  Vercel serverless (read-only FS; per-instance `/tmp` is ephemeral). Deployed consequences
+  until fixed: cold starts re-bill matrix elements, and a share render on a fresh instance
+  re-fetches live drive times — if Google's times drifted, the share view can diverge from
+  what you saw. Cheapest fix: back the matrix cache with the same KV store (the
+  `MatrixCache` interface in `src/lib/maps/matrixSource.ts` is two methods). Decide when
+  provisioning KV in this step.
 
 ## 6. Quota/billing alert in Google Cloud console
 

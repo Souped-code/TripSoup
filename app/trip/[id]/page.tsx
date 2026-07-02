@@ -15,8 +15,8 @@ export default function TripPage({ params }: { params: Promise<{ id: string }> }
   const { id } = use(params);
   const [doc, setDoc] = useState<TripDoc | null>(null);
   const [plans, setPlans] = useState<Record<number, DayPlan>>({});
-  const [failures, setFailures] = useState<Failure[]>([]);
-  const [pasteText, setPasteText] = useState("");
+  const [failures, setFailures] = useState<Record<number, Failure[]>>({});
+  const [pasteText, setPasteText] = useState<Record<number, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,9 +43,12 @@ export default function TripPage({ params }: { params: Promise<{ id: string }> }
   async function addStops(dayIndex: number) {
     if (!doc) return;
     setBusy(true);
-    setFailures([]);
+    setFailures((f) => ({ ...f, [dayIndex]: [] }));
     try {
-      const inputs = pasteText.split("\n").map((s) => s.trim()).filter(Boolean);
+      const inputs = (pasteText[dayIndex] ?? "")
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean);
       const res = await fetch(`/api/trips/${id}/resolve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -73,12 +76,12 @@ export default function TripPage({ params }: { params: Promise<{ id: string }> }
           });
         }
       }
-      setFailures([...fails, ...dupes]);
+      setFailures((f) => ({ ...f, [dayIndex]: [...fails, ...dupes] }));
       const days = doc.days.map((d, i) =>
         i === dayIndex ? { ...d, stops: [...d.stops, ...fresh] } : d
       );
       await save({ ...doc, days });
-      setPasteText("");
+      setPasteText((p) => ({ ...p, [dayIndex]: "" }));
     } finally {
       setBusy(false);
     }
@@ -124,22 +127,39 @@ export default function TripPage({ params }: { params: Promise<{ id: string }> }
   }
 
   async function toggleLeg(dayIndex: number, fromId: string, toId: string, mode: "walk" | "drive") {
-    if (!doc) return;
-    const legOverrides = [
-      ...doc.legOverrides.filter(
-        (o) => !(o.dayIndex === dayIndex && o.fromId === fromId && o.toId === toId)
-      ),
-      { dayIndex, fromId, toId, mode },
-    ];
-    // §2: the toggle persists, and re-times without re-ordering (server-side).
-    const next = { ...doc, legOverrides };
-    setDoc(next);
-    await fetch(`/api/trips/${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(next),
-    });
+    if (!doc || busy) return; // serialize: two rapid toggles must not race the doc
+    setBusy(true);
+    try {
+      const legOverrides = [
+        ...doc.legOverrides.filter(
+          (o) => !(o.dayIndex === dayIndex && o.fromId === fromId && o.toId === toId)
+        ),
+        { dayIndex, fromId, toId, mode },
+      ];
+      // §2: the toggle persists, and re-times without re-ordering (server-side).
+      const next = { ...doc, legOverrides };
+      setDoc(next);
+      await fetch(`/api/trips/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(next),
+      });
+    } finally {
+      setBusy(false);
+    }
     await optimizeDay(dayIndex);
+  }
+
+  function addDay() {
+    if (!doc) return;
+    const last = doc.days[doc.days.length - 1];
+    const nextDate = new Date(new Date(last.date).getTime() + 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    void save({
+      ...doc,
+      days: [...doc.days, { date: nextDate, dayStartMin: last.dayStartMin, dayEndMin: last.dayEndMin, stops: [] }],
+    });
   }
 
   if (error) return <main data-testid="error">{error}</main>;
@@ -165,9 +185,10 @@ export default function TripPage({ params }: { params: Promise<{ id: string }> }
               min={0}
               style={{ width: 70 }}
               value={doc.settings.walkMax}
-              onChange={(e) =>
-                save({ ...doc, settings: { ...doc.settings, walkMax: Number(e.target.value) } })
-              }
+              onChange={(e) => {
+                if (e.target.value === "") return; // don't persist a cleared field as 0
+                save({ ...doc, settings: { ...doc.settings, walkMax: Number(e.target.value) } });
+              }}
             />
           </label>
           <label>
@@ -178,12 +199,13 @@ export default function TripPage({ params }: { params: Promise<{ id: string }> }
               min={0}
               style={{ width: 70 }}
               value={doc.settings.driveOverheadMin}
-              onChange={(e) =>
+              onChange={(e) => {
+                if (e.target.value === "") return;
                 save({
                   ...doc,
                   settings: { ...doc.settings, driveOverheadMin: Number(e.target.value) },
-                })
-              }
+                });
+              }}
             />
           </label>
         </div>
@@ -207,9 +229,10 @@ export default function TripPage({ params }: { params: Promise<{ id: string }> }
                     style={{ width: 64 }}
                     value={stop.durationMin}
                     data-testid={`duration-${stop.id}`}
-                    onChange={(e) =>
-                      updateStop(dayIndex, stop.id, { durationMin: Number(e.target.value) })
-                    }
+                    onChange={(e) => {
+                      if (e.target.value === "") return;
+                      updateStop(dayIndex, stop.id, { durationMin: Number(e.target.value) });
+                    }}
                   />{" "}
                   min
                 </label>
@@ -233,7 +256,11 @@ export default function TripPage({ params }: { params: Promise<{ id: string }> }
                     data-testid={`anchor-time-${stop.id}`}
                     onBlur={(e) => {
                       const min = parseTime(e.target.value);
-                      if (min !== null) updateStop(dayIndex, stop.id, { anchor: { startMin: min } });
+                      if (min !== null) {
+                        updateStop(dayIndex, stop.id, { anchor: { startMin: min } });
+                      } else {
+                        e.target.value = fmtTime(stop.anchor!.startMin); // revert invalid input
+                      }
                     }}
                   />
                 )}
@@ -249,14 +276,14 @@ export default function TripPage({ params }: { params: Promise<{ id: string }> }
             <textarea
               rows={3}
               placeholder="Paste Google Maps links or place names, one per line"
-              value={pasteText}
+              value={pasteText[dayIndex] ?? ""}
               data-testid="paste-box"
-              onChange={(e) => setPasteText(e.target.value)}
+              onChange={(e) => setPasteText((p) => ({ ...p, [dayIndex]: e.target.value }))}
             />
             <div className="row" style={{ marginTop: 6 }}>
               <button
                 onClick={() => addStops(dayIndex)}
-                disabled={busy || pasteText.trim() === ""}
+                disabled={busy || (pasteText[dayIndex] ?? "").trim() === ""}
                 data-testid="add-stops"
               >
                 Add stops
@@ -272,9 +299,9 @@ export default function TripPage({ params }: { params: Promise<{ id: string }> }
             </div>
           </div>
 
-          {failures.length > 0 && (
+          {(failures[dayIndex]?.length ?? 0) > 0 && (
             <div className="failures" style={{ marginTop: 8 }} data-testid="resolve-failures">
-              {failures.map((f, i) => (
+              {failures[dayIndex].map((f, i) => (
                 <div key={i}>
                   <code>{f.source}</code> — {f.reason}
                 </div>
@@ -293,6 +320,10 @@ export default function TripPage({ params }: { params: Promise<{ id: string }> }
           )}
         </section>
       ))}
+
+      <button onClick={addDay} disabled={busy} data-testid="add-day">
+        Add day
+      </button>
     </main>
   );
 }

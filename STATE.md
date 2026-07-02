@@ -148,8 +148,9 @@ was committed as part of the P2 commit (72547cd), not the P1 commit.
 **Deviations:** none from LOCKED sections.
 
 **Verified and how (tool output this session):**
-- `npx tsc --noEmit` → exit 0. `npx jest` → 10 suites, **66/66 passed** (2 added at P3-review:
-  heuristic label survives re-timing; duplicate-id throw).
+- `npx tsc --noEmit` → exit 0. `npx jest` → 9 suites, **66/66 passed** (2 tests added at
+  P3-review into the existing schedule suite: heuristic label survives re-timing;
+  duplicate-id throw). [Suite count corrected from 10 to 9 per P4 review.]
 - `npx playwright test` (fixture adapter, `MAPS_PROVIDER=fixture`, no key in env) →
   **5/5 passed**: (1) add stops incl. a bogus line → failure panel names it → mark anchor,
   move to 15:00 → optimize → on-screen order AND every entry's times equal a differential
@@ -186,3 +187,55 @@ steps ordered exactly per §6, each with what-verified-looks-like.
 
 **UNVERIFIED (live):** share round-trip on a deployed app with Vercel KV from a phone —
 LIVE-CHECKLIST step 5.
+
+## Fresh-context reviews — reconciliation and fixes
+
+Every phase had a fresh-context review; all findings and their dispositions:
+- **PA:** 0 blocking, 3 minor → wording fixed (mixed first commit, self-matching grep note).
+- **P1:** 0 blocking, 2 minor → guard regex hardened for dynamic import(); persistent-cache
+  wiring delivered in P4's `config.ts`.
+- **P2:** 0 blocking, 2 minor → `tsconfig.tsbuildinfo` untracked; provenance note recorded.
+  Reviewer independently hand-verified golden arithmetic, determinism analysis, and endorsed
+  the raw-vs-overhead interpretation as the only self-consistent reading of §2.
+- **P3:** 0 blocking, 2 minor → quality now threads through `rescheduleDay` (no heuristic
+  laundering) + test; duplicate-id throw tested; client dedupes on add.
+- **P4:** 1 "blocking" + 6 minor. The blocking finding was a snapshot artifact: the reviewer
+  ran against a tree containing uncommitted P5 WIP (share spec with a test race, since fixed)
+  while STATE.md still said P5 NOT STARTED — reconciled by the P5 commit (a7ac2cb, 6/6 e2e).
+  Minors all fixed post-review: suite count corrected; toggleLeg serialized behind the busy
+  flag; failures/paste state now per-day + "Add day" button + multi-day e2e; numeric inputs
+  no longer persist 0 on clear; invalid anchor time reverts on blur; PUT validation deepened
+  to day/stop/override shapes.
+- **P5 + final whole-run audit:** 0 blocking, 2 minor → suite count (same fix); LIVE-CHECKLIST
+  step 5 now warns that the file-backed matrix cache does not survive Vercel serverless
+  (re-billing + the one live share-divergence vector) with the KV-backed cache as the fix.
+
+## FINAL GATE — run results (fresh runs after ALL review fixes, 2026-07-02)
+
+- `npx tsc --noEmit` → **exit 0**.
+- `npx jest` → **9 suites, 66/66 passed** — includes the P2 solver goldens, comparison-rule
+  goldens, property tests (fast-check), determinism-across-100-runs in both regimes, caps at
+  9/10/15/16, P1 cache/batching/guard, P3 schedule goldens + toggle semantics.
+- `npx playwright test` → **7/7 passed** against fixture data (`MAPS_PROVIDER=fixture`, no
+  key in env): the P4 flow with exact on-screen order/time assertions, toggle re-timing
+  without re-ordering (+ persistence across reload), the infeasible report state, the
+  heuristic state, live walkMax setting, multi-day scoping, and the P5 share round-trip.
+  One iteration each on trip.spec (test-scenario arithmetic), share.spec (test race), and
+  multiday.spec (selector prefix collision) — all three were test bugs, not product bugs;
+  each documented in its phase entry or here.
+- Cost posture: no `.env*` anywhere; jest guard (scans src/ + e2e/) green; e2e forces the
+  fixture adapter; the real adapter remains construction-gated and was never constructed
+  this run. The full development cycle spent **zero** Google API calls.
+- Independent verification: six fresh-context review subagents (PA, P1, P2, P3, P4,
+  P5+whole-run), findings reconciled above; the final auditor confirmed the done contract
+  before the last round of minor fixes, and every gate was re-run after those fixes.
+
+**Everything UNVERIFIED (live-API) in one list — mirrors LIVE-CHECKLIST.md:**
+1. Phase-0-through-port resolution against live Google (step 1).
+2. Real Routes API matrix call: request shape, duration parsing, billed count, cache
+   preventing the second fetch (step 2).
+3. Real-trip sanity + walk-label truthfulness (step 3).
+4. Dropped-pin / coords-only share links (step 4 — §7 known edge, fails legibly by design).
+5. Vercel KV store adapter + deployed share round-trip + matrix-cache persistence on
+   serverless (step 5 — includes the share-divergence warning).
+6. Quota/billing alerts (step 6).
