@@ -1,0 +1,39 @@
+{
+  "tripId": "78202e1dc184",
+  "days": [
+    {
+      "date": "2026-07-02",
+      "dayStartMin": 540,
+      "dayEndMin": 1320,
+      "stops": [
+        {
+          "id": "fx-01",
+          "name": "Market Hall",
+          "location": {
+            "lat": 51.45,
+            "lng": -2.6
+          },
+          "address": "Market Hall, Casterbridge",
+          "durationMin": 60,
+          "source": "Market Hall"
+        },
+        {
+          "id": "fx-02",
+          "name": "Clock Tower Square",
+          "location": {
+            "lat": 51.4512,
+            "lng": -2.5988
+          },
+          "address": "Clock Tower Square, Casterbridge",
+          "durationMin": 60,
+          "source": "Clock Tower Square"
+        }
+      ]
+    }
+  ],
+  "settings": {
+    "walkMax": 0,
+    "driveOverheadMin": 10
+  },
+  "legOverrides": []
+}

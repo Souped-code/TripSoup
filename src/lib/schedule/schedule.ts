@@ -54,7 +54,10 @@ export function rescheduleDay(
   day: Day,
   fullOrder: string[],
   matrix: EffectiveMatrix,
-  settings: Settings
+  settings: Settings,
+  // the ordering claim of the plan being re-timed — a toggle must not launder
+  // a heuristic order into an "optimal" one (§2: the UI says so)
+  quality: "optimal" | "heuristic" = "optimal"
 ): DayPlan {
   const invalid = validateDay(day);
   if (invalid) return invalid;
@@ -130,7 +133,7 @@ export function rescheduleDay(
     order: fullOrder,
     entries,
     legs,
-    quality: "optimal", // planDay overwrites; raw reschedule has no ordering claim
+    quality,
     totalTravelMin,
     daySlackMin: day.dayEndMin - clock,
   };

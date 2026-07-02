@@ -227,6 +227,26 @@ describe("per-leg toggle: re-times downstream without re-ordering (§2)", () => 
     expect(rescheduled.violatedByMin).toBe(2);
   });
 
+  it("re-timing a heuristic plan keeps the heuristic label (no laundering to optimal)", () => {
+    const plan = planDay(day, M, S);
+    if (plan.status !== "ok") return;
+    const toggled = applyLegModes(M, [{ fromId: "A", toId: "B", mode: "drive" }]);
+    const rescheduled = rescheduleDay(day, plan.order, toggled, S, "heuristic");
+    expect(rescheduled.status).toBe("ok");
+    if (rescheduled.status === "ok") expect(rescheduled.quality).toBe("heuristic");
+  });
+
+  it("duplicate stop ids in a day throw loudly (boundary must dedupe)", () => {
+    const dupDay: Day = {
+      ...day,
+      stops: [
+        { id: "A", name: "A", durationMin: 30 },
+        { id: "A", name: "A again", durationMin: 30 },
+      ],
+    };
+    expect(() => planDay(dupDay, M, S)).toThrow(/duplicate stop id/);
+  });
+
   it("toggling an ineligible leg to walk is refused loudly", () => {
     const M2 = matrixOf({ "A-B": drive(20) });
     expect(() => applyLegModes(M2, [{ fromId: "A", toId: "B", mode: "walk" }])).toThrow(

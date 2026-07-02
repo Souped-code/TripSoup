@@ -123,6 +123,46 @@ day's ordered list (between anchors, §1's "maximal run" reading).
 Provenance correction for the record: the P1 guard-regex hardening described in the P1 entry
 was committed as part of the P2 commit (72547cd), not the P1 commit.
 
-## P4 — UI (NOT STARTED)
+## P4 — UI trip board + optimize + result view (COMPLETE)
+
+**Built:**
+- `src/lib/store/` — `tripStore` port (§4): `types.ts` (TripDoc `{tripId, days, settings,
+  legOverrides}` — §4 sketch field names carry a `Min` suffix for unit clarity),
+  `fileStore.ts` (dev + all tests), `kvStore.ts` (Vercel KV via Upstash REST protocol, plain
+  fetch, no new dependency — **UNVERIFIED**, §4: provisioning is a Chris step).
+- `src/lib/config.ts` — adapter/store factories: fixture whenever `MAPS_PROVIDER=fixture` OR
+  no key (tests/dev can never spend); real adapter only with a key, lazily imported, its
+  matrix cache file-persisted (`.cache/matrix-cache.json`) closing P1-review minor #2;
+  KV store only when KV env vars exist, else file store.
+- `src/lib/planService.ts` — order from the solver on the AUTO matrix, then persisted leg
+  overrides re-time the fixed order (never re-order, §2); stale/ineligible overrides dropped
+  at the boundary; quality survives re-timing (P3-review fix).
+- API routes (`app/api/trips/…`): create, get, put (boundary-validated), `resolve`
+  (server-side — key never reaches the client), `plan`.
+- UI: home (`/`), trip board (`/trip/[id]`) — days, paste-to-add stops with legible failure
+  panel + duplicate dedupe, per-stop duration input, anchor lock/unlock with time field,
+  optimize action, result view (`src/ui/PlanView.tsx`): timeline, legs labelled walk/drive,
+  eligible legs show BOTH times with a per-leg toggle, wait/slack shown, heuristic and
+  infeasible and rejected states rendered; settings card exposes walkMax + driveOverheadMin.
+
+**Deviations:** none from LOCKED sections.
+
+**Verified and how (tool output this session):**
+- `npx tsc --noEmit` → exit 0. `npx jest` → 10 suites, **66/66 passed** (2 added at P3-review:
+  heuristic label survives re-timing; duplicate-id throw).
+- `npx playwright test` (fixture adapter, `MAPS_PROVIDER=fixture`, no key in env) →
+  **5/5 passed**: (1) add stops incl. a bogus line → failure panel names it → mark anchor,
+  move to 15:00 → optimize → on-screen order AND every entry's times equal a differential
+  plan computed in-test from the same fixture+solver libraries; legs labelled walk/drive;
+  (2) toggle an eligible walk leg → mode flips to drive, downstream entry shifts by exactly
+  driveMin + overhead − walkMin, order unchanged, and the toggle persists across reload +
+  re-optimize; (3) unreachable 09:10 anchor → infeasibility report with
+  `anchor-start:<id>`, zero plan elements rendered; (4) 10-stop day → heuristic badge;
+  (5) walkMax set to 0 forces the old-town hop to drive (live settings field).
+- First e2e run failed on scenario arithmetic (three 60-min stops cannot precede a 12:00
+  anchor) — the app correctly reported infeasible; the test moved the anchor to 15:00.
+  Recorded here per the reporting rule; not a product bug.
+
+**UNVERIFIED (live):** KV store adapter (no credentials, by design); real-adapter plan flow.
 
 ## P5 — Share + LIVE-CHECKLIST (NOT STARTED)

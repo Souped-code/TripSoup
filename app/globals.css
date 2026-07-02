@@ -1,0 +1,71 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #f5f4f0;
+  color: #1d1d1b;
+  line-height: 1.45;
+}
+main { max-width: 880px; margin: 0 auto; padding: 24px 16px 80px; }
+h1 { font-size: 1.4rem; }
+h2 { font-size: 1.1rem; margin: 8px 0; }
+button {
+  font: inherit;
+  padding: 6px 12px;
+  border: 1px solid #1d1d1b;
+  background: #fff;
+  border-radius: 6px;
+  cursor: pointer;
+}
+button.primary { background: #1d1d1b; color: #fff; }
+button:disabled { opacity: 0.45; cursor: default; }
+input, textarea, select {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid #b9b6ad;
+  border-radius: 6px;
+  background: #fff;
+}
+textarea { width: 100%; }
+.card {
+  background: #fff;
+  border: 1px solid #dedbd2;
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin: 12px 0;
+}
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.stop-row { padding: 6px 0; border-bottom: 1px dashed #e5e2d9; }
+.stop-row:last-child { border-bottom: none; }
+.muted { color: #6f6c64; font-size: 0.85rem; }
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.badge.heuristic { background: #fff3cd; border: 1px solid #d4b106; }
+.badge.optimal { background: #e6f4ea; border: 1px solid #34a853; }
+.badge.anchor { background: #ede7f6; border: 1px solid #7e57c2; }
+.badge.walk { background: #e3f2fd; border: 1px solid #1976d2; }
+.badge.drive { background: #fbe9e7; border: 1px solid #d84315; }
+.infeasible {
+  background: #fdecea;
+  border: 1px solid #d93025;
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin: 12px 0;
+}
+.plan-entry { display: flex; gap: 10px; align-items: baseline; padding: 4px 0; }
+.plan-leg {
+  margin-left: 24px;
+  padding: 3px 0;
+  font-size: 0.85rem;
+  color: #4a4740;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.time { font-variant-numeric: tabular-nums; font-weight: 600; }
+.failures { background: #fff8e1; border: 1px solid #d4b106; border-radius: 8px; padding: 8px 12px; }
