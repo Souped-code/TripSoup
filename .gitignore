@@ -6,3 +6,6 @@ tsconfig.tsbuildinfo
 .next/
 test-results/
 playwright-report/
+.trips/
+.trips-e2e/
+.cache/
