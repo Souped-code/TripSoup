@@ -92,7 +92,36 @@ Not a LOCKED conflict — the two sentences compose under this reading.
 - Caps: 9 → optimal, 10 → heuristic, 15 → heuristic, 16 → rejected (actionable message);
   thresholds proven to be settings (maxExhaustive 3 flips a 4-stop segment to heuristic).
 
-## P3 — Schedule builder (NOT STARTED)
+## P3 — Schedule builder + feasibility surface (COMPLETE)
+
+**Built:** `src/lib/schedule/` — `types.ts` (Day/DayStop per §4 trip shape, anchors inline;
+`DayPlan` with entries {arrive, start, depart, wait}, legs carrying both times + chosenBy,
+day slack), `schedule.ts` (`planDay`: splits the ordered stop list into runs at anchors,
+optimizes each segment, assembles the day; `rescheduleDay`: fixed-order walk for the §2
+toggle path — re-times downstream without re-ordering, fresh feasibility; `applyLegModes`:
+pure mode flip, refuses ineligible walks, marks `chosenBy: "user"`; validation surface for
+duplicate ids, anchors outside the day window, anchors out of chronological order).
+
+**Deviations:** none. Design note: flexible stops belong to the segment where they sit in the
+day's ordered list (between anchors, §1's "maximal run" reading).
+
+**Verified and how (tool output this session):**
+- `npx tsc --noEmit` → exit 0. `npx jest` → 9 suites, **64/64 passed** (13 new), including:
+- Hand-computed full-day golden (two anchors, two segments): exact arrive/start/depart/wait
+  for all six stops (lunch anchor waited 50 min, show anchor 248), legs with durations,
+  totalTravel 62, day slack 90; per-segment optimal orders proven against the alternative.
+- Slack computation: waitMin at anchors, daySlackMin at day end.
+- Heuristic label propagates from a 10-stop segment to the day plan.
+- Toggle path: auto plan walks an eligible leg (walk 9 beats drive 2+10); user toggle to
+  drive shifts downstream arrivals +3 without re-ordering, `chosenBy: "user"`, both times
+  still offered; a toggle that breaks the day window resurfaces as a structured report
+  (violatedBy 2); ineligible-walk toggles refused loudly; input matrix not mutated.
+- Infeasibility surface: day-window overrun and unreachable anchors named with minutes;
+  anchor-order and anchor-outside-day validation actionable.
+
+**Note on P2 review findings (fixed here):** `tsconfig.tsbuildinfo` untracked and gitignored.
+Provenance correction for the record: the P1 guard-regex hardening described in the P1 entry
+was committed as part of the P2 commit (72547cd), not the P1 commit.
 
 ## P4 — UI (NOT STARTED)
 
