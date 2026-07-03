@@ -5,7 +5,12 @@ unattended build. Ordered per handover §6. Each step lists what the code expect
 "verified" looks like. Until a step is done, treat its feature as UNVERIFIED (STATE.md lists
 the same items from the build side)._
 
-## 1. Restore the key; resolve one pasted Maps link end-to-end
+## 1. ✅ DONE 2026-07-03 — Restore the key; resolve one pasted Maps link end-to-end
+
+**Result:** real JB trip links resolved with correct names/addresses. Two setup snags,
+both surfaced legibly: a lingering `$env:MAPS_PROVIDER="fixture"` shell var (silently
+forces the fixture adapter — use a fresh terminal), and a key from the wrong Google Cloud
+project (Routes 403 billing error until swapped to the billed project's key).
 
 - Recreate `.env` at the repo root: `GOOGLE_MAPS_API_KEY=<your key>` (gitignored).
   The app reads it via `process.env` — no other key wiring exists.
@@ -16,7 +21,13 @@ the same items from the build side)._
   Phase-0-through-port mapping against Google's live behaviour). Failures should appear in
   the yellow panel with a reason, never vanish.
 
-## 2. One real matrix call for ≤ 5 stops; confirm the cache prevents a second fetch
+## 2. ◐ PARTIAL 2026-07-03 — One real matrix call; confirm the cache prevents a second fetch
+
+**Done:** first live `computeRouteMatrix` call succeeded (request shape + `duration`
+parsing confirmed — a real JB day optimized and rendered). **Still open:** billed request
+count (blank below) and the second-run-adds-zero-requests cache check — re-verify at D0.3
+against the new KV-backed cache (the local-file cache this step originally described is
+superseded by plan §D0.1).
 
 - Same trip: ≤ 5 stops on the day → Optimize.
 - The real adapter batches per-origin requests to Routes API `computeRouteMatrix`

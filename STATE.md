@@ -231,11 +231,52 @@ Every phase had a fresh-context review; all findings and their dispositions:
   before the last round of minor fixes, and every gate was re-run after those fixes.
 
 **Everything UNVERIFIED (live-API) in one list — mirrors LIVE-CHECKLIST.md:**
-1. Phase-0-through-port resolution against live Google (step 1).
-2. Real Routes API matrix call: request shape, duration parsing, billed count, cache
-   preventing the second fetch (step 2).
+1. ~~Phase-0-through-port resolution against live Google (step 1).~~ **VERIFIED LIVE
+   2026-07-03** — see the 2026-07-03 entry below.
+2. Real Routes API matrix call: ~~request shape, duration parsing~~ **VERIFIED LIVE
+   2026-07-03**; still open: billed count, cache preventing the second fetch (step 2).
 3. Real-trip sanity + walk-label truthfulness (step 3).
 4. Dropped-pin / coords-only share links (step 4 — §7 known edge, fails legibly by design).
 5. Vercel KV store adapter + deployed share round-trip + matrix-cache persistence on
    serverless (step 5 — includes the share-divergence warning).
 6. Quota/billing alerts (step 6).
+
+---
+
+# PRODUCTION RUN (TripSoup) — begins 2026-07-04
+
+The engine above is being taken to production per the approved master plan at
+`C:\Users\65881\.claude\plans\i-want-you-to-starry-wave.md` (TripSoup: paste itinerary →
+Gracie mascot loading → paper-map reveal → one-time SGD 6.90 Trip Pass → live share).
+Phases D0–D5. Same evidence rules as the build run.
+
+## 2026-07-03 — Live verification by Chris (evidence-log catch-up, plan §D0.0)
+
+Recorded from the working session with Chris (conversation evidence, reported by Chris,
+not machine-verified in-repo):
+- **LIVE-CHECKLIST step 1 DONE:** `.env` restored; real Google Maps share links from the
+  actual JB group trip resolved end-to-end through the Phase-0-through-port path (correct
+  names/addresses on the trip board).
+- **LIVE-CHECKLIST step 2 PARTIAL:** first live Routes API `computeRouteMatrix` call
+  succeeded — request shape and `duration` parsing confirmed working (a real JB day
+  optimized and rendered). Preceded by two legible failures, both diagnosed correctly by
+  the app's error surfaces: (a) Routes API 403 billing-not-enabled (project had no billing
+  account), (b) root cause: the key belonged to a different Google Cloud project than the
+  billed one — fixed by switching to the correct project's key. STILL OPEN: billed request
+  count not noted; cache-prevents-second-fetch not confirmed (moot for the file cache —
+  superseded by the D0.1 KV cache, re-verify at D0.3).
+- **Gotcha recorded:** `$env:MAPS_PROVIDER = "fixture"` persists for the whole PowerShell
+  session and silently overrides the live key (every input "fails" with *no match in
+  fixture city*). Remove the var or use a fresh terminal when testing live.
+
+## 2026-07-03 — MatrixCache port change APPROVED by Chris
+
+`MatrixCache` goes from sync `get/set` to bulk-async `getMany/setMany` (still 2 methods).
+Reason: serverless-safe remote caches (Vercel KV at D0, Supabase at D3) cannot implement a
+sync `get()`, and per-key round-trips would be n² requests per matrix. §3's LOCKED
+semantics (matrix entries cached, NEVER re-fetched on cache hit; batched requests) are
+unchanged and remain proven by the existing P1 goldens — test stubs update to the async
+interface, assertions stay. Approved by Chris 2026-07-03 after plain-language walkthrough.
+Implementation lands in D0.1.
+
+## D0 — Deploy current app to Vercel + KV (IN PROGRESS)
