@@ -28,21 +28,24 @@ export async function checkRateLimit(
   const bucket = Math.floor(Date.now() / 3_600_000);
   const key = `rl:${route}:${ip}:${bucket}`;
 
-  const res = await fetch(`${url}/pipeline`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify([
-      ["INCR", key],
-      ["EXPIRE", key, "3600", "NX"],
-    ]),
-  });
-  if (!res.ok) {
-    // Fail open on KV errors — do not block legitimate requests.
+  // Fail open on ANY KV failure — HTTP error or thrown fetch (network/DNS/
+  // timeout). A limiter outage must never take down the routes it protects.
+  try {
+    const res = await fetch(`${url}/pipeline`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify([
+        ["INCR", key],
+        ["EXPIRE", key, "3600", "NX"],
+      ]),
+    });
+    if (!res.ok) return { limited: false };
+    const [{ result: count }] = (await res.json()) as [{ result: number }, unknown];
+    return { limited: count > LIMIT };
+  } catch {
     return { limited: false };
   }
-  const [{ result: count }] = (await res.json()) as [{ result: number }, unknown];
-  return { limited: count > LIMIT };
 }

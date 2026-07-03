@@ -296,9 +296,10 @@ Implementation lands in D0.1.
   LIVE-CHECKLIST step-5 serverless-cache warning.
 - `src/lib/rateLimit.ts` (new): per-IP fixed window (20/hour/route) over the same Upstash
   REST pipeline (INCR+EXPIRE NX); **no-ops when KV env absent** (dev/jest/Playwright
-  unaffected); fails OPEN on KV errors (availability over throttling — the correct
-  direction for a rate limiter, opposite of the cache). Applied to `resolve` and `plan`
-  routes with a friendly 429.
+  unaffected); fails OPEN on ALL KV failures — HTTP-error responses AND thrown fetches
+  (the thrown-fetch path was a D0-audit finding, fixed post-audit; availability over
+  throttling — the correct direction for a rate limiter, opposite of the cache). Applied
+  to `resolve` and `plan` routes with a friendly 429.
 - Plan route: handler wrapped in try/catch → legible JSON 502 (fixes the live
   "Unexpected end of JSON input" Chris hit 2026-07-03).
 
@@ -315,3 +316,16 @@ Review note: subagent's report misdescribed its own kvMatrixCache as "fails open
 inspection confirmed it throws (as specified). Lesson: verify reports against diffs.
 
 **UNVERIFIED (live):** kvMatrixCache and rate limiter against a real KV instance — D0.3.
+
+**Fresh-context D0 audit (opus, post-D0.1):** verdict CLEAR-TO-DEPLOY. 0 blocking,
+3 minor, 4 observations. All three minors fixed before deploy: (1) rate limiter now
+catches thrown fetches, not just HTTP errors (a KV network blip would have crashed the
+routes it protects with the exact non-JSON 500 D0.1 set out to kill); (2) STATE.md
+"fails OPEN" wording corrected to match; (3) resolve route got the same try/catch → 502
+hygiene as plan. Also pulled forward from cross-cutting (auditor observation 4): 40-input
+cap per resolve request — the per-IP limit caps requests, not inputs-per-request, so one
+request could have triggered unbounded billed Places calls. Remaining observations
+(leftmost-XFF trust, file-cache-on-serverless misconfig path, pipeline command-level
+error message) accepted as-is with rationale in the audit transcript; none cost- or
+security-blocking. LOCKED §3 semantics independently re-verified line-by-line by the
+auditor (no double-fetch path within or across calls; guard + construction gate intact).
