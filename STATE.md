@@ -280,3 +280,38 @@ interface, assertions stay. Approved by Chris 2026-07-03 after plain-language wa
 Implementation lands in D0.1.
 
 ## D0 — Deploy current app to Vercel + KV (IN PROGRESS)
+
+### D0.1 — Pre-deploy hardening (COMPLETE; implemented by sonnet subagent, verified by orchestrator)
+
+**Built:**
+- MatrixCache port change (approved 2026-07-03): sync `get/set` → bulk-async
+  `getMany/setMany` in `src/lib/maps/matrixSource.ts`; `createMatrixSource` does ONE bulk
+  getMany up front and setMany **after each per-origin batch** (pairs cache as they land —
+  D2's retry-resumes-from-cache guarantee depends on this); `createMapMatrixCache` exported
+  as in-memory default; file cache in `config.ts` wrapped to the async interface.
+- `src/lib/maps/kvMatrixCache.ts` (new): Vercel KV (Upstash REST `/pipeline`) MatrixCache —
+  MGET/MSET in single round-trips, `mx:` key namespace, construction-gated on KV env vars,
+  THROWS on KV errors (never silently re-fetches billed pairs — matches the failure-mode
+  design). Selected in `config.ts` when KV env present; file cache otherwise. Closes the
+  LIVE-CHECKLIST step-5 serverless-cache warning.
+- `src/lib/rateLimit.ts` (new): per-IP fixed window (20/hour/route) over the same Upstash
+  REST pipeline (INCR+EXPIRE NX); **no-ops when KV env absent** (dev/jest/Playwright
+  unaffected); fails OPEN on KV errors (availability over throttling — the correct
+  direction for a rate limiter, opposite of the cache). Applied to `resolve` and `plan`
+  routes with a friendly 429.
+- Plan route: handler wrapped in try/catch → legible JSON 502 (fixes the live
+  "Unexpected end of JSON input" Chris hit 2026-07-03).
+
+**Deviation (recorded per plan):** plan text named `@upstash/ratelimit`; implemented
+hand-rolled instead — repo convention (handover §8: minimum code, plain fetch, no new
+runtime deps) and the KV REST plumbing already existed. Functionally equivalent commands.
+
+**Verified and how (orchestrator-run this session, after subagent handoff):**
+`npx tsc --noEmit` → exit 0 · `npx jest` → 9 suites, **66/66** (P1 cache goldens ported to
+the async interface — assertions and counts unchanged: warm call = zero fetcher calls,
+incremental fetch only new pairs, 25-chunk batching) · `npx playwright test` → **7/7** ·
+`npx next build` → clean (first production build of this repo).
+Review note: subagent's report misdescribed its own kvMatrixCache as "fails open"; code
+inspection confirmed it throws (as specified). Lesson: verify reports against diffs.
+
+**UNVERIFIED (live):** kvMatrixCache and rate limiter against a real KV instance — D0.3.

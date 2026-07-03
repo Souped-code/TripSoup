@@ -1,7 +1,7 @@
 // P1 done-checks: cache hit never re-fetches; batching correct.
 // Exercised against a counting stub fetcher — no adapter, no network.
 
-import { cacheKey, createMatrixSource, type PairFetcher } from "../matrixSource";
+import { cacheKey, createMapMatrixCache, createMatrixSource, type PairFetcher } from "../matrixSource";
 import type { MatrixStop } from "../types";
 
 const stop = (id: string, lat: number, lng: number): MatrixStop => ({
@@ -49,7 +49,8 @@ describe("matrix cache", () => {
 
   it("warm call NEVER re-fetches — zero fetcher calls on full cache hit", async () => {
     const { fetcher, calls } = makeStubFetcher();
-    const cache = new Map<string, number>();
+    // Shared backing map so both getMatrix calls see the same cache state.
+    const cache = createMapMatrixCache(new Map());
     const getMatrix = createMatrixSource(fetcher, cache);
 
     await getMatrix(STOPS, "driving");
@@ -63,7 +64,8 @@ describe("matrix cache", () => {
 
   it("adding one stop fetches only the pairs involving it — cached pairs excluded", async () => {
     const { fetcher, fetchedPairs } = makeStubFetcher();
-    const cache = new Map<string, number>();
+    // Shared backing map so both getMatrix calls see the same cache state.
+    const cache = createMapMatrixCache(new Map());
     const getMatrix = createMatrixSource(fetcher, cache);
 
     await getMatrix(STOPS.slice(0, 3), "driving"); // a, b, c cached
