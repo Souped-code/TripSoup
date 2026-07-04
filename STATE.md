@@ -394,6 +394,17 @@ Sonnet-gap inventory (audit scope):
 4. Memory files updated (orchestration rule + project status) — outside the repo.
 5. D1.0 done: both design skills (taste-skill, ui-ux-pro-max) load correctly.
 
+**D1.4 agent completed AFTER the wrap-up call — tree is complete, not truncated.** Its
+self-reported results (UNVERIFIED by any orchestrator — auditor must re-run everything):
+tsc clean; jest 9/66 unchanged; Playwright 4 files / 9 tests all passing (7 pre-existing +
+2 new debug-design incl. an axe scan with 0 violations); live pages and engine untouched
+per its own inspection. Judgment calls it made: per-component journal.css imports;
+InkButton/JournalInput as client components; button text sized 1.25rem/700 to clear the
+WCAG large-text threshold. **One flagged discrepancy for the auditor:** the agent computed
+`--soup` on `--paper` contrast as **~3.05:1**, not the ~3.7:1 design.md §3 states — still
+above the 3:1 large-text minimum, but design.md's figure needs correcting (or the hex
+needs the allowed ±10% tune) once verified. Do not take either number on faith.
+
 **Next session cold-start:** read plan → design.md → this section; audit items 1–3;
 then resume D1 (D1.1/D1.3 still blocked on Higgsfield unless Chris has reconnected it).
 
