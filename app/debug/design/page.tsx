@@ -72,6 +72,7 @@ export default function DesignGalleryPage() {
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
         <GracieScene name="pin-throw" size={192} data-testid="gallery-gracie-pin-throw" />
         <GracieScene name="route-scribble" size={192} data-testid="gallery-gracie-route-scribble" />
+        <GracieScene name="journal" size={192} data-testid="gallery-gracie-journal" />
         <GracieScene name="this-is-fine" size={192} data-testid="gallery-gracie-this-is-fine" />
         <GracieScene name="soup-stir" size={192} data-testid="gallery-gracie-soup-stir" />
       </div>

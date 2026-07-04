@@ -3,10 +3,22 @@ import "./journal.css";
 export type GracieSceneName =
   | "pin-throw"
   | "route-scribble"
+  | "journal"
   | "this-is-fine"
   | "soup-stir";
 
-const FRAME_COUNT = 10; // every sheet in public/gracie/ is 10 frames, 512px, tiled 10x1
+const FRAME_COUNT = 10; // every sheet in public/gracie/ is 10 frames tiled 10x1
+
+// Frame aspect ratio (width / height) per scene. The meme-parody panel is
+// 4:3 like the original; everything else is square. Sheets are scaled by
+// background-size, so source resolution never matters here — only aspect.
+const SCENE_ASPECT: Record<GracieSceneName, number> = {
+  "pin-throw": 1,
+  "route-scribble": 1,
+  journal: 1,
+  "this-is-fine": 4 / 3,
+  "soup-stir": 1,
+};
 
 /**
  * GracieScene — sprite-sheet player for the mascot's loading scenes
@@ -34,7 +46,8 @@ export function GracieScene({
   className?: string;
   "data-testid"?: string;
 }) {
-  const sheetWidth = FRAME_COUNT * size;
+  const frameWidth = Math.round(size * SCENE_ASPECT[name]);
+  const sheetWidth = FRAME_COUNT * frameWidth;
   return (
     <div
       className={["journal-gracie", className].filter(Boolean).join(" ")}
@@ -42,7 +55,7 @@ export function GracieScene({
       role="img"
       aria-label={`Gracie: ${name.replace(/-/g, " ")}`}
       style={{
-        width: size,
+        width: frameWidth,
         height: size,
         backgroundImage: `url(/gracie/${name}.webp)`,
         backgroundSize: `${sheetWidth}px ${size}px`,

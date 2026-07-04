@@ -518,7 +518,30 @@ failed, no error detail) — pivoted to the plan's fallback-compatible pipeline:
 **Remaining in D1:** Chris review of the 4 scene loops (regenerate any weak scene —
 2 stills + 17.5cr/video), D1.3.5 sfx (CC0 pencil-scribble + pot-bubble, normalize
 -14 LUFS, ≤30KB, `public/sfx/`), then D1 done-check. Loading-page integration itself is
-D2.4 (needs real pipeline progress to drive scene switching). Map reality check also explained to Chris:
+D2.4 (needs real pipeline progress to drive scene switching).
+
+### D1.3 v2: Chris's scene revisions applied — now FIVE scenes (2026-07-04)
+
+Chris's review notes, all implemented (v2 stills + loops in `design/gracie/scenes/`,
+sheets in `public/gracie/`):
+1. **pin-throw:** ninja-kunai physics (fast flat throws, thunk + quiver), city map in the
+   TripSoup map style instead of a world map, whimsical ninja mannerisms.
+2. **route-scribble:** floor is a local city map; Gracie TRACES the single blue route
+   (line never appears/disappears, zero motion-streak lines — the AI-tell Chris flagged);
+   still's white wall re-flattened to cream before animating.
+3. **journal (NEW):** lying on stomach, feet kicking, humming (drifting notes), washi
+   tape + doodles in her travel journal — chirpy creative energy.
+4. **this-is-fine:** full meme parody, storyboard faithful to the original panel (chair,
+   round table + mug, doorway, crooked frame w/ soup-bowl doodle, speech bubble 'THIS IS
+   FINE.', smoke ceiling) — twist: the flames burn chaotic travel plans. 4:3 like the
+   meme; GracieScene got per-scene aspect support.
+5. **soup-stir:** stray wavy lines removed (steam kept), working stove flames added,
+   pins → flat alphabet-pasta letters.
+
+Sheets: journal 143KB, pin-throw 145KB, route-scribble 149KB, soup-stir 133KB within the
+150KB/scene budget; this-is-fine 168KB (12% over — it's a denser 4:3 panel; lower quality
+visibly degrades it; accepted). **Total 738KB < 800KB hard limit.** Gallery + e2e updated
+to five scenes; gates green (tsc, jest 66/66, Playwright 10/10, axe 0). Balance ~813 cr. Map reality check also explained to Chris:
 boards are mood targets; real map = MapLibre + custom style JSON over free OSM vector
 tiles (style rules apply globally by data category), authored in D2 with a real
 side-by-side against the board. Higgsfield credits ~28 remain.
