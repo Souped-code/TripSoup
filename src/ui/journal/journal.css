@@ -1,0 +1,123 @@
+/* D1.4 journal design system — component styles (design.md §3, §4, §5).
+ *
+ * Every class name here is prefixed `journal-` so it cannot collide with any
+ * selector in app/globals.css (body, h1, h2, button, button.primary,
+ * input/textarea/select, .card, .row, ...) by construction — the currently
+ * deployed plain UI never references these classes and is unaffected.
+ *
+ * Only the CSS custom properties defined in app/globals.css's :root token
+ * block are used below — never a hard-coded hex.
+ */
+
+.journal-card,
+.journal-btn,
+.journal-input {
+  font-family: var(--font-body), system-ui, sans-serif;
+}
+
+/* PaperCard --------------------------------------------------------------- */
+.journal-card {
+  background: var(--paper-shade);
+  color: var(--ink);
+  box-shadow: var(--shadow-paper-lift);
+  /* "Irregular" hand-drawn corner approximation (design.md §5): pragmatic v1
+     is a slightly asymmetric border-radius rather than an SVG rough-edge
+     filter / border-image. Revisit once real reference art exists (§7/§9). */
+  border-radius: 3px 7px 4px 6px;
+  padding: 16px 18px;
+  margin: 0;
+}
+
+/* InkButton ----------------------------------------------------------------
+ * Contrast rule (design.md §3): --soup on --paper is ~3:1, below the 4.5:1
+ * body-text minimum, so --soup may only be used as a FILL with --paper
+ * text on top, and that text must qualify as WCAG "large text" (bold,
+ * >=14pt/~18.7px) so the ~3:1 ratio meets — not misses — the applicable AA
+ * bar. Enforced here in the component, not left to callers.
+ */
+.journal-btn {
+  /* 1.25rem (20px) + font-weight 700 => ~15pt bold, comfortably clears the
+     WCAG "large text" threshold (bold text >=14pt/~18.7px needs only 3:1,
+     not 4.5:1) with margin — required for the --soup primary fill below. */
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 9px 20px;
+  border-radius: 3px 7px 4px 6px; /* matches PaperCard's irregular corners */
+  cursor: pointer;
+  box-shadow: var(--shadow-paper-lift);
+  transform: translateY(0);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .journal-btn {
+    transition: transform 120ms ease-out, box-shadow 120ms ease-out;
+  }
+}
+/* "Stamp" press state (design.md §5): a physical stamp-down, not a generic
+   opacity fade. The transform itself is instant/cheap so it stays even under
+   reduced motion — only the transition easing above is gated. */
+.journal-btn:active {
+  transform: translateY(1px);
+  box-shadow: none;
+}
+.journal-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.journal-btn--primary {
+  background: var(--soup);
+  color: var(--paper);
+  border: 1px solid var(--soup);
+}
+.journal-btn--secondary {
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--ink);
+}
+
+/* JournalInput -------------------------------------------------------------*/
+.journal-input {
+  background: var(--paper-shade);
+  color: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: 3px 7px 4px 6px;
+  padding: 7px 10px;
+  font-size: 1rem;
+}
+textarea.journal-input {
+  width: 100%;
+  resize: vertical;
+}
+.journal-input::placeholder {
+  /* --ink-soft on --paper-shade computes to ~4.7:1 — passes the 4.5:1 body
+     text minimum (browser default placeholder grey does not). */
+  color: var(--ink-soft);
+  opacity: 1;
+}
+
+/* WashiTag -------------------------------------------------------------- */
+.journal-washi-tag {
+  display: inline-block;
+  font-family: var(--font-body), system-ui, sans-serif;
+  font-size: 0.85rem;
+  font-weight: 700;
+  background: var(--washi);
+  /* --ink on --washi computes to ~9.5:1 — comfortably clears 4.5:1 even at
+     this small size. */
+  color: var(--ink);
+  padding: 2px 10px;
+  border-radius: 2px;
+  line-height: 1.5;
+}
+
+/* SketchDivider ----------------------------------------------------------
+ * Lightweight CSS approximation of a hand-drawn rule (design.md §5): a thin
+ * dashed line. No SVG, no JS animation library.
+ */
+.journal-sketch-divider {
+  border: none;
+  border-top: 2px dashed var(--ink-soft);
+  margin: 16px 0;
+  opacity: 0.7;
+}

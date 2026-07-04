@@ -20,6 +20,7 @@ export default defineConfig({
     env: {
       MAPS_PROVIDER: "fixture",
       TRIPS_DIR: ".trips-e2e",
+      DEBUG_BOARD: "1",
     },
   },
 });

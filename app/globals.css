@@ -69,3 +69,21 @@ textarea { width: 100%; }
 }
 .time { font-variant-numeric: tabular-nums; font-weight: 600; }
 .failures { background: #fff8e1; border: 1px solid #d4b106; border-radius: 8px; padding: 8px 12px; }
+
+/* --- D1.4: journal design system tokens (design.md §3, §5) ---
+   Additive only. Nothing above this line is touched. These custom properties
+   are consumed exclusively by the new src/ui/journal/* components and the
+   app/debug/design gallery page — no existing selector above reads them, so
+   the current production UI (/, /trip/[id], /share/[id]) is unaffected. */
+:root {
+  --paper: #F6F1E7;
+  --paper-shade: #EAE2D3;
+  --ink: #2B2620;
+  --ink-soft: #6B6155;
+  --soup: #E0662E;
+  --route-blue: #3E6C8E;
+  --herb: #5F7D4F;
+  --washi: #F4C95D;
+  --danger: #C0392B;
+  --shadow-paper-lift: 0 1px 2px rgba(43,38,32,.12), 0 4px 12px rgba(43,38,32,.06);
+}

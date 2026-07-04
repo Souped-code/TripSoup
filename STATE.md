@@ -408,4 +408,33 @@ needs the allowed ±10% tune) once verified. Do not take either number on faith.
 **Next session cold-start:** read plan → design.md → this section; audit items 1–3;
 then resume D1 (D1.1/D1.3 still blocked on Higgsfield unless Chris has reconnected it).
 
-## D1 — Design system: design.md + tokens + mascot pipeline (IN PROGRESS — see handoff above)
+### ✅ Sonnet-gap audit RESOLVED (2026-07-04, fresh Fable session)
+
+All three items audited fresh-context; results:
+
+1. **Commit `772dbb5` — PASS as-is.** Docs-only confirmed (LIVE-CHECKLIST.md + STATE.md,
+   no code). Recorded D0.3 facts match the handoff's account (all 6 checks, ~2 billed
+   cold / 0 warm, trip-soup.vercel.app), including the honest caveat that the
+   `condition` no-route path remains unexercised. No action.
+2. **design.md — PASS with corrections applied.** Audited against plan §D1.2: structure,
+   tokens, anti-generic law, and per-surface direction all faithful; `--danger` is a
+   reasonable additive extension (plan's palette had no error color). Three fixes made:
+   (a) §3 contrast figure corrected — `--soup` on `--paper` is **3.05:1** (independently
+   computed, WCAG formula), not the ~3.7:1 the doc claimed; the D1.4 agent's flagged
+   ~3.05 was right. Still legal for large-text/non-text (≥3:1) but the margin is thin —
+   doc now says prefer tuning `--soup` darker if D1.1 adjusts it. `--ink`/`--paper` also
+   corrected ~12.9 → ~13.3:1. (b) Gochi Hand pick marked **provisional pending D1.1**
+   (plan gates the font pick behind the reference boards, which didn't exist when the
+   pick was made). (c) Plan path reference fixed (`~/.claude/plans/…`, not in-repo).
+3. **D1.4 implementation — PASS as-is.** Diff reviewed line-by-line: token block purely
+   additive; layout.tsx only publishes `--font-display`/`--font-body` CSS variables
+   (existing `system-ui` body rule untouched — live pages render identically); all new
+   classes `journal-`-prefixed; no engine or live-page logic touched; `/debug/design`
+   correctly gated (`notFound()` unless `DEBUG_BOARD === "1"`). All gates re-run fresh
+   by the auditor: **tsc clean, jest 66/66 (9 suites), Playwright 9/9** incl. the two
+   new debug-design tests and an axe scan with 0 violations. The agent's contrast claims
+   in journal.css verified exact (ink-soft/paper-shade 4.71:1, ink/washi 9.54:1).
+
+Both audited artefacts committed this session. D1 resumes below.
+
+## D1 — Design system: design.md + tokens + mascot pipeline (IN PROGRESS — audit resolved, see above)
