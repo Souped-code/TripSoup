@@ -366,4 +366,35 @@ though LIVE-CHECKLIST.md's step 5 text (Supabase-era wording) will be reconciled
 
 ---
 
-## D1 — Design system: design.md + tokens + mascot pipeline (STARTING NEXT)
+## ⚠️ SESSION HANDOFF + AUDIT SCOPE (2026-07-04) — read before continuing D1
+
+**What happened:** the session that closed D0 and started D1 was running on **Sonnet 5**
+(a background session pinned to its launch model), violating the plan's orchestrator rule
+(Fable 5 / Opus only). Chris ordered an immediate wrap-up. **Everything below is the exact
+inventory of what the Sonnet-orchestrated gap produced; the next (Fable) session MUST
+fresh-context-audit all of it before continuing D1.**
+
+Sonnet-gap inventory (audit scope):
+1. **Committed + pushed:** `772dbb5` — D0.3 smoke results recorded, D0 marked COMPLETE,
+   LIVE-CHECKLIST step 2 closed (docs only, no code). The D0.3 facts came from Chris
+   directly (all 6 checks passed; ~2 billed cold, 0 warm), so the risk is recording
+   accuracy, not fabrication.
+2. **Uncommitted:** `design.md` (new, repo root) — written from the approved plan's D1.2
+   spec. Audit against plan §D1.2 for drift/invention. Note: written WITHOUT the D1.1
+   reference boards (Higgsfield image-gen tool disconnected; Chris chose to WAIT for
+   reconnection rather than substitute a pipeline — D1.1 and D1.3 are BLOCKED on that).
+3. **Uncommitted, produced by a sonnet implementation subagent (D1.4, additive-only
+   brief):** design tokens appended to `app/globals.css`, fonts added to `app/layout.tsx`
+   (CSS variables only — existing font stack untouched), `src/ui/journal/*` components,
+   `app/debug/design` gallery page (env-gated `DEBUG_BOARD=1`), `e2e/debug-design.spec.ts`
+   + `@axe-core/playwright` devDep + playwright.config.ts env addition. The agent may have
+   been mid-write at session end — verify the tree state, run ALL gates fresh, and review
+   the diff line-by-line before committing ANY of it. Its brief banned touching live
+   pages/engine code; verify that held.
+4. Memory files updated (orchestration rule + project status) — outside the repo.
+5. D1.0 done: both design skills (taste-skill, ui-ux-pro-max) load correctly.
+
+**Next session cold-start:** read plan → design.md → this section; audit items 1–3;
+then resume D1 (D1.1/D1.3 still blocked on Higgsfield unless Chris has reconnected it).
+
+## D1 — Design system: design.md + tokens + mascot pipeline (IN PROGRESS — see handoff above)
