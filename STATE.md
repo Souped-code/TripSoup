@@ -541,7 +541,36 @@ sheets in `public/gracie/`):
 Sheets: journal 143KB, pin-throw 145KB, route-scribble 149KB, soup-stir 133KB within the
 150KB/scene budget; this-is-fine 168KB (12% over — it's a denser 4:3 panel; lower quality
 visibly degrades it; accepted). **Total 738KB < 800KB hard limit.** Gallery + e2e updated
-to five scenes; gates green (tsc, jest 66/66, Playwright 10/10, axe 0). Balance ~813 cr. Map reality check also explained to Chris:
+to five scenes; gates green (tsc, jest 66/66, Playwright 10/10, axe 0). Balance ~813 cr.
+
+### ⚠️ Gracie scene art: PROVISIONAL (Chris, 2026-07-04)
+
+Chris reviewed the v2 loops: **"not satisfactory but we can revisit later — run with this
+and continue."** He will polish the art himself (via Opus or directly in Higgsfield web,
+where his Plus unlimited perks apply). RULES FROM THIS POINT: (1) do NOT spend further
+tokens/credits regenerating Gracie art unless Chris explicitly asks; (2) the current
+sheets in `public/gracie/` are the working assets — the sprite pipeline, component API
+(`<GracieScene>`), sheet format (10 frames tiled 10x1, webp, flat `--paper` bg) and
+budgets are FINAL, so Chris's replacement art only needs to be dropped in as same-format
+webp sheets (or handed to a session as loops for the ffmpeg step in this file, above);
+(3) D1 proceeds to done-check with art marked provisional, not blocked on it.
+
+### D1.3.5 sfx + D1 DONE-CHECK (2026-07-04)
+
+sfx: Higgsfield's audio tools are speech-only (its SFX model is locked to the
+game-generation pipeline) and freesound.org needs an API key for search/download — so
+`public/sfx/pencil-scribble.mp3` (9KB) and `public/sfx/pot-bubble.mp3` (11KB) are
+**ffmpeg-synthesized placeholders** (shaped noise / pitch-bent sine, loudnorm I=-14,
+well under the 30KB budget). Swap for real CC0 foley later (freesound key or Chris
+drops files in) — the D2 wiring (mute toggle, trigger points) doesn't care which.
+
+**D1 done-check: MET with two provisos.** design.md committed (palette/type/identity
+LOCKED by Chris) ✓; reference boards in design/refs/ ✓; Gracie assets committed — art
+PROVISIONAL per Chris, pipeline/format FINAL ✓; sfx placeholders committed ✓; token
+gallery + all five sprite scenes green in Playwright (10/10, axe 0) ✓. **D1 CLOSED**
+(provisos: art quality revisit by Chris; sfx foley swap). D2 begins.
+
+## D2 — The product flow (IN PROGRESS, started 2026-07-04) Map reality check also explained to Chris:
 boards are mood targets; real map = MapLibre + custom style JSON over free OSM vector
 tiles (style rules apply globally by data category), authored in D2 with a real
 side-by-side against the board. Higgsfield credits ~28 remain.
