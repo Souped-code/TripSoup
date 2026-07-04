@@ -1,14 +1,14 @@
-// D2.3 (T4) — day-assembly stop-id dedup. Closes the latent gap logged in
-// STATE.md at the end of D2.2: src/lib/pipeline/pipeline.ts assembled resolved
-// stops into each day keyed by stop.id (the resolved place_id); if two pasted
-// links resolved to the SAME place_id, the day carried two same-id stops,
-// which the solver ("every stop exactly once", solver/solver.ts) and the
-// id-keyed travel matrix cannot handle — schedule.ts's validateDay throws
-// "duplicate stop id in day" the moment that reaches planTripDay, so
-// pre-fix this whole scenario surfaces as PipelineResult status:"error", not
-// as an inspectable two-element array. Fixture mode ONLY: no live Maps/LLM
-// calls are ever made here (mirrors pipeline.test.ts's isolation exactly —
-// fresh TRIPS_DIR temp dir per test, MAPS_PROVIDER=fixture).
+// D2.3 (T4b) — day-assembly duplicate FLAGGING. Supersedes T4's dedupDayStops
+// (commit 5ea9719): Chris's product call overrides the earlier "drop the
+// second occurrence" behaviour. When two pasted links resolve to the SAME
+// place within a day, BOTH are now kept as stops; the later occurrence is
+// marked (`duplicateOf`) and given a distinct suffixed id so the engine can
+// treat it as its own node — schedule.ts's validateDay throws if two stops in
+// a day share an id, and the id-keyed travel matrix assumes each id is a
+// distinct node — while the UI (T6 sidebar, not built here) can flag it for
+// the user to remove if accidental. Fixture mode ONLY: no live Maps/LLM calls
+// are ever made here (mirrors pipeline.test.ts's isolation exactly — fresh
+// TRIPS_DIR temp dir per test, MAPS_PROVIDER=fixture).
 
 import * as os from "os";
 import * as fs from "fs";
@@ -27,7 +27,7 @@ async function drive(text: string): Promise<{ progress: PipelineProgress[]; resu
   }
 }
 
-describe("runPipeline day-assembly dedup (D2.3 T4)", () => {
+describe("runPipeline day-assembly duplicate flagging (D2.3 T4b)", () => {
   let tmpDir: string;
   let prevMapsProvider: string | undefined;
   let prevTripsDir: string | undefined;
@@ -36,7 +36,7 @@ describe("runPipeline day-assembly dedup (D2.3 T4)", () => {
     prevMapsProvider = process.env.MAPS_PROVIDER;
     prevTripsDir = process.env.TRIPS_DIR;
     process.env.MAPS_PROVIDER = "fixture";
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-dedup-test-"));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-dupflag-test-"));
     process.env.TRIPS_DIR = tmpDir;
   });
 
@@ -48,7 +48,7 @@ describe("runPipeline day-assembly dedup (D2.3 T4)", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("dedupes two links that resolve to the same fixture stop id within a day, keeping the first occurrence", async () => {
+  it("keeps BOTH stops when two links resolve to the same fixture place in one day, and marks the second", async () => {
     // Both URLs independently resolve to fx-01 "Market Hall" (fixtureCity.ts)
     // via fixtureAdapter's findFixtureStop — one via ?q=, the other via
     // /maps/place/ — a realistic "pasted the same place twice" scenario.
@@ -63,17 +63,37 @@ https://maps.google.com/maps/place/Market+Hall
 
     expect(result.doc.days.length).toBe(1);
     const stops = result.doc.days[0].stops;
-    expect(stops.length).toBe(1);
+    expect(stops.length).toBe(2); // neither occurrence is dropped
+
     expect(stops[0].id).toBe("fx-01");
+    expect(stops[0].duplicateOf).toBeUndefined();
     expect(stops[0].name).toBe("Market Hall");
+    expect(stops[0].location).toBeTruthy();
+
+    expect(stops[1].id).toBe("fx-01#2");
+    expect(stops[1].duplicateOf).toBe("fx-01");
+    expect(stops[1].name).toBe("Market Hall");
+    expect(stops[1].location).toBeTruthy();
+    // Same place -> identical coordinates on both occurrences.
+    expect(stops[1].location).toEqual(stops[0].location);
+
+    // The engine constraint this exists to satisfy: distinct ids per day, so
+    // schedule.ts's validateDay does not throw, and the plan actually visits
+    // both nodes rather than erroring out.
+    expect(result.plans.length).toBe(1);
+    const plan = result.plans[0];
+    expect(plan.status).toBe("ok");
+    if (plan.status !== "ok") return;
+    expect(plan.order.length).toBe(2);
+    expect(new Set(plan.order)).toEqual(new Set(["fx-01", "fx-01#2"]));
   });
 
-  it("carries a later duplicate's anchor onto the surviving first occurrence, without adopting its name", async () => {
+  it("each occurrence keeps its own anchor — no carrying onto the other", async () => {
     // First occurrence is a plain link (no time hint -> no anchor). The SAME
-    // place (fx-01) recurs with a "2pm" hint attached — that occurrence is
-    // dropped as a stop, but its anchor must survive onto the kept stop, or a
-    // booked time silently vanishes just because a plain link for the same
-    // place happened to come first.
+    // place (fx-01) recurs with a "2pm" hint attached. Unlike T4's dedup
+    // (which carried a dropped duplicate's anchor onto the survivor), T4b
+    // keeps them as separate stops, so the anchor belongs ONLY to the
+    // occurrence that actually carried it — no merging, no carrying.
     const blob = `Day 1
 https://maps.google.com/?q=Market+Hall
 Meet at Market Hall 2pm https://maps.google.com/maps/place/Market+Hall
@@ -84,18 +104,21 @@ Meet at Market Hall 2pm https://maps.google.com/maps/place/Market+Hall
     if (result.status !== "ok") return;
 
     const stops = result.doc.days[0].stops;
-    expect(stops.length).toBe(1);
-    const survivor = stops[0];
-    expect(survivor.id).toBe("fx-01");
-    // First occurrence's name wins — predictable over clever, no merging.
-    expect(survivor.name).toBe("Market Hall");
-    // But the later duplicate's anchor hint is carried onto the survivor.
-    expect(survivor.anchor).toEqual({ startMin: 14 * 60 });
+    expect(stops.length).toBe(2);
+
+    expect(stops[0].id).toBe("fx-01");
+    expect(stops[0].duplicateOf).toBeUndefined();
+    expect(stops[0].anchor).toBeUndefined();
+
+    expect(stops[1].id).toBe("fx-01#2");
+    expect(stops[1].duplicateOf).toBe("fx-01");
+    expect(stops[1].anchor).toEqual({ startMin: 14 * 60 });
   });
 
-  it("does NOT dedup the same place id across two different days", async () => {
-    // Dedup is scoped to a single day — the same place may legitimately
-    // recur on a different day (e.g. breakfast at the same cafe twice).
+  it("does NOT suffix the same place id across two different days", async () => {
+    // Flagging is scoped to a single day — the same place may legitimately
+    // recur on a different day (e.g. breakfast at the same cafe twice), which
+    // is not a same-day accidental duplicate.
     const blob = `Day 1
 https://maps.google.com/?q=Market+Hall
 
@@ -108,47 +131,21 @@ https://maps.google.com/maps/place/Market+Hall
     if (result.status !== "ok") return;
 
     expect(result.doc.days.length).toBe(2);
+
     expect(result.doc.days[0].stops.map((s) => s.id)).toEqual(["fx-01"]);
+    expect(result.doc.days[0].stops[0].duplicateOf).toBeUndefined();
+
     expect(result.doc.days[1].stops.map((s) => s.id)).toEqual(["fx-01"]);
+    expect(result.doc.days[1].stops[0].duplicateOf).toBeUndefined();
   });
 
-  it("integration sanity: full pipeline succeeds and the affected day's plan visits each stop exactly once", async () => {
-    // Two links dupe to fx-01 ("Market Hall"); a third resolves to a distinct
-    // place, fx-02 ("Clock Tower Square"). Pre-fix this reaches planTripDay
-    // with two fx-01 stops in one day, and schedule.ts's validateDay throws
-    // "duplicate stop id in day: fx-01" — caught by runPipeline's try/catch
-    // and surfaced as status:"error", never "ok".
-    const blob = `Day 1
-https://maps.google.com/?q=Market+Hall
-https://maps.google.com/maps/place/Market+Hall
-https://maps.google.com/?q=Clock+Tower+Square
-`;
-    const { result } = await drive(blob);
-
-    expect(result.status).toBe("ok");
-    if (result.status !== "ok") return;
-
-    expect(
-      result.doc.days[0].stops.map((s) => s.id).sort()
-    ).toEqual(["fx-01", "fx-02"]);
-
-    expect(result.plans.length).toBe(1);
-    const plan = result.plans[0];
-    expect(plan.status).toBe("ok");
-    if (plan.status !== "ok") return;
-
-    // No duplicate-id stop anywhere in the assembled visit order.
-    expect(new Set(plan.order).size).toBe(plan.order.length);
-    expect(plan.order.slice().sort()).toEqual(["fx-01", "fx-02"]);
-  });
-
-  it("a precedence pair naming a deduped-away occurrence still attaches to the surviving stop", async () => {
-    // The interesting direction of spec item 4: the "first" constraint's
-    // target (its orderConstraint.before raw-string join) is item2 below —
-    // the LATER, dropped occurrence of fx-01 — not item0 (the survivor).
-    // Precedence is built from resolvedByItemIndex (untouched by dedup) and
-    // attaches by id, so it must still land on whichever stop id="fx-01"
-    // survives into day.stops, and the solver must still enforce it.
+  it("a precedence pair naming the LATER (suffixed) occurrence attaches to that suffixed id, and the solver enforces it", async () => {
+    // The interesting direction of the spec: the "first" constraint's target
+    // (its orderConstraint.before raw-string join) is item2 below — the
+    // SECOND occurrence of fx-01, which T4b suffixes to fx-01#2 (T4's dedup
+    // would have dropped this occurrence and the precedence would have
+    // landed on the survivor fx-01 instead; T4b keeps both, so precedence
+    // must land on the SPECIFIC occurrence it names, not whichever survives).
     const blob = `Day 1
 https://maps.google.com/?q=Market+Hall
 Grab coffee first https://maps.google.com/?q=Riverside+Cafe
@@ -160,17 +157,46 @@ https://maps.google.com/maps/place/Market+Hall
     if (result.status !== "ok") return;
 
     const day0 = result.doc.days[0];
-    // fx-01 deduped down to one stop; fx-04 (Riverside Cafe) untouched.
-    expect(day0.stops.map((s) => s.id).sort()).toEqual(["fx-01", "fx-04"]);
+    // In list order: fx-01 (first Market Hall), fx-04 (Riverside Cafe),
+    // fx-01#2 (second Market Hall, suffixed).
+    expect(day0.stops.map((s) => s.id)).toEqual(["fx-01", "fx-04", "fx-01#2"]);
+    expect(day0.stops[2].duplicateOf).toBe("fx-01");
+
     expect(day0.precedence).toEqual([
-      expect.objectContaining({ beforeId: "fx-04", afterId: "fx-01" }),
+      expect.objectContaining({ beforeId: "fx-04", afterId: "fx-01#2" }),
     ]);
 
-    // And the solver actually enforces it: Riverside Cafe (fx-04) before
-    // Market Hall (fx-01) in the assembled visit order.
+    // And the solver actually enforces it: Riverside Cafe (fx-04) before the
+    // SECOND Market Hall occurrence (fx-01#2) specifically.
     const plan = result.plans[0];
     expect(plan.status).toBe("ok");
     if (plan.status !== "ok") return;
-    expect(plan.order.indexOf("fx-04")).toBeLessThan(plan.order.indexOf("fx-01"));
+    expect(plan.order.indexOf("fx-04")).toBeLessThan(plan.order.indexOf("fx-01#2"));
+    expect(new Set(plan.order)).toEqual(new Set(["fx-01", "fx-04", "fx-01#2"]));
+  });
+
+  it("is deterministic: running the same duplicate input twice yields identical ids and order", async () => {
+    const blob = `Day 1
+https://maps.google.com/?q=Market+Hall
+Grab coffee first https://maps.google.com/?q=Riverside+Cafe
+https://maps.google.com/maps/place/Market+Hall
+`;
+    const { result: result1 } = await drive(blob);
+    const { result: result2 } = await drive(blob);
+
+    expect(result1.status).toBe("ok");
+    expect(result2.status).toBe("ok");
+    if (result1.status !== "ok" || result2.status !== "ok") return;
+
+    const idsOf = (r: Extract<PipelineResult, { status: "ok" }>) =>
+      r.doc.days[0].stops.map((s) => ({ id: s.id, duplicateOf: s.duplicateOf }));
+    expect(idsOf(result2)).toEqual(idsOf(result1));
+
+    const plan1 = result1.plans[0];
+    const plan2 = result2.plans[0];
+    expect(plan1.status).toBe("ok");
+    expect(plan2.status).toBe("ok");
+    if (plan1.status !== "ok" || plan2.status !== "ok") return;
+    expect(plan2.order).toEqual(plan1.order);
   });
 });

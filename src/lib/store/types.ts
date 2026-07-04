@@ -5,13 +5,24 @@
 import type { LatLng } from "../maps/types";
 
 export type TripStop = {
-  id: string; // place_id (fixture or Google)
+  id: string; // place_id (fixture or Google); a same-day duplicate occurrence
+  // (D2.3 T4b) gets a deterministic suffixed id `${placeId}#${n}` instead —
+  // see duplicateOf below.
   name: string;
   location: LatLng;
   address?: string;
   durationMin: number;
   anchor?: { startMin: number };
   source?: string; // original pasted input
+  // D2.3 (T4b): set when this stop resolved to the SAME place as an earlier
+  // stop within the same day (pipeline.ts's markDuplicateStops). Value = the
+  // first occurrence's (bare, unsuffixed) place id. Additive/optional —
+  // absent on existing docs and on every non-duplicate stop. Supersedes T4's
+  // dedupDayStops (commit 5ea9719), which silently dropped the later
+  // occurrence instead of keeping + flagging it; the UI (T6 sidebar) derives
+  // its "duplicate of Stop N — remove if accidental" affordance from this
+  // field, and the user decides whether the repeat was intentional.
+  duplicateOf?: string;
 };
 
 export type TripDay = {

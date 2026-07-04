@@ -27,6 +27,11 @@ function malformed(doc: TripDoc, id: string): string | null {
       if (!s.location || !isNum(s.location.lat) || !isNum(s.location.lng)) return "stop location";
       if (!isNum(s.durationMin)) return "stop duration";
       if (s.anchor !== undefined && !isNum(s.anchor.startMin)) return "stop anchor";
+      // D2.3 (T4b): duplicateOf is additive/optional — set only on a same-day
+      // duplicate occurrence (see src/lib/store/types.ts, pipeline.ts's
+      // markDuplicateStops). Validated like every other optional stop field.
+      if (s.duplicateOf !== undefined && typeof s.duplicateOf !== "string")
+        return "stop duplicateOf";
     }
     if (day.precedence !== undefined) {
       if (!Array.isArray(day.precedence)) return "day precedence";
