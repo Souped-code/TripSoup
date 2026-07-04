@@ -477,3 +477,21 @@ primary switched to green, gates re-run **green** (tsc, jest 66/66, Playwright 9
 axe 0 violations). Visual ground truth: `design/refs/d1.1-reveal-LOCKED-palette.png`.
 Still open in D1: Gracie style pick (A/B/C stir drafts with Chris), then sprite scenes;
 greeting/loading boards to be re-issued in the locked palette alongside the chosen Gracie.
+
+### Gracie LOCKED: style C thin-line doodle, girl-next-door identity (2026-07-04)
+
+Chris picked **C (thin-line doodle)** from the stir drafts and refined the identity:
+friendly girl-next-door teen who enjoys planning itineraries, amateur home cook as a
+HOBBY — not a uniformed chef (no chef jacket/bandana; cooking props are scene gear only).
+Brand-palette wardrobe: `--soup` orange cardigan as her signature, cream tee, pale
+ink-wash jeans, `--washi` yellow hair clip — no green clothing (green is the UI's
+functional accent, not hers). design.md §1 updated with identity + locked art style.
+New master sheet generated in style C: `design/gracie/reference.png` (front/¾/side +
+palette strip; chef-version candidate superseded, kept for provenance). Minor nit for
+Chris to ok: front view reads slightly more hair-down than the ¾/side low ponytail.
+**Next (pending Chris ok of the sheet):** D1.3.2 four sprite scenes referencing this
+sheet verbatim (pin-throw at wall map, route-scribble on floor, "this is fine", papers →
+soup pot stir & sniff), then assembly + sfx. Map reality check also explained to Chris:
+boards are mood targets; real map = MapLibre + custom style JSON over free OSM vector
+tiles (style rules apply globally by data category), authored in D2 with a real
+side-by-side against the board. Higgsfield credits ~28 remain.

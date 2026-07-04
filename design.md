@@ -20,9 +20,20 @@ fallback.
 **Product:** TripSoup — paste a messy group itinerary, get an optimized day plan you can
 share and run a trip from.
 
-**Mascot: Gracie** — a teen chef girl, apron + bandana, who takes the chaos of pasted
-links and cooks it into a route. She is not a corporate assistant character; she's a
-capable friend having a good time doing something she's genuinely skilled at.
+**Mascot: Gracie** (identity refined by Chris 2026-07-04) — a friendly **girl-next-door**
+teen who genuinely enjoys planning itineraries, and is an **amateur home cook as a
+hobby** — NOT a uniformed chef. Casual everyday clothes; cooking props (pot, spoon, apron)
+appear only in cooking scenes as hobby gear, not as a costume. She takes the chaos of
+pasted links and cooks it into a route. She is not a corporate assistant character; she's
+a capable friend having a good time doing something she's genuinely good at.
+
+**Art style (LOCKED by Chris 2026-07-04): thin-line journal doodle** — a single
+consistent thin, slightly wobbly fineliner ink line (`--ink`), airy white space inside
+shapes, loose spot-color fills only, natural cute proportions (~4.5 heads). Her spot
+colors follow the brand palette: warm `--soup` orange as her signature accent, cream,
+warm hair tones, occasional washi-yellow touches — green is the UI's functional accent,
+not her wardrobe. Ground truth: `design/gracie/reference.png`; the animatable proof is
+`design/gracie/stir-drafts/stir-C-thinline-doodle.mp4`.
 
 **Voice:** warm, playful, competent. Talks like a friend who is good at planning, not a
 SaaS product or a customer-support bot. Never exclamation-mark-spammy, never cutesy at the

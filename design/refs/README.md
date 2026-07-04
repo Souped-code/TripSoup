@@ -19,6 +19,9 @@ vibrant washi tape set + yellow booked highlight + orange as brand-only. That im
 palette's visual ground truth; hex values and the full system live in design.md §3.
 (Ignore the "Chinece" typo in the generated sidebar — generation artifact, not copy.)
 
-`design/gracie/reference-candidate.png` is the D1.3 step-1 master character sheet
-candidate (front/¾/side, generated from the greeting board's Gracie as image reference).
-It becomes `reference.png` — and sprite-scene batching starts — only after Chris approves.
+**Gracie (2026-07-04):** Chris locked **style C (thin-line doodle)** and refined her
+identity: girl-next-door who loves planning, amateur home cook as a hobby — NOT a
+uniformed chef. `design/gracie/reference.png` is the master sheet (orange cardigan =
+brand accent, cream tee, ink-wash jeans, yellow clip). `reference-candidate.png` (chef
+version) and `candidate-{A,B}` are superseded, kept for provenance. Stir-animation drafts
+in `design/gracie/stir-drafts/` proved all three styles animate; C's is the style match.
