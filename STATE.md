@@ -438,3 +438,23 @@ All three items audited fresh-context; results:
 Both audited artefacts committed this session. D1 resumes below.
 
 ## D1 — Design system: design.md + tokens + mascot pipeline (IN PROGRESS — audit resolved, see above)
+
+### D1 progress after the audit (2026-07-04, same Fable session)
+
+- **D1.0 done** (skills verified, previous session). **D1.2 committed** (design.md, with
+  audit corrections). **D1.4 committed** (tokens + 5 journal components + gated
+  /debug/design + axe smoke — all gates green). Both pushed.
+- **Higgsfield reconnected** (verified live: 108.77 credits, starter plan) — the D1.1/D1.3
+  blocker is gone.
+- **D1.1 boards generated** → `design/refs/d1.1-{greeting,loading,reveal}.png` (one image
+  per surface, prompts locked to design.md; 2 credits each). Self-review: all three hold
+  the palette/anti-generic law; known per-board drift documented in `design/refs/README.md`
+  (loading board's subcopy + invented nav are NOT part of the direction; reveal map is
+  tonal direction, not a literal MapLibre target). **AWAITING CHRIS ACCEPTANCE** — only
+  accepted directions get codified (font pick confirmation + any ±10% hex tuning, e.g.
+  possibly darkening `--soup` for contrast margin, happen at acceptance).
+- **D1.3 step 1 candidate generated** → `design/gracie/reference-candidate.png`
+  (front/¾/side sheet, derived from the greeting board's Gracie via image reference —
+  consistency between the two confirmed by eye). **CHRIS-STEP: approve** → rename to
+  `reference.png`, then sprite scene batches (D1.3.2) can start.
+- Next after acceptance: D1.3.2–5 (sprite scenes, assembly, sfx), then D1 done-check.
