@@ -6,7 +6,7 @@ import "./globals.css";
 // These only publish CSS custom properties (--font-display / --font-body) via
 // next/font's `variable` option — they do NOT touch globals.css's existing
 // `body { font-family: system-ui, ... }` rule, so the current production UI
-// (/, /trip/[id], /share/[id]) keeps rendering with its existing font stack
+// (/, /debug/trip/[id], /share/[id]) keeps rendering with its existing font stack
 // pixel-identical to before. Only new src/ui/journal/* components reference
 // var(--font-display) / var(--font-body) explicitly.
 const gochiHand = Gochi_Hand({

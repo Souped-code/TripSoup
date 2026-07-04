@@ -1,5 +1,8 @@
 "use client";
 
+// D2.3 (T2): the old board moved to /debug/trip/[id] (env-gated). "/" keeps
+// this same New-trip action for now, just repointed there, so it stays a
+// working front door until a later task replaces it with the real greeting.
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -11,7 +14,7 @@ export default function Home() {
     setBusy(true);
     const res = await fetch("/api/trips", { method: "POST" });
     const doc = await res.json();
-    router.push(`/trip/${doc.tripId}`);
+    router.push(`/debug/trip/${doc.tripId}`);
   }
 
   return (

@@ -3,6 +3,13 @@
 // Trip board — §5 P4: days, stops, anchor lock/unlock, durations, add-stops
 // paste box, optimize action, result view, settings (walkMax, driveOverhead),
 // infeasibility and failure states rendered. All Google contact stays server-side.
+//
+// D2.3 (T2): relocated from app/trip/[id]/page.tsx to /debug/trip/[id]/page.tsx
+// (old board -> /debug, per the master plan). Split out as its own client
+// component so the route's page.tsx can stay a Server Component and gate on
+// DEBUG_BOARD reliably — process.env.DEBUG_BOARD isn't a NEXT_PUBLIC_ var, so
+// it isn't available in the browser bundle a "use client" page would ship
+// (same reasoning as app/debug/pipeline/page.tsx + PipelineDebug).
 
 import { use, useCallback, useEffect, useState } from "react";
 import type { TripDoc, TripStop } from "@/lib/store/types";
@@ -11,7 +18,7 @@ import type { Failure } from "../../../resolvePlaces";
 import { PlanView } from "@/ui/PlanView";
 import { fmtTime, parseTime } from "@/ui/time";
 
-export default function TripPage({ params }: { params: Promise<{ id: string }> }) {
+export function TripBoard({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [doc, setDoc] = useState<TripDoc | null>(null);
   const [plans, setPlans] = useState<Record<number, DayPlan>>({});
