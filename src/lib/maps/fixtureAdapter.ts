@@ -6,8 +6,51 @@ import type { ResolveResult, Stop, Failure } from "../../../resolvePlaces";
 import type { MapsProvider, MatrixStop, TravelMatrix, TravelMode } from "./types";
 import { FIXTURE_STOPS, fixtureDriveMinutes, type FixtureStop } from "./fixtureCity";
 
+// Mirrors resolvePlaces.ts's isUrl test exactly — same test, same intent:
+// only http(s) inputs get URL-shaped extraction; bare names/ids fall straight
+// through to the existing matching below.
+function isUrl(s: string): boolean {
+  return /^https?:\/\//i.test(s.trim());
+}
+
+// Fixture-mode mirror of resolvePlaces.ts's parseMapsUrl name extraction.
+// This is deliberately a *simplified* echo of that logic (no redirects, no
+// coords, no Places API) — it exists only so fixture mode exercises the real
+// "pasted Maps URL -> place name -> resolved stop" path end to end, the same
+// shape production traffic takes. Never wired into the real adapter.
+function extractCandidateNameFromUrl(fullUrl: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(fullUrl.trim());
+  } catch {
+    return null;
+  }
+  const path = decodeURIComponent(url.pathname);
+
+  // .../maps/place/<NAME>/... (mirrors resolvePlaces.ts's placeMatch regex)
+  const placeMatch = path.match(/\/(?:maps\/)?place\/([^/@]+)/);
+  if (placeMatch) {
+    return placeMatch[1].replace(/\+/g, " ").trim();
+  }
+
+  // ?q=<name> or ?query=<name> — URLSearchParams already decodes '+' as space.
+  const q = url.searchParams.get("q") || url.searchParams.get("query");
+  if (q && q.trim()) return q.trim();
+
+  // fallback: last non-empty path segment, e.g. /search/<name>
+  const segments = path.split("/").filter(Boolean);
+  if (segments.length > 0) {
+    return segments[segments.length - 1].replace(/\+/g, " ").trim();
+  }
+
+  return null;
+}
+
 function findFixtureStop(input: string): FixtureStop | undefined {
-  const norm = input.trim().toLowerCase().replace(/,\s*casterbridge$/i, "");
+  // If the input is a Maps-style URL, extract the candidate place name first;
+  // otherwise match on the bare name/id exactly as before.
+  const candidate = isUrl(input) ? extractCandidateNameFromUrl(input) ?? input : input;
+  const norm = candidate.trim().toLowerCase().replace(/,\s*casterbridge$/i, "");
   return FIXTURE_STOPS.find((s) => s.id === norm || s.name.toLowerCase() === norm);
 }
 

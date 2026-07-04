@@ -611,7 +611,38 @@ across the leg-toggle reschedule.
 
 **Not yet done in D2.1:** the parse→resolvePlaces wiring itself is D2.2's pipeline job (this
 phase only built the parser + solver capability). LLM adapter is UNVERIFIED against the live
-API by design (no key exercised) — flagged for the D2.4 CHRIS-STEP eyeball with a real key. Map reality check also explained to Chris:
+API by design (no key exercised) — flagged for the D2.4 CHRIS-STEP eyeball with a real key.
+
+### D2.2 backend spine DONE (2026-07-04/05)
+
+Subagent (sonnet) built the pure orchestration generator; diff audited line-by-line, gates
+re-run fresh (tsc clean, jest **101/101** across 16 suites). Files: `src/lib/pipeline/
+pipeline.ts` + test; `src/lib/maps/fixtureAdapter.ts` extended with Maps-URL name
+extraction (isUrl + extractCandidateNameFromUrl mirroring resolvePlaces.ts — fixture-only,
+real adapter untouched) so fixture mode exercises the pasted-URL→resolve path end to end.
+
+Interface (a follow-up SSE route + client view depend on it verbatim):
+`runPipeline(text): AsyncGenerator<{stage,pct,detail}, {status:"ok",tripId,doc,plans,
+failures} | {status:"error",stage,message}>`; stages parse/resolve/matrix/solve weighted
+15/40/30/15; also exports `parseTimeHint`. Assembly: link-item URLs→resolvePlaces (LOCKED
+rule enforced AND unit-verified by spying on the resolve args — only https URLs sent, never
+label text), label overrides display name, anchorLikely+timeHint→anchor (parseTimeHint
+handles 2pm/2:30pm/9am/14:00), orderConstraint→day precedence (raw→stopId, unresolved pairs
+dropped), TripDoc persisted via store, planTripDay per day. Errors returned not thrown.
+Idempotent/resumable (matrix cache) — documented.
+
+Accepted judgment calls: planTripDay errors attributed to stage "matrix" (no clean
+matrix|solve boundary inside it); precedence attaches to the day of the "before" stop;
+settings hardcoded {walkMax:10,driveOverheadMin:10} matching the create route.
+
+**Known latent gap (flag for D2.3/hardening, NOT blocking):** no stop-id dedup — if two
+pasted links resolve to the SAME place_id they become two same-id stops in a day, which the
+solver/matrix key-by-id would mishandle. Add dedup (or per-occurrence ids) when wiring the
+real greeting flow. Recorded so it isn't silently shipped.
+
+**Still to build in D2.2:** the SSE route `POST /api/pipeline` (`export const maxDuration =
+120`, streams the generator's events) + a client hook/loading view driving GracieScene per
+stage with a real retry-on-error. Then D2.3 reveal+map, D2.4 done-check. Map reality check also explained to Chris:
 boards are mood targets; real map = MapLibre + custom style JSON over free OSM vector
 tiles (style rules apply globally by data category), authored in D2 with a real
 side-by-side against the board. Higgsfield credits ~28 remain.
