@@ -21,22 +21,14 @@ project (Routes 403 billing error until swapped to the billed project's key).
   Phase-0-through-port mapping against Google's live behaviour). Failures should appear in
   the yellow panel with a reason, never vanish.
 
-## 2. ◐ PARTIAL 2026-07-03 — One real matrix call; confirm the cache prevents a second fetch
+## 2. ✅ DONE 2026-07-04 — One real matrix call; cache confirmed live on Vercel + KV
 
-**Done:** first live `computeRouteMatrix` call succeeded (request shape + `duration`
-parsing confirmed — a real JB day optimized and rendered). **Still open:** billed request
-count (blank below) and the second-run-adds-zero-requests cache check — re-verify at D0.3
-against the new KV-backed cache (the local-file cache this step originally described is
-superseded by plan §D0.1).
-
-- Same trip: ≤ 5 stops on the day → Optimize.
-- The real adapter batches per-origin requests to Routes API `computeRouteMatrix`
-  (driving only) and persists every pair in `.cache/matrix-cache.json`.
-- Optimize again (or reload + optimize): **verified when** the second run makes zero Routes
-  API requests — check the Google Cloud console request count before/after, and note the
-  billed request count here: ______
-- Known-unverified specifics to watch: request body shape, `duration: "…s"` parsing, and
-  the `condition` field on no-route pairs (all coded to spec docs, never executed).
+**Result (deployed app, https://trip-soup.vercel.app/):** cold Optimize run billed ~2
+Routes API requests; second Optimize on the same day added **zero** new requests —
+`kvMatrixCache` (Vercel KV / Upstash) confirmed working end-to-end in production. This
+supersedes the original local-file-cache version of this step (superseded per plan §D0.1).
+Request body shape + `duration` parsing were already confirmed 2026-07-03; the
+`condition`-field-on-no-route-pairs path remains unexercised (no such pair hit yet).
 
 ## 3. Build a real day from the actual group trip's stops; sanity-check
 

@@ -279,7 +279,7 @@ unchanged and remain proven by the existing P1 goldens — test stubs update to 
 interface, assertions stay. Approved by Chris 2026-07-03 after plain-language walkthrough.
 Implementation lands in D0.1.
 
-## D0 — Deploy current app to Vercel + KV (IN PROGRESS)
+## D0 — Deploy current app to Vercel + KV (COMPLETE)
 
 ### D0.1 — Pre-deploy hardening (COMPLETE; implemented by sonnet subagent, verified by orchestrator)
 
@@ -329,3 +329,41 @@ request could have triggered unbounded billed Places calls. Remaining observatio
 error message) accepted as-is with rationale in the audit transcript; none cost- or
 security-blocking. LOCKED §3 semantics independently re-verified line-by-line by the
 auditor (no double-fetch path within or across calls; guard + construction gate intact).
+
+### D0.2 — Deploy (CHRIS-STEP, COMPLETE)
+
+Repo pushed to `github.com/Souped-code/TripSoup` (private); Vercel project `trip-soup`
+created and connected via GitHub integration (auto-deploy on push to `main`); Vercel KV
+(Upstash Redis) provisioned and connected — env vars present: `KV_REST_API_URL`,
+`KV_REST_API_TOKEN`, `KV_REST_API_READ_ONLY_TOKEN`, `KV_URL`, `REDIS_URL`;
+`GOOGLE_MAPS_API_KEY` (the billed project's key) added for Production + Preview. One snag:
+first smoke attempt returned "no match in fixture city" on real Maps links — the deploy
+had run before the key finished propagating / before a redeploy; a redeploy resolved it
+(same class of gotcha as the local `MAPS_PROVIDER=fixture` shell issue: the fixture
+fallback in `config.ts` is silent-by-design for cost safety, but that silence means a
+misconfigured key looks identical to "working as intended" until you check the output).
+
+### D0.3 — Post-deploy smoke test (CHRIS-STEP, COMPLETE)
+
+Deployed URL: **https://trip-soup.vercel.app/**. All 6 checks passed:
+1. New trip → 2 real Maps links → both resolved correctly.
+2. Optimize → plan rendered.
+3. Optimize again → **cold run billed ~2 Routes API requests; warm run added 0** — live
+   KV matrix cache confirmed working in production (closes LIVE-CHECKLIST step 2 and the
+   step-5 serverless-cache warning for real).
+4. `/share/<tripId>` opened on phone, off wifi — rendered correctly.
+5. Garbage paste line → legible failure panel, no crash.
+6. Vercel KV Data Browser → `trip:` and `mx:` keys both visible.
+
+**D0 done-check: MET.** tsc/jest/Playwright/build all green pre-deploy; fresh-context
+audit cleared; all 6 live smoke checks passed on the deployed app. D0 is closed.
+
+**Everything now verified that was UNVERIFIED at the end of the engine build:**
+LIVE-CHECKLIST steps 1 and 2 are now ✅ DONE (see LIVE-CHECKLIST.md). Steps 3, 4, 6 remain
+open (real-trip sanity/walk-truthfulness, dropped-pin variety test, billing alert) — none
+are D0-blocking; step 5 (KV store + share round-trip) is effectively done by D0.3 item 4/6
+though LIVE-CHECKLIST.md's step 5 text (Supabase-era wording) will be reconciled at D3.
+
+---
+
+## D1 — Design system: design.md + tokens + mascot pipeline (STARTING NEXT)
