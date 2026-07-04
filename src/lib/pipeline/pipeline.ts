@@ -64,6 +64,37 @@ export function parseTimeHint(raw: string): number | null {
   return null;
 }
 
+// Dedup a single day's resolved stops by id (D2.3 T4 — closes the latent gap
+// STATE.md logged at the end of D2.2). Two pasted links can independently
+// resolve to the SAME place_id; left alone, the day would carry two stops
+// sharing an id, which the solver ("every stop exactly once", solver/solver.ts)
+// and the id-keyed travel matrix cannot handle — schedule.ts's validateDay
+// throws "duplicate stop id in day" the moment that reaches planTripDay.
+// Scoped to ONE day's stop list only — a place may legitimately recur on a
+// DIFFERENT day, so this must never run across days (callers below only ever
+// pass one day's stops at a time).
+//
+// Rule: walk in order, keep the FIRST occurrence of each id and drop later
+// same-id occurrences; the survivor's name is never overwritten (predictable
+// over clever — no merging). But if the survivor itself has no anchor and a
+// later duplicate does carry one, adopt that duplicate's anchor onto the
+// survivor (first anchor among the duplicates wins), so a plain link landing
+// before a "2pm lunch" mention doesn't silently swallow the time hint.
+function dedupDayStops(stops: TripStop[]): TripStop[] {
+  const kept: TripStop[] = [];
+  const survivorById = new Map<string, TripStop>();
+  for (const stop of stops) {
+    const survivor = survivorById.get(stop.id);
+    if (!survivor) {
+      survivorById.set(stop.id, stop);
+      kept.push(stop);
+      continue;
+    }
+    if (!survivor.anchor && stop.anchor) survivor.anchor = stop.anchor;
+  }
+  return kept;
+}
+
 export async function* runPipeline(
   text: string
 ): AsyncGenerator<PipelineProgress, PipelineResult> {
@@ -167,7 +198,7 @@ export async function* runPipeline(
           date: today,
           dayStartMin: DAY_START_MIN,
           dayEndMin: DAY_END_MIN,
-          stops: [...resolvedByItemIndex.values()],
+          stops: dedupDayStops([...resolvedByItemIndex.values()]),
         },
       ];
     } else {
@@ -175,9 +206,11 @@ export async function* runPipeline(
         date: today,
         dayStartMin: DAY_START_MIN,
         dayEndMin: DAY_END_MIN,
-        stops: d.itemRefs
-          .map((ref) => resolvedByItemIndex.get(ref))
-          .filter((s): s is TripStop => s !== undefined),
+        stops: dedupDayStops(
+          d.itemRefs
+            .map((ref) => resolvedByItemIndex.get(ref))
+            .filter((s): s is TripStop => s !== undefined)
+        ),
       }));
     }
 
