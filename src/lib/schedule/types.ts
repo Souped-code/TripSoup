@@ -14,6 +14,9 @@ export type Day = {
   dayStartMin: number; // minutes from midnight
   dayEndMin: number;
   stops: DayStop[];
+  // Optional precedence wishes (D2.1b). See planDay for how each pair is routed
+  // (within-segment / cross-segment / cross-day).
+  precedence?: Array<{ beforeId: string; afterId: string; reason?: string }>;
 };
 
 export type PlanEntry = {
@@ -46,6 +49,7 @@ export type DayPlan =
       quality: "optimal" | "heuristic"; // heuristic if ANY segment was heuristic
       totalTravelMin: number;
       daySlackMin: number; // day window left after the last departure
+      marginNotes?: string[]; // soft advisories (e.g. cross-day precedence wishes)
     }
   | {
       status: "infeasible";

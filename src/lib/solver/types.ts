@@ -16,6 +16,14 @@ export type SolverStop = {
   durationMin: number; // estimated visit duration
 };
 
+// A "visit beforeId before afterId" ordering constraint (D2.1b). Only pairs
+// whose BOTH ids are flexible stops of the same segment reach the solver; the
+// day layer handles cross-segment / cross-day pairs (§ planDay).
+export type PrecedencePair = {
+  beforeId: string;
+  afterId: string;
+};
+
 // A maximal run of flexible stops between consecutive anchors, or between an
 // anchor and the day's start/end (§1). Anchor times are segment boundaries —
 // they are inputs, structurally immovable.

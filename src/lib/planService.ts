@@ -34,6 +34,7 @@ export async function planTripDay(doc: TripDoc, dayIndex: number): Promise<DayPl
       durationMin: s.durationMin,
       anchor: s.anchor,
     })),
+    precedence: tripDay.precedence,
   };
   if (day.stops.length === 0) {
     return {
@@ -71,5 +72,10 @@ export async function planTripDay(doc: TripDoc, dayIndex: number): Promise<DayPl
   if (applicable.length === 0) return plan;
 
   const toggled = applyLegModes(auto, applicable);
-  return rescheduleDay(day, plan.order, toggled, settings, plan.quality);
+  const retimed = rescheduleDay(day, plan.order, toggled, settings, plan.quality);
+  // Re-timing walks the same order, so any margin notes still apply — carry them.
+  if (retimed.status === "ok" && plan.marginNotes) {
+    return { ...retimed, marginNotes: plan.marginNotes };
+  }
+  return retimed;
 }

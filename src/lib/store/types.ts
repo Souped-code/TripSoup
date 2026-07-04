@@ -19,6 +19,10 @@ export type TripDay = {
   dayStartMin: number;
   dayEndMin: number;
   stops: TripStop[];
+  // Optional "visit beforeId before afterId" wishes (D2.1b). Additive: absent on
+  // existing docs. Within-segment pairs constrain the solver; cross-segment pairs
+  // are validated post-assembly; cross-day pairs surface as margin notes.
+  precedence?: Array<{ beforeId: string; afterId: string; reason?: string }>;
 };
 
 export type LegOverride = {

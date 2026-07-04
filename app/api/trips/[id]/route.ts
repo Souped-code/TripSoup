@@ -28,6 +28,14 @@ function malformed(doc: TripDoc, id: string): string | null {
       if (!isNum(s.durationMin)) return "stop duration";
       if (s.anchor !== undefined && !isNum(s.anchor.startMin)) return "stop anchor";
     }
+    if (day.precedence !== undefined) {
+      if (!Array.isArray(day.precedence)) return "day precedence";
+      for (const p of day.precedence) {
+        if (typeof p.beforeId !== "string" || typeof p.afterId !== "string")
+          return "precedence pair";
+        if (p.reason !== undefined && typeof p.reason !== "string") return "precedence reason";
+      }
+    }
   }
   for (const o of doc.legOverrides) {
     if (!isNum(o.dayIndex) || typeof o.fromId !== "string" || typeof o.toId !== "string")

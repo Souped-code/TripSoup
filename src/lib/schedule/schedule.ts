@@ -7,18 +7,62 @@
 import type { Settings } from "../maps/types";
 import { effectiveMinutes } from "../solver/effectiveMatrix";
 import { optimize } from "../solver/solver";
-import type { EffectiveMatrix } from "../solver/types";
+import type { EffectiveMatrix, PrecedencePair } from "../solver/types";
 import type { Day, DayPlan, DayStop, PlanEntry, PlanLeg } from "./types";
+
+const cmpPair = (x: PrecedencePair, y: PrecedencePair): number =>
+  x.beforeId !== y.beforeId
+    ? x.beforeId < y.beforeId
+      ? -1
+      : 1
+    : x.afterId < y.afterId
+      ? -1
+      : x.afterId > y.afterId
+        ? 1
+        : 0;
 
 export function planDay(day: Day, matrix: EffectiveMatrix, settings: Settings): DayPlan {
   const invalid = validateDay(day);
   if (invalid) return invalid;
 
+  const byId = new Map(day.stops.map((s) => [s.id, s]));
+  const nameOf = (id: string): string => byId.get(id)?.name ?? id;
+  const anchors = day.stops.filter((s) => s.anchor);
+  const runs = splitRuns(day.stops);
+
+  // Which solver segment each flexible stop belongs to (anchors are in none).
+  const runOf = new Map<string, number>();
+  runs.forEach((run, ri) => run.forEach((s) => runOf.set(s.id, ri)));
+
+  // Route each precedence pair: within-segment (to the solver), cross-segment
+  // same-day (post-assembly check), or cross-day / unknown (margin note).
+  const withinByRun = new Map<number, PrecedencePair[]>();
+  const crossSegment: PrecedencePair[] = [];
+  const marginNotes: string[] = [];
+  for (const p of day.precedence ?? []) {
+    const onDayB = byId.has(p.beforeId);
+    const onDayA = byId.has(p.afterId);
+    if (!onDayB || !onDayA) {
+      const missing = !onDayB ? p.beforeId : p.afterId;
+      marginNotes.push(
+        `You wanted ${nameOf(p.beforeId)} before ${nameOf(p.afterId)} — ${nameOf(missing)} is on another day.`
+      );
+      continue;
+    }
+    const rb = runOf.get(p.beforeId);
+    const ra = runOf.get(p.afterId);
+    if (rb !== undefined && ra !== undefined && rb === ra) {
+      const arr = withinByRun.get(rb) ?? [];
+      arr.push({ beforeId: p.beforeId, afterId: p.afterId });
+      withinByRun.set(rb, arr);
+    } else {
+      crossSegment.push({ beforeId: p.beforeId, afterId: p.afterId });
+    }
+  }
+
   // Optimize each run of flexible stops between anchors (in list order).
   const fullOrder: string[] = [];
   let quality: "optimal" | "heuristic" = "optimal";
-  const anchors = day.stops.filter((s) => s.anchor);
-  const runs = splitRuns(day.stops);
 
   for (let i = 0; i < runs.length; i++) {
     const prevAnchor: DayStop | null = i === 0 ? null : anchors[i - 1];
@@ -34,7 +78,8 @@ export function planDay(day: Day, matrix: EffectiveMatrix, settings: Settings): 
         stops: runs[i].map((s) => ({ id: s.id, durationMin: s.durationMin })),
       },
       matrix,
-      settings
+      settings,
+      withinByRun.get(i) ?? []
     );
     if (result.status !== "ok") return result;
     if (result.quality === "heuristic") quality = "heuristic"; // label propagates
@@ -44,7 +89,24 @@ export function planDay(day: Day, matrix: EffectiveMatrix, settings: Settings): 
 
   const walked = rescheduleDay(day, fullOrder, matrix, settings);
   if (walked.status !== "ok") return walked;
-  return { ...walked, quality };
+
+  // Cross-segment precedence: the solver couldn't enforce it (the pair straddles
+  // an anchor), so validate the assembled full-day order and report if violated.
+  const pos = new Map(fullOrder.map((id, i) => [id, i]));
+  for (const p of [...crossSegment].sort(cmpPair)) {
+    if ((pos.get(p.beforeId) ?? 0) > (pos.get(p.afterId) ?? 0)) {
+      return {
+        status: "infeasible",
+        constraint: `precedence:${p.beforeId}->${p.afterId}`,
+        violatedByMin: 0,
+        message: `You wanted ${nameOf(p.beforeId)} before ${nameOf(p.afterId)}, but the day's anchors force ${nameOf(p.afterId)} first — usually the fix is moving the stop or the anchor.`,
+      };
+    }
+  }
+
+  return marginNotes.length > 0
+    ? { ...walked, quality, marginNotes }
+    : { ...walked, quality };
 }
 
 // Fixed-order schedule walk over the full day order (anchors included).

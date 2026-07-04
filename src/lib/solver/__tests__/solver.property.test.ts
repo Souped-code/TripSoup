@@ -162,6 +162,70 @@ describe("determinism across 100 runs (spec-literal)", () => {
   });
 });
 
+// Random VALID (acyclic, satisfiable) precedence, derived from a random linear
+// order over the stops so the constraint set can always be honoured.
+const withPrecedenceArb = (
+  minStops: number,
+  maxStops: number
+): fc.Arbitrary<{ inst: Instance; pairs: { beforeId: string; afterId: string }[] }> =>
+  instanceArb(minStops, maxStops).chain((inst) => {
+    const ids = inst.segment.stops.map((s) => s.id);
+    return fc
+      .record({
+        permSeed: fc.array(fc.integer(), { minLength: ids.length, maxLength: ids.length }),
+        include: fc.array(fc.boolean(), {
+          minLength: ids.length * ids.length,
+          maxLength: ids.length * ids.length,
+        }),
+      })
+      .map(({ permSeed, include }) => {
+        const perm = ids
+          .map((id, i) => ({ id, k: permSeed[i] }))
+          .sort((a, b) => (a.k - b.k !== 0 ? a.k - b.k : a.id < b.id ? -1 : 1))
+          .map((x) => x.id);
+        const pairs: { beforeId: string; afterId: string }[] = [];
+        for (let a = 0; a < perm.length; a++) {
+          for (let b = a + 1; b < perm.length; b++) {
+            if (include[a * perm.length + b]) pairs.push({ beforeId: perm[a], afterId: perm[b] });
+          }
+        }
+        return { inst, pairs };
+      });
+  });
+
+const respectsPrecedence = (order: string[], pairs: { beforeId: string; afterId: string }[]) => {
+  const pos = new Map(order.map((id, i) => [id, i]));
+  for (const p of pairs) {
+    expect(pos.get(p.beforeId)!).toBeLessThanOrEqual(pos.get(p.afterId)!);
+  }
+};
+
+describe("solver precedence properties", () => {
+  it("valid precedence is never violated by any ok result, and is deterministic (exhaustive)", () => {
+    fc.assert(
+      fc.property(withPrecedenceArb(1, 5), ({ inst, pairs }) => {
+        const r = optimize(inst.segment, inst.matrix, S, pairs);
+        if (r.status === "ok") respectsPrecedence(r.order, pairs);
+        expect(optimize(inst.segment, inst.matrix, S, pairs)).toEqual(r);
+        return true;
+      }),
+      { numRuns: 100 }
+    );
+  });
+
+  it("valid precedence is never violated by any ok result, and is deterministic (heuristic)", () => {
+    fc.assert(
+      fc.property(withPrecedenceArb(10, 12), ({ inst, pairs }) => {
+        const r = optimize(inst.segment, inst.matrix, S, pairs);
+        if (r.status === "ok") respectsPrecedence(r.order, pairs);
+        expect(optimize(inst.segment, inst.matrix, S, pairs)).toEqual(r);
+        return true;
+      }),
+      { numRuns: 25 }
+    );
+  });
+});
+
 describe("solver properties (heuristic regime, n = 10..12)", () => {
   it("every stop exactly once, boundaries honoured, labelled heuristic", () => {
     fc.assert(

@@ -570,7 +570,48 @@ PROVISIONAL per Chris, pipeline/format FINAL ✓; sfx placeholders committed ✓
 gallery + all five sprite scenes green in Playwright (10/10, axe 0) ✓. **D1 CLOSED**
 (provisos: art quality revisit by Chris; sfx foley swap). D2 begins.
 
-## D2 — The product flow (IN PROGRESS, started 2026-07-04) Map reality check also explained to Chris:
+## D2 — The product flow (IN PROGRESS, started 2026-07-04)
+
+### D2.1 DONE: parse service + solver precedence (2026-07-04)
+
+Two parallel subagents (sonnet=parse, opus=solver), both diffs audited line-by-line by
+the orchestrator and ALL gates re-run fresh (tsc clean, jest **93/93** across 14 suites,
+Playwright **10/10** — no regression). New deps: `zod`, `@anthropic-ai/sdk`, `server-only`.
+
+**D2.1a parse** (`src/lib/parse/`): zod-validated contract (`types.ts`), heuristic adapter
+(regex URL extraction verbatim, line-adjacency label pairing, time-hint anchoring, day +
+"Group X" splitting) = what jest runs against; server-only `llmAdapter.ts` (claude-haiku-4-5,
+temp 0, 2 retries feeding zod error back, throws at construction w/o `ANTHROPIC_API_KEY`);
+`parseItinerary.ts` entry with `PARSE_PROVIDER` selection + silent heuristic fallback when
+no key (MAPS_PROVIDER=fixture philosophy). **LOCKED RULE enforced + documented at the entry
+point:** only extracted URLs reach resolvePlaces/Places API; label text NEVER a query. New
+import-guard test bans tests from importing the llm adapter or the Anthropic SDK.
+
+**D2.1b solver precedence** (opus): `optimize()` gains optional 4th positional arg
+`precedence: Array<{beforeId,afterId}>` (positional to keep every existing call site +
+determinism test byte-identical when absent). Exhaustive skips violating permutations
+(enumeration order untouched → determinism preserved); heuristic uses topological-greedy NN
+seed + precedence-guarded 2-opt (byte-identical to old NN+2-opt when precedence empty).
+Additive optional fields only: `TripDay.precedence` / `Day.precedence` (`{beforeId, afterId,
+reason?}`), `DayPlan(ok).marginNotes?`. planDay routes each pair: within-segment→solver,
+cross-segment same-day→post-assembly validation, cross-day/unknown-id→margin note. PUT
+route validates the new day field. planService threads precedence + preserves marginNotes
+across the leg-toggle reschedule.
+
+**Two approved deviations, logged per plan instruction:**
+- *(finding 6)* Precedence infeasibility reports `constraint:"precedence:<b>-><a>"`,
+  `violatedByMin:0`, journal-voice message naming ONE pair (cycle → the closing pair;
+  time-incompatible → the lex-smallest pair the precedence-free optimum breaks). "By how
+  much" has no natural minutes for an ordering conflict — the named pair IS the diagnostic.
+  Attribution guard: a segment infeasible even WITHOUT precedence reports the ordinary
+  time-window/anchor constraint, so precedence is only blamed when it is genuinely the cause
+  (golden control asserts this).
+- *(finding 7)* Cross-day precedence is never a hard constraint — surfaces as a
+  `marginNotes` advisory; the plan still succeeds.
+
+**Not yet done in D2.1:** the parse→resolvePlaces wiring itself is D2.2's pipeline job (this
+phase only built the parser + solver capability). LLM adapter is UNVERIFIED against the live
+API by design (no key exercised) — flagged for the D2.4 CHRIS-STEP eyeball with a real key. Map reality check also explained to Chris:
 boards are mood targets; real map = MapLibre + custom style JSON over free OSM vector
 tiles (style rules apply globally by data category), authored in D2 with a real
 side-by-side against the board. Higgsfield credits ~28 remain.
