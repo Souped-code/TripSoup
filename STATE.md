@@ -458,3 +458,22 @@ Both audited artefacts committed this session. D1 resumes below.
   consistency between the two confirmed by eye). **CHRIS-STEP: approve** → rename to
   `reference.png`, then sprite scene batches (D1.3.2) can start.
 - Next after acceptance: D1.3.2–5 (sprite scenes, assembly, sfx), then D1 done-check.
+
+### D1 palette + type LOCKED (2026-07-04, Chris's call after board comparison)
+
+Chris compared the orange-variant and white/green-variant reveal boards and locked the
+synthesis: **weathered warm-paper map world** (the orange variant's contrast/character) +
+**`--action` pine green `#3F6B4C` as the exclusive functional accent** (CTAs/active/
+focus/progress/success) + **vibrant washi tape set** (coral/sky/pink/leaf + yellow
+`--washi` for booked) + **`--soup` orange demoted to brand-only** (logo, Gracie,
+illustration, large display — never buttons/links/states). Type pair Gochi Hand + Nunito
+Sans **confirmed** ("choice of font is good"). Grounded in UI color theory per Chris's
+brief (60-30-10, semantic/brand separation, Kennedy shade-derivation rule) — sources and
+the full system are in design.md §3. `--action` was derived by darkening the board green
+`#4A7C59` (failed 4.5:1 on cards) to `#3F6B4C` (5.46:1 on paper, 4.77:1 on shade — passes
+AA body text everywhere); every palette pair computed and recorded in §3. Tokens updated
+in `app/globals.css` (`--herb` replaced by `--action`; 4 fun tape tokens added), InkButton
+primary switched to green, gates re-run **green** (tsc, jest 66/66, Playwright 9/9 incl.
+axe 0 violations). Visual ground truth: `design/refs/d1.1-reveal-LOCKED-palette.png`.
+Still open in D1: Gracie style pick (A/B/C stir drafts with Chris), then sprite scenes;
+greeting/loading boards to be re-issued in the locked palette alongside the chosen Gracie.

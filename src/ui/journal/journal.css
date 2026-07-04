@@ -29,16 +29,15 @@
 }
 
 /* InkButton ----------------------------------------------------------------
- * Contrast rule (design.md §3): --soup on --paper is ~3:1, below the 4.5:1
- * body-text minimum, so --soup may only be used as a FILL with --paper
- * text on top, and that text must qualify as WCAG "large text" (bold,
- * >=14pt/~18.7px) so the ~3:1 ratio meets — not misses — the applicable AA
- * bar. Enforced here in the component, not left to callers.
+ * Palette rule (design.md §3): --action green is THE functional accent —
+ * the only color buttons/CTAs may use. --soup orange is a brand color
+ * (logo, Gracie, illustration, large display accents), never an action
+ * color. --paper text on --action computes to 5.46:1, passing the 4.5:1
+ * body-text bar at any size on any paper surface.
  */
 .journal-btn {
-  /* 1.25rem (20px) + font-weight 700 => ~15pt bold, comfortably clears the
-     WCAG "large text" threshold (bold text >=14pt/~18.7px needs only 3:1,
-     not 4.5:1) with margin — required for the --soup primary fill below. */
+  /* Sized for the ink-stamp aesthetic (and comfortable tap targets), not for
+     a contrast workaround — --paper on --action passes AA at any size. */
   font-size: 1.25rem;
   font-weight: 700;
   line-height: 1.2;
@@ -66,9 +65,9 @@
 }
 
 .journal-btn--primary {
-  background: var(--soup);
+  background: var(--action);
   color: var(--paper);
-  border: 1px solid var(--soup);
+  border: 1px solid var(--action);
 }
 .journal-btn--secondary {
   background: var(--paper);

@@ -7,13 +7,11 @@ file wins.** Part of the approved production plan
 (`~/.claude/plans/i-want-you-to-starry-wave.md` — outside the repo, in the machine's
 Claude config — phase D1)._
 
-**Status note (2026-07-04):** written before the D1.1 reference-board exploration and the
-D1.3 Gracie asset pipeline, both of which are paused pending the Higgsfield image-gen tool
-reconnecting (Chris's explicit call — do not substitute stock photography or a different
-gen pipeline in the meantime). Every value below is complete and usable now; the plan
-explicitly allows palette hex values to tune **±10%** once real reference art exists — that
-is refinement, not a rewrite. Anywhere this doc depends on an asset that does not exist yet,
-it says so and names the fallback.
+**Status note (2026-07-04, updated same day):** the D1.1 reference boards exist
+(`design/refs/`) and Chris locked the palette and type pair from them — §3 and §4 are now
+law, not proposals. The Gracie style pick and sprite pipeline (D1.3) are in progress;
+anywhere this doc depends on an asset that does not exist yet, it says so and names the
+fallback.
 
 ---
 
@@ -46,8 +44,9 @@ This list exists because AI-assisted frontend work reaches for the same dozen te
 default. Enforcement is mechanical — if a PR does one of these, it does not ship, full stop.
 
 1. **No purple/violet/indigo gradients.** No gradient hero text. No `bg-gradient-to-r`
-   anywhere. TripSoup has exactly one hot accent color (`--soup`) and it is applied as a
-   flat fill, never a gradient.
+   anywhere. TripSoup has exactly one functional accent (`--action` green) and one brand
+   color (`--soup` orange, illustration/identity only) — both applied as flat fills,
+   never gradients.
 2. **No glassmorphism, no neumorphism, no floating 3D blobs, no sparkle emoji ✨** in UI
    copy or decoration.
 3. **No dark-mode-first slabs with neon accents.** TripSoup is a daylight paper product.
@@ -77,37 +76,68 @@ default. Enforcement is mechanical — if a PR does one of these, it does not sh
 
 ---
 
-## 3. Palette
+## 3. Palette (LOCKED by Chris, 2026-07-04, after D1.1 board comparison)
 
-Paper and ink, not white and gray. Every color below is a CSS custom property in
-`app/globals.css`; nothing is a hard-coded hex in component code.
+Paper and ink, not white and gray — the weathered, map-like warm paper world from the
+accepted reveal board, with **green as the single functional accent** (Chris: soothing
+green buttons + weathered orange-variant map + vibrant fun washi tape + yellow booked
+highlight). Every color below is a CSS custom property in `app/globals.css`; nothing is a
+hard-coded hex in component code.
+
+**The system (60-30-10 + semantic separation):**
+- **60% — canvas:** `--paper` everywhere, including the map's land tone. Warm, restful,
+  weathered — the whole product sits on this.
+- **30% — structure:** `--paper-shade` surfaces, `--ink`/`--ink-soft` text and hairlines,
+  the torn-journal sidebar, ruled lines, map roads in thinned ink tones.
+- **10% — functional accent:** `--action` green, reserved EXCLUSIVELY for "take action
+  here": primary CTAs, active/selected/focus states, progress fill, success confirmation.
+  If everything is green, nothing is — scarcity is what makes it work.
+- **Brand ≠ functional (micro-accents, outside the 10% budget):** `--soup` orange is the
+  BRAND color — logo, Gracie, illustration, the soup itself, large display flourishes —
+  and is **never** a button, link, or state color. `--route-blue` belongs to the map pen.
+  Washi tapes are decorative identity. `--danger` is the one red and means only errors.
 
 | Token | Value | Role |
 |---|---|---|
-| `--paper` | `#F6F1E7` | Page background — warm cream, never pure white |
-| `--paper-shade` | `#EAE2D3` | Recessed surfaces, card backgrounds, input fills |
+| `--paper` | `#F6F1E7` | 60% canvas — warm cream, never pure white; also map land |
+| `--paper-shade` | `#EAE2D3` | 30% structure — recessed surfaces, cards, input fills |
 | `--ink` | `#2B2620` | Primary text — warm near-black, **never** `#000` |
 | `--ink-soft` | `#6B6155` | Secondary text, captions, muted labels |
-| `--soup` | `#E0662E` | **The** brand accent — warm tomato-soup orange. One hot accent, used consistently everywhere it appears (primary CTAs, the Gracie brand mark, active states) |
-| `--route-blue` | `#3E6C8E` | Secondary accent — fountain-pen blue, reserved for the map's route line and anything that needs to read as "drawn," not "actioned" |
-| `--herb` | `#5F7D4F` | Success / confirmation states |
-| `--washi` | `#F4C95D` | Anchor/booked-stop marker — reads as a strip of washi tape |
+| `--action` | `#3F6B4C` | **The** functional accent — soothing pine green. CTAs, active/focus/selected, progress, success. The accessible version of the board's green, darkened per the shadow rule below |
+| `--soup` | `#E0662E` | Brand orange — logo, Gracie, illustration, large display accents ONLY. Never actions |
+| `--route-blue` | `#3E6C8E` | Fountain-pen blue — the map's route line and "drawn" elements only |
+| `--washi` | `#F4C95D` | Booked/anchor highlight — the yellow tape from the accepted board |
+| `--washi-coral` | `#F0907A` | Fun tape (decorative: drag handles, itinerary row tabs) |
+| `--washi-sky` | `#7FB8D8` | Fun tape (decorative) |
+| `--washi-pink` | `#E88BA5` | Fun tape (decorative) |
+| `--washi-leaf` | `#A3C48B` | Fun tape (decorative) |
 | `--danger` | `#C0392B` | Infeasibility / error states (warm red, not a cold system red) |
 
-**Relationships are law, exact values are tunable ±10%:** warm paper background, warm ink
-text, exactly one hot accent, one "pen" accent for drawn/map elements. If D1.1 reference
-exploration suggests `--soup` should be `#DB5F2A` instead of `#E0662E`, that's a fine
-adjustment — introducing a second hot accent, or a cool gray background, is not.
+**Harmony:** the canvas is a warm analogous family (cream → tan → orange → yellow); the
+green accent sits near-complementary to the brand orange, which is exactly why CTAs pop
+without shouting. Water/route blues stay desaturated and recessive.
 
-**Contrast (WCAG AA, independently verified in the D1 audit 2026-07-04):** `--ink` on
-`--paper` computes to ~13.3:1 (comfortably AAA). `--soup` on `--paper` computes to
-**~3.05:1** — barely above the 3:1 large-text/non-text minimum and **below the 4.5:1
-body-text minimum**. The margin over 3:1 is thin; if D1.1 reference exploration tunes
-`--soup`, prefer tuning darker (raising contrast) within the allowed ±10%. Accordingly,
-`--soup` is used only for large text (≥18px / bold ≥14px, which only needs 3:1), fills with
-`--paper`-colored text on top (inverted, not text-on-paper), icons, and borders — never as
-small body text color on the paper background. This is enforced in the component layer
-(§5), not left to callers to remember.
+**Deriving new shades (do not invent new hues):** darker variant = lower brightness AND
+raise saturation; lighter variant = raise brightness AND lower saturation (shadows in the
+real world are darker *and* richer — this is how `--action` was derived from the board's
+`#4A7C59`). Hover/pressed states come from this rule applied to an existing token, never
+from a new color.
+
+**Contrast (WCAG AA, every pair computed, 2026-07-04):**
+- `--ink` on `--paper` **13.3:1** (AAA), on `--paper-shade` 12.1:1 — body text safe everywhere.
+- `--ink-soft` on `--paper` 5.38:1, on `--paper-shade` 4.71:1 — passes 4.5:1 on both.
+- `--action` on `--paper` **5.46:1**, on `--paper-shade` **4.77:1**, `--paper` text on
+  `--action` fill **5.46:1** — the green passes body-text AA at any size on every surface;
+  no large-text workaround needed (the board's original `#4A7C59` failed on cards at
+  4.31:1, which is why the token is the darkened version).
+- `--soup` on `--paper` **3.05:1** — legal ONLY for large text (≥18px / bold ≥14px) and
+  non-text (icons, borders, illustration); never small body text. Since orange is now
+  brand-only, this constraint is easy to keep.
+- `--route-blue` on `--paper` 4.99:1; `--danger` on `--paper` 4.83:1 — both pass 4.5:1.
+- `--ink` text on tapes: `--washi` 9.54:1, `--washi-coral` 6.41:1, `--washi-sky` 6.96:1,
+  `--washi-pink` 6.19:1, `--washi-leaf` 7.73:1 — labels on tape always pass. Tapes
+  against paper sit at 1.4–2.2:1, so tape is **decorative** — never the only indicator of
+  state (booked = tape + checkmark + text, drag handle = tape + position affordance).
 
 ---
 
@@ -126,9 +156,8 @@ small body text color on the paper background. This is enforced in the component
 Font choice from the plan's candidate list (Gochi Hand / Caveat / Patrick Hand) —
 Gochi Hand picked for legibility at small sizes in the sidebar's handwritten-style itinerary
 list, where Caveat's connected script and Patrick Hand's heavier stroke both hurt
-readability at 14–16px. **Provisional:** the plan gates this pick behind the D1.1
-reference-board exploration, which hadn't run when this pick was made — D1.1 must confirm
-(or swap within the same three candidates) before the pair moves to §9's locked list for good.
+readability at 14–16px. **Confirmed by Chris 2026-07-04** after seeing the D1.1 reference
+boards ("the choice of font is good, keep it") — the pair is fully locked in §9.
 
 ---
 
@@ -145,9 +174,10 @@ reference-board exploration, which hadn't run when this pick was made — D1.1 m
   container — repainting noise on scroll kills mobile framerate). The sidebar additionally
   gets a faint ruled/dotted journal-page texture.
 - **Buttons:** read as ink-stamped or pencil-outlined paper elements. Primary buttons:
-  `--soup` fill, `--paper`-colored text (satisfies the contrast rule in §3), a hand-drawn
-  irregular border. Pressed state: `translateY(1px)` + the paper-lift shadow collapses to
-  nothing — a physical "stamp down" motion, not a generic `:active { opacity: 0.8 }`.
+  `--action` green fill, `--paper`-colored text (5.46:1 — passes AA at any size), a
+  hand-drawn irregular border. Pressed state: `translateY(1px)` + the paper-lift shadow
+  collapses to nothing — a physical "stamp down" motion, not a generic
+  `:active { opacity: 0.8 }`.
 
 ---
 
@@ -224,15 +254,19 @@ not a static straight polyline.
 
 ## 9. What is LOCKED vs what design taste can still adjust
 
-**Locked (do not relitigate without asking Chris):** the paper/ink/one-hot-accent palette
-relationship; Gochi Hand + Nunito Sans as the type pair (provisional until D1.1 confirms —
-see §4); "the landing IS the product" (no
+**Locked (do not relitigate without asking Chris):** the §3 palette in full — weathered
+warm paper canvas, `--action` green as the exclusive functional accent, `--soup` orange as
+brand/illustration only, vibrant washi tape set, yellow booked highlight (Chris's explicit
+call 2026-07-04 after board comparison); Gochi Hand + Nunito Sans as the type pair
+(Chris-confirmed 2026-07-04); "the landing IS the product" (no
 marketing-page formula); Gracie's identity, name, and role; the anti-generic law in §2 in
 its entirety; sound behind an opt-out toggle.
 
-**Open to taste-level refinement:** exact hex values (±10%, per §3); the precise spring
-timing curve; the exact cloud-transition choreography; icon sourcing once a real icon need
-exists in D2.
+**Open to taste-level refinement:** hover/pressed shade derivation (via §3's
+darker-richer rule, never new hues); the precise spring timing curve; the exact
+cloud-transition choreography; icon sourcing once a real icon need exists in D2. Base hex
+values are no longer freely tunable — they were locked with Chris's palette decision; a
+change now is a Chris-level decision, not taste refinement.
 
 ---
 

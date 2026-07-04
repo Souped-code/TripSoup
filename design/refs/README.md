@@ -12,6 +12,13 @@ proposals.
 | `d1.1-loading.png` | Loading / progress | Pot-as-progress + honest stage labels ("reading your links" → "cooking the best order"). **Board drift to ignore:** the "Sit tight! We're brewing up…" subcopy is more exclamation-y than design.md §1 voice allows, and the "My Trips / Saved Places" nav is invented — neither is part of the accepted direction. Gracie renders older here than in the greeting board — the D1.3 reference sheet (design/gracie/) is what fixes cross-image consistency. |
 | `d1.1-reveal.png` | Map + sidebar | Torn-journal sidebar, washi drag handles + booked tag, `--route-blue` sketched route, `--soup` share CTA. The map itself is more antique-atlas than a MapLibre style will achieve — treat as tonal direction (land/water/road colors, minimal labels), not literal. |
 
+**Palette lock (2026-07-04):** after comparing `d1.1-reveal.png` (orange variant) against
+`d1.1-reveal-white-green-variant.png`, Chris locked the synthesis rendered in
+**`d1.1-reveal-LOCKED-palette.png`** — weathered warm map world + `--action` green CTAs +
+vibrant washi tape set + yellow booked highlight + orange as brand-only. That image is the
+palette's visual ground truth; hex values and the full system live in design.md §3.
+(Ignore the "Chinece" typo in the generated sidebar — generation artifact, not copy.)
+
 `design/gracie/reference-candidate.png` is the D1.3 step-1 master character sheet
 candidate (front/¾/side, generated from the greeting board's Gracie as image reference).
 It becomes `reference.png` — and sprite-scene batching starts — only after Chris approves.

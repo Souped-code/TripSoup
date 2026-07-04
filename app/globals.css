@@ -82,8 +82,12 @@ textarea { width: 100%; }
   --ink-soft: #6B6155;
   --soup: #E0662E;
   --route-blue: #3E6C8E;
-  --herb: #5F7D4F;
+  --action: #3F6B4C;
   --washi: #F4C95D;
+  --washi-coral: #F0907A;
+  --washi-sky: #7FB8D8;
+  --washi-pink: #E88BA5;
+  --washi-leaf: #A3C48B;
   --danger: #C0392B;
   --shadow-paper-lift: 0 1px 2px rgba(43,38,32,.12), 0 4px 12px rgba(43,38,32,.06);
 }
