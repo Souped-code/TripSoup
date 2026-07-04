@@ -18,6 +18,18 @@ test.describe("debug design gallery", () => {
     await expect(page.getByTestId("gallery-sketch-divider")).toBeVisible();
   });
 
+  test("all four Gracie sprite scenes render with their sheets served", async ({ page }) => {
+    await page.goto("/debug/design");
+
+    for (const scene of ["pin-throw", "route-scribble", "this-is-fine", "soup-stir"]) {
+      await expect(page.getByTestId(`gallery-gracie-${scene}`)).toBeVisible();
+      // the sprite sheet itself must actually be served (guards against a
+      // missing/renamed file in public/gracie/)
+      const res = await page.request.get(`/gracie/${scene}.webp`);
+      expect(res.status()).toBe(200);
+    }
+  });
+
   test("has no automatically detectable accessibility violations", async ({ page }) => {
     await page.goto("/debug/design");
 

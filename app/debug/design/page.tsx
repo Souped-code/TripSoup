@@ -10,6 +10,7 @@ import { InkButton } from "@/ui/journal/InkButton";
 import { JournalInput } from "@/ui/journal/JournalInput";
 import { WashiTag } from "@/ui/journal/WashiTag";
 import { SketchDivider } from "@/ui/journal/SketchDivider";
+import { GracieScene } from "@/ui/journal/GracieScene";
 
 export default function DesignGalleryPage() {
   if (process.env.DEBUG_BOARD !== "1") notFound();
@@ -64,6 +65,16 @@ export default function DesignGalleryPage() {
 
       <h2 style={{ fontFamily: "var(--font-display)" }}>SketchDivider</h2>
       <SketchDivider data-testid="gallery-sketch-divider" />
+
+      <SketchDivider />
+
+      <h2 style={{ fontFamily: "var(--font-display)" }}>GracieScene</h2>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <GracieScene name="pin-throw" size={192} data-testid="gallery-gracie-pin-throw" />
+        <GracieScene name="route-scribble" size={192} data-testid="gallery-gracie-route-scribble" />
+        <GracieScene name="this-is-fine" size={192} data-testid="gallery-gracie-this-is-fine" />
+        <GracieScene name="soup-stir" size={192} data-testid="gallery-gracie-soup-stir" />
+      </div>
     </main>
   );
 }

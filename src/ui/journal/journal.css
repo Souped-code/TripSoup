@@ -120,3 +120,24 @@ textarea.journal-input {
   margin: 16px 0;
   opacity: 0.7;
 }
+
+/* GracieScene ------------------------------------------------------------
+ * Sprite-sheet player (10 frames tiled 10x1, sized inline by the component).
+ * steps(10) with a full-sheet negative shift lands exactly one frame per
+ * step. Reduced motion: animation off, Gracie holds her first pose — the
+ * static-pose fallback design.md §6 mandates.
+ */
+.journal-gracie {
+  background-repeat: no-repeat;
+  background-position: 0 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .journal-gracie {
+    animation: journal-gracie-cycle var(--gracie-duration, 1.25s) steps(10) infinite;
+  }
+}
+@keyframes journal-gracie-cycle {
+  to {
+    background-position-x: var(--gracie-shift, -2560px);
+  }
+}

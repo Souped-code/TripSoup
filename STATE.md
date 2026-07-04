@@ -491,7 +491,34 @@ palette strip; chef-version candidate superseded, kept for provenance). Minor ni
 Chris to ok: front view reads slightly more hair-down than the ¾/side low ponytail.
 **Next (pending Chris ok of the sheet):** D1.3.2 four sprite scenes referencing this
 sheet verbatim (pin-throw at wall map, route-scribble on floor, "this is fine", papers →
-soup pot stir & sniff), then assembly + sfx. Map reality check also explained to Chris:
+soup pot stir & sniff), then assembly + sfx.
+
+### D1.3.2–3 DONE: four scenes generated + sprite assembly shipped (2026-07-04)
+
+Chris upgraded Higgsfield to Plus (1,000 cr/mo). **Caveat verified empirically:** the
+"7-day unlimited" perks (Nano Banana 2 1K/2K, Kling 3.0 720p/5s) apply ON THE WEB ONLY —
+an MCP generation still billed 2 credits (balance 1000→998). Parallel generation (6
+videos) DOES work via MCP.
+
+**AutoSprite is broken via MCP** (all 4 custom scenes failed AND the plain `idle` preset
+failed, no error detail) — pivoted to the plan's fallback-compatible pipeline:
+1. Single-pose Gracie from the master sheet → 4 scene stills (nano-banana, flat `--paper`
+   cream bg so frames composite invisibly on paper surfaces — no transparency needed).
+2. Seedance 2.0 fast 720p 5s loop per scene (all 4 in parallel) →
+   `design/gracie/scenes/loop-*.mp4` (+ stills).
+3. ffmpeg (installed via scoop): 10 frames @512px tiled 10x1 → webp sheets in
+   `public/gracie/{pin-throw,route-scribble,this-is-fine,soup-stir}.webp` —
+   **each ≤145KB, 537KB total** (plan budget: ≤150KB/scene, 800KB hard limit — MET).
+4. `<GracieScene name size fps>` component (`src/ui/journal/GracieScene.tsx`): CSS
+   steps(10) sprite player, no JS timers; `prefers-reduced-motion` → static first pose
+   (design.md §6 fallback). Added to /debug/design gallery.
+5. Gates: tsc clean, jest 66/66, **Playwright 10/10** (new test: all 4 scenes render AND
+   their sheets serve 200) incl. axe 0 violations.
+
+**Remaining in D1:** Chris review of the 4 scene loops (regenerate any weak scene —
+2 stills + 17.5cr/video), D1.3.5 sfx (CC0 pencil-scribble + pot-bubble, normalize
+-14 LUFS, ≤30KB, `public/sfx/`), then D1 done-check. Loading-page integration itself is
+D2.4 (needs real pipeline progress to drive scene switching). Map reality check also explained to Chris:
 boards are mood targets; real map = MapLibre + custom style JSON over free OSM vector
 tiles (style rules apply globally by data category), authored in D2 with a real
 side-by-side against the board. Higgsfield credits ~28 remain.
