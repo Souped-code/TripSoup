@@ -664,11 +664,34 @@ end). Files:
   (client driver) + `e2e/pipeline.spec.ts` (paste blob → real progress → reveal handoff
   with persisted trip + anchor/precedence/failure; and the 400→error→retry path).
 
-**D2.2 DONE.** Remaining in D2: D2.3 (real greeting page, reveal + MapLibre paper map,
-cloud transition, torn-paper sidebar with dnd-kit reorder + manualOrder, leg-toggle +
-walkMax carried into new UI) — this is the big UI phase and where the map style JSON gets
-authored + a real screenshot-vs-board check happens. Then D2.4 done-check. NOTE the
-stop-id dedup gap (logged above) should be closed when D2.3 wires the real greeting flow. Map reality check also explained to Chris:
+**D2.2 DONE.**
+
+### D2.3 started: manualOrder backend (audit finding 12) DONE (2026-07-05)
+
+The reorder machinery the reveal sidebar needs, built + tested backend-first (orchestrator,
+Opus). `TripDay.manualOrder?: string[]` (additive); DayPlan `quality` union gains `"manual"`;
+rescheduleDay's quality param widened. planTripDay: when a VALID manualOrder (exact
+permutation of the day's stop ids — stale/partial/unknown → ignored, solver resumes) is
+present, it skips planDay and retimes that exact order with quality "manual"; an anchor-
+breaking manual order returns the structured infeasible report (UI will render it as a red
+margin note in D2.3's sidebar). PUT route validates the new field. Tests
+`src/lib/__tests__/planService.manualOrder.test.ts` (3): honored+labelled manual, invalid→
+solver fallback, anchor-break→infeasible. Gates: tsc clean, jest **104/104**, e2e green.
+
+**Remaining in D2.3 (the big design-heavy UI phase — NOT yet built):**
+- Real greeting page `/` (paste box hero as the product, replacing the old board front door;
+  old board → `/debug` env-gated per plan). Wire it to the D2.2 pipeline stream.
+- Reveal: MapLibre paper map (`maplibre-gl`, the one allowed heavy dep, lazy-loaded on the
+  reveal route) + the **style JSON authored from design.md §8** — this is the
+  screenshot-vs-board collaborative step Chris and I agreed on (boards are mood targets).
+  Cloud transition (~1.6s, reduced-motion→crossfade). Route draw-on (dasharray). Stops as
+  hand-drawn numbered pins.
+- Torn-paper sidebar: dnd-kit reorder → writes manualOrder (machinery now ready) + map
+  re-path + pencil-scribble sfx; "re-optimize" pencil clears manualOrder; infeasible manual
+  order → red ink margin note. Carry the LOCKED §2 surfaces into the new UI (per-leg
+  walk/drive toggle with both times; walkMax/driveOverheadMin "planner's notes" pocket).
+- Close the **stop-id dedup gap** (logged above) when wiring the real greeting flow.
+- D2.4 done-check + LIVE-CHECKLIST append (real paste with ANTHROPIC_API_KEY — CHRIS-STEP). Map reality check also explained to Chris:
 boards are mood targets; real map = MapLibre + custom style JSON over free OSM vector
 tiles (style rules apply globally by data category), authored in D2 with a real
 side-by-side against the board. Higgsfield credits ~28 remain.

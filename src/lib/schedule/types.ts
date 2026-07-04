@@ -46,7 +46,7 @@ export type DayPlan =
       order: string[]; // full visit order including anchors
       entries: PlanEntry[];
       legs: PlanLeg[];
-      quality: "optimal" | "heuristic"; // heuristic if ANY segment was heuristic
+      quality: "optimal" | "heuristic" | "manual"; // "manual" = user-pinned order (D2.3), retimed not solved
       totalTravelMin: number;
       daySlackMin: number; // day window left after the last departure
       marginNotes?: string[]; // soft advisories (e.g. cross-day precedence wishes)

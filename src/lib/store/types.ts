@@ -23,6 +23,11 @@ export type TripDay = {
   // existing docs. Within-segment pairs constrain the solver; cross-segment pairs
   // are validated post-assembly; cross-day pairs surface as margin notes.
   precedence?: Array<{ beforeId: string; afterId: string; reason?: string }>;
+  // Optional user-pinned order (D2.3, audit finding 12). When present and a valid
+  // permutation of this day's stop ids, planTripDay skips the solver and retimes
+  // this exact order (quality "manual"). Written by drag-reorder; cleared by the
+  // "re-optimize" button (which hands ordering back to the solver).
+  manualOrder?: string[];
 };
 
 export type LegOverride = {

@@ -118,8 +118,9 @@ export function rescheduleDay(
   matrix: EffectiveMatrix,
   settings: Settings,
   // the ordering claim of the plan being re-timed — a toggle must not launder
-  // a heuristic order into an "optimal" one (§2: the UI says so)
-  quality: "optimal" | "heuristic" = "optimal"
+  // a heuristic order into an "optimal" one (§2: the UI says so), nor a manual
+  // order into either (D2.3)
+  quality: "optimal" | "heuristic" | "manual" = "optimal"
 ): DayPlan {
   const invalid = validateDay(day);
   if (invalid) return invalid;

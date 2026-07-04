@@ -36,6 +36,10 @@ function malformed(doc: TripDoc, id: string): string | null {
         if (p.reason !== undefined && typeof p.reason !== "string") return "precedence reason";
       }
     }
+    if (day.manualOrder !== undefined) {
+      if (!Array.isArray(day.manualOrder) || day.manualOrder.some((x) => typeof x !== "string"))
+        return "day manualOrder";
+    }
   }
   for (const o of doc.legOverrides) {
     if (!isNum(o.dayIndex) || typeof o.fromId !== "string" || typeof o.toId !== "string")
