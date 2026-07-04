@@ -37,12 +37,16 @@ export function GracieScene({
   name,
   size = 256,
   fps = 8,
+  paused = false,
   className,
   "data-testid": dataTestId,
 }: {
   name: GracieSceneName;
   size?: number;
   fps?: number;
+  // Freeze on the first frame (no cycling). design.md §8 uses this for the
+  // failure state — Gracie holds her "this is fine" pose next to the error.
+  paused?: boolean;
   className?: string;
   "data-testid"?: string;
 }) {
@@ -50,7 +54,9 @@ export function GracieScene({
   const sheetWidth = FRAME_COUNT * frameWidth;
   return (
     <div
-      className={["journal-gracie", className].filter(Boolean).join(" ")}
+      className={["journal-gracie", paused ? "journal-gracie--paused" : "", className]
+        .filter(Boolean)
+        .join(" ")}
       data-testid={dataTestId}
       role="img"
       aria-label={`Gracie: ${name.replace(/-/g, " ")}`}

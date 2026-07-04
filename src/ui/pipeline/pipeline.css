@@ -1,0 +1,56 @@
+/* Loading surface styling (design.md §8). Tokens only — no hard-coded hex.
+ * The progress "bar" is a soup pot that fills with --soup soup; the pot body
+ * is a rounded-bottom vessel clipping the rising soup. */
+
+.pipeline-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 32px 24px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body), system-ui, sans-serif;
+  text-align: center;
+}
+
+/* The pot: a cream vessel with an ink rim, soup rising inside it. Rounded
+ * bottom, straight sides — reads as a cooking pot, not a progress rectangle. */
+.pipeline-pot {
+  position: relative;
+  width: 132px;
+  height: 104px;
+  background: var(--paper-shade);
+  border: 2px solid var(--ink);
+  border-radius: 8px 8px 40px 40px / 8px 8px 56px 56px;
+  overflow: hidden;
+  box-shadow: var(--shadow-paper-lift);
+}
+
+.pipeline-pot-soup {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--soup);
+  /* Soup settles up to its new level like liquid, not a linear meter tick.
+     Honors reduced-motion by snapping instead (see below). */
+  transition: height 400ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .pipeline-pot-soup {
+    transition: none;
+  }
+}
+
+.pipeline-detail {
+  margin: 0;
+  max-width: 34ch;
+  font-size: 1.05rem;
+  color: var(--ink);
+  min-height: 1.4em; /* reserve a line so text changes don't jump the layout */
+}
+
+.pipeline-detail--error {
+  color: var(--danger);
+}

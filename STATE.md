@@ -640,9 +640,35 @@ pasted links resolve to the SAME place_id they become two same-id stops in a day
 solver/matrix key-by-id would mishandle. Add dedup (or per-occurrence ids) when wiring the
 real greeting flow. Recorded so it isn't silently shipped.
 
-**Still to build in D2.2:** the SSE route `POST /api/pipeline` (`export const maxDuration =
-120`, streams the generator's events) + a client hook/loading view driving GracieScene per
-stage with a real retry-on-error. Then D2.3 reveal+map, D2.4 done-check. Map reality check also explained to Chris:
+### D2.2 COMPLETE: SSE route + client loading view (2026-07-05)
+
+Built directly (orchestrator, Opus) on top of the spine; all gates green (tsc, jest
+101/101, **Playwright 12/12** — 2 new streaming e2e tests exercise the real route end to
+end). Files:
+- `app/api/pipeline/route.ts` — `POST`, `export const maxDuration = 120`, streams the
+  generator as SSE. Manual `gen.next()` loop (a `for await` drops the return value):
+  progress frames as default `data:` events, the terminal `PipelineResult` as an
+  `event: done` frame. Rate-limited ("pipeline"), 400 on empty/bad body, `X-Accel-
+  Buffering: no` to defeat proxy buffering.
+- `src/ui/pipeline/usePipeline.ts` — client hook; EventSource can't POST a body so it
+  reads the SSE off a `fetch` body reader by hand (frame-split on blank line). Types via
+  `import type` so no server code leaks to the bundle. Handles non-stream errors (rate
+  limit/400), the terminal ok/error frame, AND a stream that dies before the terminal
+  frame (→ retryable error — the maxDuration/proxy-drop case; pipeline is idempotent).
+- `src/ui/pipeline/LoadingView.tsx` + `pipeline.css` — design.md §8 surface: Gracie scene
+  cycles per stage (parse=route-scribble, resolve=pin-throw, matrix=this-is-fine,
+  solve=soup-stir), progress is a **soup pot filling** with `--soup` (not a generic bar),
+  failure = frozen "this is fine" (new `paused` prop on GracieScene) + legible message +
+  retry. Tokens only.
+- `app/debug/pipeline/page.tsx` (DEBUG_BOARD gate) + `src/ui/pipeline/PipelineDebug.tsx`
+  (client driver) + `e2e/pipeline.spec.ts` (paste blob → real progress → reveal handoff
+  with persisted trip + anchor/precedence/failure; and the 400→error→retry path).
+
+**D2.2 DONE.** Remaining in D2: D2.3 (real greeting page, reveal + MapLibre paper map,
+cloud transition, torn-paper sidebar with dnd-kit reorder + manualOrder, leg-toggle +
+walkMax carried into new UI) — this is the big UI phase and where the map style JSON gets
+authored + a real screenshot-vs-board check happens. Then D2.4 done-check. NOTE the
+stop-id dedup gap (logged above) should be closed when D2.3 wires the real greeting flow. Map reality check also explained to Chris:
 boards are mood targets; real map = MapLibre + custom style JSON over free OSM vector
 tiles (style rules apply globally by data category), authored in D2 with a real
 side-by-side against the board. Higgsfield credits ~28 remain.

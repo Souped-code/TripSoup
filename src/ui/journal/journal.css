@@ -141,3 +141,9 @@ textarea.journal-input {
     background-position-x: var(--gracie-shift, -2560px);
   }
 }
+
+/* Paused sprite (failure state): hold the first frame, no cycling. */
+.journal-gracie--paused {
+  animation: none !important;
+  background-position-x: 0 !important;
+}
