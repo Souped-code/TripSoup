@@ -695,3 +695,68 @@ solver fallback, anchor-break→infeasible. Gates: tsc clean, jest **104/104**, 
 boards are mood targets; real map = MapLibre + custom style JSON over free OSM vector
 tiles (style rules apply globally by data category), authored in D2 with a real
 side-by-side against the board. Higgsfield credits ~28 remain.
+
+---
+
+## SESSION HANDOFF (2026-07-05, Opus 4.8 1M) → Fable fresh session
+
+Ran D2.3 (reveal + map) on branch **`d2.3-reveal`** (off main @ 1909c14). **main auto-deploys to Vercel
+prod — do NOT push half-built D2.3 to main; merge only at the D2.4 done-check.** Orchestration protocol:
+delegate→corroborate, fresh-context audit before any phase-complete, **serialize gate-runners** (every
+implementer/reviewer runs `npx playwright test` which binds `next dev` on :3111 — one at a time). Live
+task ledger: `.superpowers/sdd/progress.md` (git-ignored scratch — read it for the full task-by-task trail).
+
+### Committed on `d2.3-reveal` (backend + front-door — DONE; branch gates: tsc clean · jest 109 · Playwright 14)
+- **T2** (`73d1c8f`): old editable board → `app/debug/trip/[id]` env-gated (`DEBUG_BOARD=1`) + `/debug/trip`
+  entry; trip/share/multiday e2e retargeted. Fresh-reviewer clean; 404-gate live-verified.
+- **T3** (`c25f9a6`): greeting page `/` (paste-box hero, design.md §8) wired to the D2.2 pipeline; interim
+  reveal `app/trip/[id]/page.tsx` (reuses PlanView). Screenshot-reviewed. Pre-existing parse quirk noted
+  (heuristic parser folds an inline time hint into the display name — later polish).
+- **T4→T4b** (`5ea9719` superseded by `e630af6`): duplicate handling. **Chris's call: ALLOW + FLAG, not
+  dedup.** Two links → same place/day = TWO stops; 2nd gets a deterministic suffixed id (`place#2`) +
+  `duplicateOf` (added to TripStop, PUT-validated). Real matrix adapter is location-driven (safe; LOCKED
+  cacheKey format untouched). 5 non-vacuous tests. **The `duplicateOf` UI is a T6 deliverable — NOT built.**
+
+### The MAP — pivoted to a custom render engine (phase M0, IN PROGRESS)
+Chris **rejected** the plan's "MapLibre + paper style JSON" after two tries (flat vector style, then a
+filtered "artistic layer") — both read as a street map in a paper costume, not the illustrated board.
+**New direction, Chris-approved plan → `design/map-engine-plan.md`:** build our own journal-map render
+engine. Fidelity = AI watercolor textures (once, offline) + procedural render; **no per-trip AI**;
+whole-world via render-on-demand + cache (v2), never a planet pre-render; layer split = painted basemap +
+live overlay (route/pins/washi) that redraws on reorder.
+
+**M0 art direction is PROVEN** — the engine paints real Johor Bahru geometry (OpenFreeMap MVT) with our
+textures + Rough.js and reads as the board (`design/refs/d2.3-map-engine-vs-board.png`). Persisted to repo:
+- `design/map-engine/` (see its **README.md**): `map-render-core.js` (the engine core / M1 module —
+  `fetchAndDecode` + `paintFull`), `render-engine.mjs` (screenshot harness), `map-studio.mjs` (**live
+  tuning tool**), 4 textures, briefs.
+- `public/map/assets/tex/{land,water,park,weathering}.png` — production textures (Recraft V4.1,
+  palette-locked to design.md §3, Chris-approved; water v2 bluer/uniform, park v2 olive/distinct).
+- **Map Studio** (`design/map-engine/map-studio.mjs`; launcher `C:\Users\65881\map-studio.bat`): sliders/
+  color-pickers bound to the render CONFIG, instant repaint, **Copy-CONFIG** export, Download-PNG,
+  colorblind-sim toggle. This is how Chris dials the art.
+- Iterated per Chris's notes: label subsystem (curved water text-on-path via PCA channel-spine +
+  collision point labels — **water-label-on-land bug FIXED**: anchor-centered text + `cloudRadiusFrac`
+  0.17→0.09), translucent torn-edge washi, fine-marker route, JB+Straits crop, textures v2. Higgsfield ~776 cr.
+
+### ⛔ M0.5 art gate is NOT closed — Fable, do this FIRST:
+1. **Get Chris's tuned CONFIG** from the studio (he runs `map-studio.bat`, tunes, clicks **Copy CONFIG**).
+   Paste that JSON in as the `CONFIG` defaults in `design/map-engine/render-engine.mjs` + `map-studio.mjs`.
+   That LOCKS the art. The current CONFIG is a WIP default, not final.
+2. **M1:** wire `map-render-core.js` into the real reveal at `app/trip/[id]` (adapt the browser module for
+   Next/React — it loads pbf/@mapbox/vector-tile/roughjs from jsDelivr; bundle or lazy-load them on the
+   reveal route only). Fixed-view; route re-sketches on reorder (`manualOrder` plumbing exists).
+3. **M2:** Motion (motion.dev, Chris-approved) lazy on the reveal route — cloud transition, route draw-on,
+   re-sketch + sfx.
+4. **T6 sidebar:** torn-journal, dnd-kit reorder → `manualOrder`, re-optimize clears, infeasible → red
+   margin note, **+ the `duplicateOf` flag UI + remove control + reveal heads-up**.
+5. **T7:** LOCKED §2 surfaces — per-leg walk/drive toggle (both times) + walkMax/driveOverhead "planner's
+   notes" pocket.
+6. **T8** D2.4 Playwright full-flow · **T9** fresh-context whole-branch audit · **T10** done-check +
+   STATE.md + LIVE-CHECKLIST + merge `d2.3-reveal` → main.
+
+### LOCKED / do not relitigate
+design.md palette+type+Gracie; the ALLOW+FLAG dedup call; the custom map-engine direction + its plan;
+Motion adopted for the reveal (component libs Chris shared = ideas only, NOT their glassmorphism visuals).
+Textures + final map CONFIG = Chris's calls. Read before touching anything: master plan (D2.3), design.md,
+`design/map-engine-plan.md`, `design/map-engine/README.md`, and this handoff.
