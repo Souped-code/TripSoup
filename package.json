@@ -12,9 +12,12 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
+    "@mapbox/vector-tile": "^1.3.1",
     "next": "^15.3.0",
+    "pbf": "^3.2.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "roughjs": "^4.6.6",
     "server-only": "^0.0.1",
     "zod": "^4.4.3"
   },

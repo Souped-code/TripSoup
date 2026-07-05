@@ -15,153 +15,50 @@ import { createServer } from "node:http";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+import { MAP_STYLE_DEFAULTS } from "../../src/lib/map/map-style-defaults.mjs";
+
 const here = (rel) => fileURLToPath(new URL(rel, import.meta.url));
 
 // ============================================================================
-// CONFIG defaults — copied verbatim from render-engine.mjs's CONFIG (so the
-// studio opens on the exact same look), with ONE deliberate override: SCALE
-// 2 -> 4. Z stays 11 (its sparse geometry is what reads like the hand-drawn
-// board — do not raise it) but is exposed as a slider for exploration; SCALE
-// is bumped to 4 by default so that same sparse Z11 geometry paints at higher
-// resolution (crisper), and is exposed as a slider too. Every other field is
-// unchanged from render-engine.mjs.
+// CONFIG defaults — STYLE comes from the shared MAP_STYLE_DEFAULTS module
+// (src/lib/map/map-style-defaults.mjs — one source for the app, this studio,
+// and render-engine.mjs; it is the M0.5 lock target for Chris's Copy-CONFIG).
+// Only the VIEW fields live here: the JB sample crop, zoom/scale, demo route.
 // ============================================================================
 const CONFIG_DEFAULTS = {
-  Z: 11, // render zoom — Z11's sparser road geometry reads more like the hand-drawn board than Z12. Do not raise.
-  EXTENT_FALLBACK: 4096, // MVT extent fallback if layer.extent is missing
-  TILE: 256, // base slippy-tile size (px)
-  SCALE: 4, // resolution multiplier -> tilePx = TILE*SCALE. FIDELITY PASS: thanks to REF_TILEPX
-  // normalization in map-render-core.js this now changes RESOLUTION only — proportions are locked.
-  REF_TILEPX: 1024, // the resolution (TILE*SCALE) every px value below is authored at
-  BBOX: { W: 103.62, E: 103.98, N: 1.57, S: 1.37 }, // fetch footprint — deliberately wider than VIEW_BBOX so
-  // geometry bleeds to the crop edges. Not exposed as a control (VIEW_BBOX below is the tunable crop window;
-  // its slider ranges are kept safely inside this fetch footprint so the crop never runs into unfetched tiles).
-  VIEW_BBOX: { W: 103.67, E: 103.88, N: 1.525, S: 1.408 }, // tight JB city + Straits crop window (sub-rect of BBOX)
-  MAX_SCREENSHOT_W: 1600, // display-canvas width cap; crop is downscaled onto this only if wider than the cap
-  FILL_RULE: "nonzero",
-  STROKE_SEED: 7, // deterministic per-feature Rough.js strokes (repaints are stable)
-
-  TEXTURE_SCALE: 0.4, // CanvasPattern scale — shared by land/water/park patterns (one knob, not three)
-
-  COLORS: {
-    ink: "#2B2620",
-    paperHalo: "#F6F1E7",
-    coastStroke: "#6f8a86",
-    waterNameText: "#5E7F86",
-    roadMajor: "#9a7b4f",
-    roadSecondary: "#b2a483",
-    routeLine: "#3E6C8E",
-    pinFill: "#F6F1E7",
-    pinStroke: "#2B2620",
-    washiFill: "#F4C95D",
-    washiShade: "rgba(120,90,20,0.30)", // tear shading on the torn ENDS (never a full outline)
-    washiSheen: "rgba(255,255,255,0.20)", // gated by WASHI.sheenAlpha (0 = matte, board-faithful)
-    washiPatternTint: "#FFFFFF", // gingham/stripes bar tint over the tape fill (alpha via WASHI.patternAlpha)
-    vignetteEdge: "rgba(74,58,38,0.20)",
-  },
-  WIDTHS: {
-    coast: 1.6,
-    waterway: 1.2,
-    roadMajor: 2.6,
-    roadSecondary: 1.6,
-    washiStroke: 1.1, // width of the tear shading stroke on the tape's torn ends
-  },
-  ROUGHNESS: { coast: 1.4, road: 1.2, route: 1.6 },
-  BOWING: { coast: 1, route: 2 },
-  ALPHA: { park: 0.4, weathering: 0.22 },
-
-  ROUTE_WIDTH: 3,
-  ROUTE_BLEED_EXTRA: 2,
-  ROUTE_BLEED_ALPHA: 0.3,
-
-  PIN: {
-    diameter: 26, // board pins are fine thin-ink circles (~2% of map width)
-    strokeWidth: 1.7,
-    numFontSize: 13, // hand-font digit, optically centered
-    declutter: true, // overlapping pins push apart deterministically (ink leader + dot at the true spot)
-    declutterGap: 4,
-    leaderDot: 2.4,
-  },
-
-  WASHI: {
-    h: 30,
-    padX: 12, // tape width follows its lettering ("④ Booked") + this padding
-    minW: 90,
-    maxW: 240,
-    fontSize: 15,
-    alpha: 0.94, // near-opaque like the board
-    angleDeg: -3, // slight hand-placed tilt
-    tearSegs: 12, // multi-scale torn ends: coarse rip + fine fiber serration
-    tearAmp: 3.2,
-    tearFine: 1.1,
-    seed: 20260705,
-    pattern: "plain", // 'plain' | 'gingham' | 'stripes'
-    patternAlpha: 0.13,
-    sheenAlpha: 0, // matte by default
-    offset: 0.72, // tape center distance from its pin, in tape-heights
-  },
-
-  WATER_LABEL: {
-    fontStyle: "italic",
-    fontFamily: "'Gochi Hand'",
-    fontBase: 24,
-    fontMin: 12,
-    fontMax: 28, // board's channel lettering is modest (was 40)
-    fillFrac: 0.62, // was 0.86 — stretched the word across the whole strait
-    cloudRadiusFrac: 0.09, // local-water-body-only spine radius (wider blends multiple bodies)
-    minCloud: 40,
-    buckets: 12,
-    trim: 0.1,
-    smoothPasses: 2,
-    letterSpacing: 2,
-    haloWidth: 4,
-    glyphSkipMargin: 4, // clearance for the per-glyph pin/washi test inside the window search —
-    // glyphs are never dropped mid-word; the whole word slides/shrinks until it clears.
-  },
-  POINT_LABEL: {
-    fontSize: 22, // board-scale hand lettering (was FONT_LABEL "28px")
-    haloPad: 3,
-    haloWidth: 5,
-    nudges: [
-      [0, 0], [0, -1], [0, 1], [-1, 0], [1, 0],
-      [-1, -1], [1, -1], [-1, 1], [1, 1], [0, -2], [0, 2],
-    ],
-    nudgeStep: 0.9,
-    pinPad: 4,
-    maxLabels: 8, // density cap — route map, not a street atlas (design.md §8)
-    twoLineMaxW: 170, // longer names wrap to two lines (board's mosque label)
-    shrinkFloor: 0.8, // labels may shrink to this ×fontSize before dropping
-    edgeMargin: 10, // no text within this of the crop edge
-    routePad: 3, // labels keep clear of the route pen line
-  },
-
-  FONT_FAMILY_HAND: "'Gochi Hand'", // ALL map lettering (labels, pin digits, washi) — design.md §2.4
-
-  ROAD_CLASSES_MAJOR: ["motorway", "trunk", "primary"],
-  ROAD_CLASSES_SECONDARY: ["secondary"],
-  PARK_LANDCOVER_CLASSES: ["wood", "grass", "meadow"],
-  PLACE_CLASSES: ["city", "town"],
-
+  ...MAP_STYLE_DEFAULTS,
+  // ---- VIEW (this tool's JB sample) — STYLE lives in src/lib/map/map-style-defaults.mjs
+  Z: 11, // render zoom — Z11's sparser road geometry reads more like the hand-drawn board than Z12
+  SCALE: 6, // Chris pass 2 (was 4) — higher-res bench output; REF_TILEPX normalization keeps proportions identical
+  BBOX: { W: 103.62, E: 103.98, N: 1.57, S: 1.37 }, // fetch footprint — wider than VIEW_BBOX so geometry bleeds to the crop edges
+  VIEW_BBOX: { W: 103.671, E: 103.88, N: 1.525, S: 1.408 }, // tight JB city + Straits crop window (sub-rect of BBOX)
+  // [lon, lat] — the 5 sample JB points
   ROUTE_POINTS: [
-    [103.720, 1.500],
-    [103.750, 1.475],
-    [103.770, 1.458],
-    [103.800, 1.452],
-    [103.820, 1.428],
+    [103.720, 1.500], // 1 coffee spot (north-west JB)
+    [103.750, 1.475], // 2 old town
+    [103.770, 1.458], // 3 temple
+    [103.800, 1.452], // 4 mosque -> washi "Booked" tag
+    [103.820, 1.428], // 5 Straits point (south-east, toward the water)
   ],
-  WASHI_INDEX: 3,
+  WASHI_INDEX: 3, // 0-based index into ROUTE_POINTS that gets the washi tag
 };
 
 // ============================================================================
-// Required local files
+// Required local files. The render core moved to src/lib/map/ at M1 (it is
+// the PRODUCT engine now); the studio still serves it at /map-render-core.js.
 // ============================================================================
 const TEXTURE_FILES = ["tex-land.png", "tex-water.png", "tex-park.png", "tex-weathering.png"];
-const CORE_FILE = "map-render-core.js";
-for (const f of [...TEXTURE_FILES, CORE_FILE]) {
+const CORE_FILE = "map-render-core.js"; // served URL name
+const CORE_PATH = "../../src/lib/map/map-render-core.js"; // real location on disk
+for (const f of TEXTURE_FILES) {
   if (!existsSync(here("./" + f))) {
     console.error(JSON.stringify({ ok: false, error: `missing required file: ${f}` }));
     process.exit(1);
   }
+}
+if (!existsSync(here(CORE_PATH))) {
+  console.error(JSON.stringify({ ok: false, error: `missing shared render core: ${CORE_PATH}` }));
+  process.exit(1);
 }
 
 // ============================================================================
@@ -588,7 +485,7 @@ const server = createServer((req, res) => {
   }
   if (name === CORE_FILE) {
     res.setHeader("content-type", "text/javascript; charset=utf-8");
-    res.end(readFileSync(here("./" + name)));
+    res.end(readFileSync(here(CORE_PATH)));
     return;
   }
   res.setHeader("content-type", "text/html; charset=utf-8");

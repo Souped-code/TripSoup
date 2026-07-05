@@ -42,12 +42,30 @@
 //     overlapping pins get pushed apart with a small ink leader + dot at the
 //     true location.
 //
+// M1 (2026-07-06): this file moved to src/lib/map/ and is now the PRODUCT's
+// render engine (the design bench serves it from here). New for M1:
+//   * provideLibs({Pbf, VectorTile, rough}) — the app injects npm-bundled libs
+//     (lazy, reveal-route only); the CDN import stays as the bench fallback.
+//   * BASE/OVERLAY SPLIT (the plan's layer rule: the basemap never re-renders
+//     on reorder): buildScene() paints geography + labels once and snapshots
+//     it; paintOverlay() restores the snapshot and draws route/pins/washi for
+//     a given visit order; renderToDisplay() crops onto a display canvas.
+//     paintFull() composes all three (bench behavior unchanged, except water
+//     labels now paint under the overlay — placement already keeps them
+//     clear of it, so pixels only differ if a REORDERED route crosses one).
+//   * WASHI_INDEX may be null/-1/out-of-range → no tape (real trips may have
+//     no booked anchor).
+//
 // Public API (import * as MapRenderCore from './map-render-core.js'):
-//   preloadLibs() -> Promise<{Pbf, VectorTile, rough}>   optional warm-start
+//   provideLibs({Pbf, VectorTile, rough})                 app-side lib injection
+//   preloadLibs() -> Promise<{Pbf, VectorTile, rough}>    CDN fallback / warm-start
 //   loadImage(src) -> Promise<HTMLImageElement>
-//   upgradeConfig(config) -> config'                     old-shape migration (idempotent)
-//   fetchAndDecode(config, opts?) -> Promise<Decoded>    cached per view (Z/BBOX/TILE/SCALE/EXTENT_FALLBACK)
+//   upgradeConfig(config) -> config'                      old-shape migration (idempotent)
+//   fetchAndDecode(config, opts?) -> Promise<Decoded>     cached per view (Z/BBOX/TILE/SCALE/EXTENT_FALLBACK)
 //   clearDecodeCache() -> void
+//   buildScene(config, decoded, textures) -> Promise<Scene>
+//   paintOverlay(scene, {routePoints, washiIndex}) -> {pinsDisplaced, washiPlaced}
+//   renderToDisplay(scene, canvas, maxW?) -> {crop, dispW, dispH, canvasW, canvasH}
 //   paintFull(canvas, config, decoded, textures) -> Promise<Stats>
 //
 // Decoded shape: { layers, layerCounts, grid, MINX, MAXX, MINY, MAXY, TILEPX,
@@ -58,16 +76,30 @@
 // textures shape: { land, water, park, weathering } (HTMLImageElement each)
 
 // ============================================================================
-// 0. CDN ESM libs (Pbf, VectorTile, roughjs) — loaded once, memoized.
+// 0. Render libs (Pbf, VectorTile, roughjs) — loaded once, memoized.
+// Two supply paths:
+//   * provideLibs({Pbf, VectorTile, rough}) — the Next app calls this with
+//     npm-bundled modules (lazy-imported on the reveal route) BEFORE any
+//     engine call, so the CDN path below never executes in the product.
+//   * preloadLibs() CDN fallback — the design bench (render-engine.mjs /
+//     map-studio.mjs) runs this file as a raw browser module with no bundler,
+//     so it self-loads from jsDelivr. The webpackIgnore/turbopackIgnore
+//     comments stop Next's bundlers from trying to resolve the URLs.
 // ============================================================================
 let _libsPromise = null;
+export function provideLibs(libs) {
+  if (!libs || typeof libs.Pbf !== 'function' || typeof libs.VectorTile !== 'function' || !libs.rough || typeof libs.rough.canvas !== 'function') {
+    throw new Error('provideLibs expects {Pbf, VectorTile, rough} with callable shapes');
+  }
+  _libsPromise = Promise.resolve(libs);
+}
 export function preloadLibs() {
   if (_libsPromise) return _libsPromise;
   _libsPromise = (async () => {
     const [pbfMod, vtMod, roughMod] = await Promise.all([
-      import('https://cdn.jsdelivr.net/npm/pbf@3.2.1/+esm'),
-      import('https://cdn.jsdelivr.net/npm/@mapbox/vector-tile@1.3.1/+esm'),
-      import('https://cdn.jsdelivr.net/npm/roughjs@4.6.6/+esm'),
+      import(/* webpackIgnore: true */ /* turbopackIgnore: true */ 'https://cdn.jsdelivr.net/npm/pbf@3.2.1/+esm'),
+      import(/* webpackIgnore: true */ /* turbopackIgnore: true */ 'https://cdn.jsdelivr.net/npm/@mapbox/vector-tile@1.3.1/+esm'),
+      import(/* webpackIgnore: true */ /* turbopackIgnore: true */ 'https://cdn.jsdelivr.net/npm/roughjs@4.6.6/+esm'),
     ]);
     const Pbf = pbfMod.default || pbfMod;
     if (typeof Pbf !== 'function') throw new Error('Pbf import shape unexpected: keys=' + Object.keys(pbfMod).join(','));
@@ -163,6 +195,7 @@ export function upgradeConfig(cfg) {
       nudges: [
         [0, 0], [0, -1], [0, 1], [-1, 0], [1, 0],
         [-1, -1], [1, -1], [-1, 1], [1, 1], [0, -2], [0, 2],
+        [-2, 0], [2, 0], [-2, -1], [2, 1], [0, -3], [0, 3], [-3, 0], [3, 0], [-2, 1], [2, -1],
       ],
       nudgeStep: 0.9, pinPad: 4,
       maxLabels: 8, // route map, not a street atlas (design.md §8)
@@ -180,6 +213,7 @@ export function upgradeConfig(cfg) {
     c.POINT_LABEL.nudges = [
       [0, 0], [0, -1], [0, 1], [-1, 0], [1, 0],
       [-1, -1], [1, -1], [-1, 1], [1, 1], [0, -2], [0, 2],
+      [-2, 0], [2, 0], [-2, -1], [2, 1], [0, -3], [0, 3], [-3, 0], [3, 0], [-2, 1], [2, -1],
     ];
   }
 
@@ -979,17 +1013,17 @@ export async function fetchAndDecode(config, opts = {}) {
 }
 
 // ============================================================================
-// paintFull(canvas, config, decoded, textures) -> Stats
-// Does the whole basemap+labels+route+crop: builds its own detached working
-// canvas at the full fetched-grid size, paints the complete layer stack onto
-// it (land -> water/coast/waterway -> parks -> roads -> point labels ->
-// weathering/vignette -> route/pins/washi -> curved water labels), then crops
-// to config.VIEW_BBOX and downscales the result onto the passed-in `canvas`
-// (resized to fit, capped at config.MAX_SCREENSHOT_W). Returns a small stats
-// object (label placement counts + the crop/display geometry) so callers
-// don't have to re-derive them — the pixels land on `canvas` either way.
+// buildScene(config, decoded, textures) -> Scene
+// Paints the BASE layer once onto a detached working canvas at the full
+// fetched-grid size: land -> water/coast/waterway -> parks -> roads -> point
+// labels -> weathering/vignette -> curved water labels — then snapshots it.
+// Label collision runs against the INITIAL route/pins/washi geometry from
+// config.ROUTE_POINTS/WASHI_INDEX (pin POSITIONS are order-independent; only
+// the pen path and numbering change on reorder, and the overlay redraws those
+// on top of the snapshot without re-laying labels — the plan's "basemap never
+// re-renders on reorder" rule).
 // ============================================================================
-export async function paintFull(canvas, rawConfig, decoded, textures) {
+export async function buildScene(rawConfig, decoded, textures) {
   const { rough } = await preloadLibs();
   const config = upgradeConfig(rawConfig);
   const grid = decoded.grid || computeGrid(config);
@@ -1090,24 +1124,28 @@ export async function paintFull(canvas, rawConfig, decoded, textures) {
     }
   }
 
-  // 5a. pre-compute route/pin/washi geometry BEFORE labels are laid out, so
-  //     the point-label collision pass (5b) can treat pins + washi + the pen
-  //     line as occupied regions. Actual DRAWING still happens later (step 7)
-  //     so they remain the crisp top layer; this reuses the same coordinates.
+  // 5a. pre-compute route/pin/washi geometry so the label passes can treat
+  //     pins + washi + the pen line as occupied regions. The overlay itself
+  //     is NOT drawn here — paintOverlay() draws it on top of the snapshot,
+  //     per visit order; these coordinates only seed collision.
   const routeTruePts = config.ROUTE_POINTS.map(([lon, lat]) => lonLatToCanvas(config, grid, lon, lat));
   const pinPos = resolvePinPositions(routeTruePts, D, config.PIN.declutter);
-  let pinsDisplaced = 0; for (const p of pinPos) if (p.moved) pinsDisplaced++;
 
   const pinR = D.pinDiam / 2 + D.pinStroke + D.plPinPad; // pin disc + stroke + clearance
   const pinBoxes = pinPos.map((p) => ({ x0: p.x - pinR, y0: p.y - pinR, x1: p.x + pinR, y1: p.y + pinR }));
   const pinDiscs = pinPos.map((p) => ({ x: p.x, y: p.y, r: pinR }));
 
-  const washiPin = pinPos[config.WASHI_INDEX];
-  const washiPlan = planWashiTag(ctx, config, D, washiPin, pinDiscs, cropInset,
-    String(config.WASHI_INDEX + 1), 'Booked');
+  // Washi is optional (M1: real trips may have no booked anchor) — index must
+  // be a valid position in the route or no tape is planned at all.
+  const washiOk = Number.isInteger(config.WASHI_INDEX) &&
+    config.WASHI_INDEX >= 0 && config.WASHI_INDEX < pinPos.length;
+  const washiPlan = washiOk
+    ? planWashiTag(ctx, config, D, pinPos[config.WASHI_INDEX], pinDiscs, cropInset,
+        String(config.WASHI_INDEX + 1), 'Booked')
+    : null;
 
   const routeBoxes = routeOccupiedBoxes(routeTruePts, D);
-  const occupied = [...pinBoxes, washiPlan.aabb, ...routeBoxes];
+  const occupied = [...pinBoxes, ...(washiPlan ? [washiPlan.aabb] : []), ...routeBoxes];
 
   // Separate, TIGHTER blockers for the curved water-label glyph test — true
   // pin discs + the washi AABB, each with only a small glyph margin, NOT the
@@ -1115,10 +1153,10 @@ export async function paintFull(canvas, rawConfig, decoded, textures) {
   // several pins sit near the centerline).
   const waterLabelBlockers = {
     pins: pinPos.map((p) => ({ x: p.x, y: p.y, r: D.pinDiam / 2 + D.pinStroke + D.wlGlyphMargin })),
-    washi: {
+    washi: washiPlan ? {
       x0: washiPlan.aabb.x0 - D.wlGlyphMargin, y0: washiPlan.aabb.y0 - D.wlGlyphMargin,
       x1: washiPlan.aabb.x1 + D.wlGlyphMargin, y1: washiPlan.aabb.y1 + D.wlGlyphMargin,
-    },
+    } : null,
   };
 
   // 5b. POINT (city/town) labels — collision-avoids the occupied regions and
@@ -1141,8 +1179,54 @@ export async function paintFull(canvas, rawConfig, decoded, textures) {
   ctx.fillStyle = vg;
   ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-  // 7. overlay — sample route + numbered pins + "Booked" washi tag (geometry
-  //    already computed in 5a; reused here so labels and pins agree exactly).
+  // 7. WATER-BODY curved labels — the last BASE layer. Placement avoids the
+  //    initial overlay geometry (blockers + occupied incl. the route corridor
+  //    and washi AABB), each other, point labels, and the frame edge, and
+  //    never drops glyphs mid-word. Drawn under the overlay: pixels only
+  //    differ from the old order if a REORDERED route later crosses one.
+  const waterCloud = [];
+  for (const f of layers.water) for (const ring of f.geom) for (const pt of ring)
+    waterCloud.push({ x: px(grid, f.tx, pt.x, f.ext), y: py(grid, f.ty, pt.y, f.ext) });
+  const waterNameFeatures = layers.water_name.map((f) => ({ props: f.props, pt: { x: px(grid, f.tx, f.geom[0][0].x, f.ext), y: py(grid, f.ty, f.geom[0][0].y, f.ext) } }));
+  const waterLabelStats = layoutWaterLabels(ctx, {
+    waterNameFeatures, waterCloud, canvasW: CANVAS_W,
+    blockers: waterLabelBlockers, occupied, cropInset, C: config, D,
+  });
+
+  // 8. snapshot the finished base so overlay redraws restore it losslessly
+  const base = document.createElement('canvas');
+  base.width = CANVAS_W; base.height = CANVAS_H;
+  base.getContext('2d').drawImage(work, 0, 0);
+
+  return {
+    work, ctx, rc, D, grid, config, CROP, cropInset, base,
+    baseLabelStats: { ...waterLabelStats, ...pointLabelStats },
+  };
+}
+
+// ============================================================================
+// paintOverlay(scene, {routePoints, washiIndex}) — restore the base snapshot,
+// then draw the trip overlay for a VISIT ORDER: pen route through the points
+// in order, numbered pins (declutter + ink leader for displaced ones), and
+// the washi tag on the booked stop (skipped when washiIndex is null/invalid).
+// Cheap relative to buildScene — this is the reorder redraw path.
+// ============================================================================
+export function paintOverlay(scene, overlay) {
+  const { ctx, rc, config, D, grid } = scene;
+  const routePoints = (overlay && overlay.routePoints) || config.ROUTE_POINTS;
+  const washiIndex = overlay && 'washiIndex' in overlay ? overlay.washiIndex : config.WASHI_INDEX;
+
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.drawImage(scene.base, 0, 0);
+  ctx.restore();
+
+  const routeTruePts = routePoints.map(([lon, lat]) => lonLatToCanvas(config, grid, lon, lat));
+  const pinPos = resolvePinPositions(routeTruePts, D, config.PIN.declutter);
+  let pinsDisplaced = 0; for (const p of pinPos) if (p.moved) pinsDisplaced++;
+
   drawMarkerRoute(ctx, routeTruePts, config, D);
   pinPos.forEach((p, i) => {
     if (p.moved) {
@@ -1163,30 +1247,30 @@ export async function paintFull(canvas, rawConfig, decoded, textures) {
     ctx.fillStyle = config.COLORS.pinStroke;
     fillTextOptical(ctx, String(i + 1), p.x, p.y, true);
   });
-  drawWashiTag(ctx, rc, config, D, washiPlan);
 
-  // 7.5. WATER-BODY curved labels, drawn AFTER the route/pins/washi so a
-  //      channel name reads on top of the pen line where they cross — but the
-  //      placement search (planCurvedLabel) guarantees it never lands ON a
-  //      pin, the washi, a point label, another water label, or the frame
-  //      edge, and it never drops glyphs mid-word.
-  const waterCloud = [];
-  for (const f of layers.water) for (const ring of f.geom) for (const pt of ring)
-    waterCloud.push({ x: px(grid, f.tx, pt.x, f.ext), y: py(grid, f.ty, pt.y, f.ext) });
-  const waterNameFeatures = layers.water_name.map((f) => ({ props: f.props, pt: { x: px(grid, f.tx, f.geom[0][0].x, f.ext), y: py(grid, f.ty, f.geom[0][0].y, f.ext) } }));
-  const waterLabelStats = layoutWaterLabels(ctx, {
-    waterNameFeatures, waterCloud, canvasW: CANVAS_W,
-    blockers: waterLabelBlockers, occupied, cropInset, C: config, D,
-  });
+  let washiPlaced = false;
+  if (Number.isInteger(washiIndex) && washiIndex >= 0 && washiIndex < pinPos.length) {
+    const pinDiscs = pinPos.map((p) => ({ x: p.x, y: p.y, r: D.pinDiam / 2 + D.pinStroke + D.plPinPad }));
+    const plan = planWashiTag(ctx, config, D, pinPos[washiIndex], pinDiscs, scene.cropInset,
+      String(washiIndex + 1), 'Booked');
+    drawWashiTag(ctx, rc, config, D, plan);
+    washiPlaced = true;
+  }
 
-  const labelStats = { ...waterLabelStats, ...pointLabelStats, pinsDisplaced };
+  return { pinsDisplaced, washiPlaced };
+}
 
-  // 8. crop to VIEW_BBOX, then downscale the CROP (not the whole fetched
-  //    grid) onto the passed-in display `canvas`. CROP is projected with the
-  //    same lonLatToCanvas() math used for every pin/label, so it's
-  //    pixel-exact against everything just painted.
+// ============================================================================
+// renderToDisplay(scene, canvas, maxW?) — crop the work canvas to VIEW_BBOX
+// and downscale onto the passed-in display canvas (resized to fit, capped at
+// maxW or config.MAX_SCREENSHOT_W). CROP is projected with the same
+// lonLatToCanvas() math used for every pin/label, so it's pixel-exact
+// against everything painted.
+// ============================================================================
+export function renderToDisplay(scene, canvas, maxW) {
+  const { work, config, CROP } = scene;
   const cropW = Math.round(CROP.w), cropH = Math.round(CROP.h);
-  const dispW = Math.min(cropW, config.MAX_SCREENSHOT_W);
+  const dispW = Math.min(cropW, maxW != null ? maxW : config.MAX_SCREENSHOT_W);
   const scale = dispW / cropW;
   const dispH = Math.round(cropH * scale);
   canvas.width = dispW; canvas.height = dispH;
@@ -1194,11 +1278,28 @@ export async function paintFull(canvas, rawConfig, decoded, textures) {
   dctx.imageSmoothingEnabled = true;
   dctx.imageSmoothingQuality = 'high';
   dctx.drawImage(work, CROP.x, CROP.y, cropW, cropH, 0, 0, dispW, dispH);
-
   return {
-    labelStats,
     crop: { x: CROP.x, y: CROP.y, w: cropW, h: cropH },
     dispW, dispH,
-    canvasW: CANVAS_W, canvasH: CANVAS_H,
+    canvasW: work.width, canvasH: work.height,
+  };
+}
+
+// ============================================================================
+// paintFull(canvas, config, decoded, textures) -> Stats
+// The bench-compatible one-shot: base + overlay (from config's own
+// ROUTE_POINTS/WASHI_INDEX) + crop to display. Same signature and stats shape
+// as before the M1 split.
+// ============================================================================
+export async function paintFull(canvas, rawConfig, decoded, textures) {
+  const scene = await buildScene(rawConfig, decoded, textures);
+  const overlayStats = paintOverlay(scene, {
+    routePoints: scene.config.ROUTE_POINTS,
+    washiIndex: scene.config.WASHI_INDEX,
+  });
+  const disp = renderToDisplay(scene, canvas);
+  return {
+    labelStats: { ...scene.baseLabelStats, pinsDisplaced: overlayStats.pinsDisplaced },
+    ...disp,
   };
 }

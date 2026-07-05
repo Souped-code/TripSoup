@@ -1,13 +1,11 @@
-// D2.3 (T3): interim reveal at /trip/[id] — an EXPLICIT PLACEHOLDER. The real
-// map + torn-journal-sidebar reveal (design.md §8 Reveal: cloud transition,
-// MapLibre paper map, drag-to-reorder) is a later, design-gated task; this
-// exists only so paste -> cook -> see works end to end and is testable, per
-// the D2.3 plan. Mirrors app/share/[id]/page.tsx's server-recompute pattern
-// (deterministic solver: recompute == what the pipeline just produced) —
-// reskinned with the journal design system for the page chrome. PlanView
-// itself is reused read-only, completely unmodified, exactly as the share
-// page uses it; its internals (still the pre-journal-system look) are out of
-// this task's scope by design.
+// D2.3 M1: the reveal at /trip/[id] now paints the REAL map — the custom
+// journal render engine (src/lib/map/map-render-core.js) wired in via
+// RevealMap (client component, fixed-view v1: basemap painted once, overlay
+// re-draws on order changes). The torn-journal sidebar, drag-to-reorder, and
+// cloud transition remain T6/M2 tasks; until then PlanView keeps rendering
+// the schedule below the map (server-recompute pattern shared with
+// app/share/[id]/page.tsx — deterministic solver: recompute == what the
+// pipeline just produced).
 
 import { getTripStore } from "@/lib/config";
 import { planTripDay } from "@/lib/planService";
@@ -15,6 +13,8 @@ import { PlanView } from "@/ui/PlanView";
 import { PaperCard } from "@/ui/journal/PaperCard";
 import { SketchDivider } from "@/ui/journal/SketchDivider";
 import { GracieScene } from "@/ui/journal/GracieScene";
+import { RevealMap } from "@/ui/reveal/RevealMap";
+import type { DayPlan } from "@/lib/schedule/types";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +48,37 @@ export default async function TripRevealPage({
     );
   }
 
-  const plans = await Promise.all(doc.days.map((_, i) => planTripDay(doc, i)));
+  // A plan failure (matrix/adapter error) must degrade legibly, never 500 the
+  // reveal: the day renders PlanView's rejected state and the map still
+  // paints the stored stop order. (Found by a live smoke: unknown-to-fixture
+  // stop ids made planTripDay throw and crash the whole page.)
+  const plans: DayPlan[] = await Promise.all(
+    doc.days.map(async (_, i) => {
+      try {
+        return await planTripDay(doc, i);
+      } catch (e) {
+        return {
+          status: "rejected" as const,
+          message:
+            "This day's plan couldn't be cooked — " +
+            (e instanceof Error ? e.message : String(e)),
+        };
+      }
+    })
+  );
+
+  // M1 map: first day that has stops. Visit order comes from the plan when it
+  // solved (includes manualOrder handling); otherwise the day's stored order.
+  const mapDayIdx = doc.days.findIndex((d) => d.stops.length > 0);
+  const mapDay = mapDayIdx >= 0 ? doc.days[mapDayIdx] : null;
+  const mapPlan = mapDayIdx >= 0 ? plans[mapDayIdx] : null;
+  const mapOrder =
+    mapPlan && mapPlan.status === "ok"
+      ? mapPlan.order
+      : mapDay
+        ? mapDay.stops.map((s) => s.id)
+        : [];
+  const mapBookedId = mapDay?.stops.find((s) => s.anchor)?.id ?? null;
 
   return (
     <main
@@ -85,6 +115,33 @@ export default async function TripRevealPage({
         </div>
 
         <SketchDivider />
+
+        {mapDay && mapOrder.length > 0 && (
+          <div style={{ marginBottom: 24 }}>
+            <RevealMap
+              stops={mapDay.stops.map((s) => ({
+                id: s.id,
+                name: s.name,
+                lat: s.location.lat,
+                lng: s.location.lng,
+              }))}
+              orderedIds={mapOrder}
+              bookedId={mapBookedId}
+            />
+            {doc.days.length > 1 && (
+              <p
+                style={{
+                  fontFamily: "var(--font-body)",
+                  color: "var(--ink-soft)",
+                  fontSize: 13,
+                  margin: "6px 2px 0",
+                }}
+              >
+                Day {mapDayIdx + 1} on the map — day tabs arrive with the sidebar.
+              </p>
+            )}
+          </div>
+        )}
 
         {doc.days.map((day, i) => (
           <div key={i} style={{ marginBottom: 16 }}>

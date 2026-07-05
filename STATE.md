@@ -814,3 +814,100 @@ studio pass over the new dials.
 **OPEN (art gate still ⛔):** (1) Chris's Copy-CONFIG paste → set as defaults in both callers;
 (2) Chris re-tunes new dials in the studio + re-vets `design/refs/d2.3-map-engine-vs-board.png` →
 M0.5 CLOSED. M1 wiring proceeds meanwhile (config values are data, not API).
+→ Both resolved same session — see the next two sections.
+
+---
+
+## M0.5 art gate CLOSED (2026-07-06, same Fable session — three Copy-CONFIG passes by Chris)
+
+Chris drove the lock live across three studio exports, all integrated into the new single style
+source **`src/lib/map/map-style-defaults.mjs`** (see below for why that file exists):
+- **Pass 1 (old-shape export):** slider-backed deltas adopted (texture grain 0.51, road tan
+  `#967240`, coast 0.9 / arterials 2.0, weathering 0.35 + vignette 0.35 at the time, parks 0.47,
+  route marker 3.4/2.8→2.1/0.37, tape alpha, tertiary roads ON, labels 15px / halo 2, water
+  15–20px / spacing 3, crop W 103.671). Stale old-build internals REJECTED (cloudRadiusFrac 0.17,
+  PIN 36, Segoe fonts, 5-nudge list) — they'd have resurrected fixed bugs. Deviation from "adopt
+  the paste verbatim" logged and explained to Chris.
+- **Emergent fix:** his 15px labels exposed a placement gap — nudge distance scales with font
+  size, so the ladder couldn't clear the route corridor and "Johor Bahru" silently dropped.
+  Ladder extended to 21 candidates (3-step reach) in all three copies (style defaults +
+  upgradeConfig defaults + old-shape migration list) — city restored, still zero overlaps.
+- **Pass 2 (new-shape export, post-fidelity dials):** gingham tape trial, salmon `#ff9e9e` fill,
+  pins 21/1.2/18, fine tear serration (20 segs / 1.7+1.5 amp), weathering + vignette to ZERO,
+  water text 11–16px / fillFrac 0.45, maxLabels 10, shrinkFloor 1, edgeMargin 15, SCALE 6 (bench).
+  Two token divergences flagged to Chris per §9 (salmon vs the yellow booked semantic; vivid pen
+  vs `--route-blue`).
+- **Pass 3 (LOCKED):** Chris resolved both — booked tape back to YELLOW as `#ffdf6b` (a §3
+  lighter-shade derivation of `--washi`, so booked stays yellow on every surface), pattern plain;
+  vivid map pen `#2e79ea` CONFIRMED. design.md §3 rows annotated (map-pen split — UI token
+  `#3E6C8E` unchanged since the vivid fails 4.5:1 for text; washi variant note) and §8's stale
+  MapLibre map-style section rewritten to point at the engine + lock file. Weathering/vignette at
+  0 are his deliberate zeros (clean paper; warmth carried by the land texture — no §9 conflict:
+  the lock governs hues, not overlay intensity).
+- Ground truth refreshed: `design/refs/d2.3-map-engine-vs-board.png` (locked render vs board).
+  **M0.5 DONE.**
+
+## M1 — engine wired into the real reveal at /trip/[id] (2026-07-06, same session)
+
+**Built:**
+- **Engine moved to product:** `git mv design/map-engine/map-render-core.js →
+  src/lib/map/map-render-core.js` (history preserved). Both bench tools serve it from there
+  (CORE_PATH) at the same URL, and import the new **`src/lib/map/map-style-defaults.mjs`** —
+  ONE art source for app + harness + studio (kills the config-drift risk that motivated the
+  "paste into BOTH callers" step in the old handoff).
+- **Core M1 API:** `provideLibs()` (app injects npm-bundled pbf@3.2.1 / @mapbox/vector-tile@1.3.1 /
+  roughjs@4.6.6 — exact CDN-parity versions; the jsDelivr fallback imports carry
+  webpackIgnore+turbopackIgnore so bundlers never resolve them); **base/overlay scene split**
+  per the plan's layer rule — `buildScene` (geography + labels painted once, snapshotted) /
+  `paintOverlay` (route/pins/washi per visit order on the restored snapshot) /
+  `renderToDisplay` (crop → display canvas, width-capped); `paintFull` wrapper keeps the bench
+  byte-compatible (z-order note: water labels now sit under the overlay; placement already avoids
+  it, so only a REORDERED route can cross one — accepted, logged). `WASHI_INDEX` null/-1/oob →
+  no tape (real trips may have no booked anchor).
+- **`src/ui/reveal/RevealMap.tsx`** (client): computes the fixed view from stop coords (padded
+  bbox → Z toward ~1150px crop at K≈1, Mercator-correct placeholder aspect), resolves the hand
+  font from next/font's `--font-display` variable (canvas needs the REAL renamed family), lazy
+  npm-lib injection, textures from `public/map/assets/tex/`, base painted once + overlay redrawn
+  on order/booked changes, ResizeObserver re-blit, DPR-capped display, journal-voice error state
+  with retry, decode cache cleared on unmount. e2e hooks: data-phase/paints/order/washi.
+- **`app/trip/[id]/page.tsx`:** mounts RevealMap above PlanView for the first day with stops
+  (order = `plan.order` when ok — manualOrder flows through — else stored order; booked = first
+  anchored stop; multi-day caption until T6's day tabs). **Resilience fix found by live smoke:**
+  `planTripDay` failures used to 500 the whole reveal; now caught per-day → PlanView's rejected
+  state renders and the map still paints the stored order.
+- `src/types/untyped-map-libs.d.ts` (ambient decls; no @types deps), `e2e/reveal.spec.ts`.
+
+**Verified and how (fresh runs this session):**
+- `npx tsc --noEmit` → clean · `npx jest` → **109/109** (18 suites) · `npx playwright test` →
+  **16/16** (2 new reveal specs: map paints with all stops + washi on the anchored stop, canvas
+  pixel variance; pinned manualOrder reload paints that exact order — tiles network-stubbed:
+  TileJSON → stub, tiles → 404, engine's failed-tile tolerance exercised, zero external network).
+- `npx next build` → **clean production build**; /trip/[id] = 12.6 kB route JS + 115 kB first
+  load; engine libs are lazy async chunks; landing page untouched (plan constraint met).
+- **Live visual smoke** (real OpenFreeMap tiles, dev server, real JB coords): page ready, 1 paint,
+  all 5 stops in order, washi=1, ZERO console/page errors — screenshot eyeballed (locked art on
+  the real page; PlanView correctly showed its rejected state for the synthetic fixture-unknown
+  ids — the resilience path, working as designed). Also proves the npm-lib decode path against
+  real tiles (dev bundling).
+- Bench after the move: harness ok 6/6 + studio smoketest PASS (all controls, meanDiff 0).
+- **Fresh-context review (opus, cold diff): 0 blocking, 2 minor, 6 observations.** Every locked
+  value verified byte-exact; ladder copies identical; upgradeConfig round-trips the lock
+  unchanged; no canvas-state leaks across overlay repaints; overlayFor desync ruled out
+  (plan.order is a strict permutation by construction). Both minors FIXED post-review (decode
+  cache cleared on unmount; Mercator placeholder aspect) + re-verified (tsc, reveal e2e 2/2).
+  Observations accepted with rationale: transient stale-scene paint masked by React batching
+  (M2 note), pin-declutter direction is order-dependent-but-deterministic (M2 drag-UX note),
+  production-webpack real-tile decode unexercised by automated tests (dev-bundled live smoke +
+  identical engine source on the bench path = low risk; add to the D2.4 deployed-preview
+  eyeball), loose pixel threshold backed by attribute assertions, weathering-zero documented,
+  computeView Z-floor canvas guard unnecessary at product scale.
+
+**Deviations:** M0.5/M1 ordering inverted vs the handoff (fidelity fixes before config lock) —
+logged above with rationale; plan's "MapLibre + style JSON" reveal fully superseded by the
+engine (already an approved deviation, now reflected in design.md §8).
+
+**Next (per handoff order):** **M2** motion (cloud transition, route draw-on + re-sketch + sfx,
+lazy Motion) · **T6** torn-journal sidebar (dnd-kit reorder → manualOrder wired to the live map
+overlay + duplicateOf flag UI) · **T7** LOCKED §2 surfaces · **T8** full-flow e2e · **T9** whole-
+branch audit · **T10** done-check + merge to main. Higgsfield ~776 cr. `.superpowers/` scratch
+remains untracked by design.
