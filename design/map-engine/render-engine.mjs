@@ -32,21 +32,21 @@ const CONFIG = {
   Z: 11, // render zoom — Z11's sparser road geometry reads more like the hand-drawn board than Z12
   EXTENT_FALLBACK: 4096, // MVT extent fallback if layer.extent is missing
   TILE: 256, // base slippy-tile size (px)
-  SCALE: 2, // upscale factor -> tilePx = TILE*SCALE, crisper paint
+  SCALE: 4, // was 2 — bumped to the studio's resolution so the harness output is crisp AND (thanks to
+  // REF_TILEPX normalization below) proportions now match the studio exactly at any SCALE.
+  REF_TILEPX: 1024, // FIDELITY PASS — the resolution (TILE*SCALE) every px value below is authored at.
+  // paintFull scales all sizes by K = TILEPX/REF_TILEPX, so SCALE changes RESOLUTION only, never proportions.
   BBOX: { W: 103.62, E: 103.98, N: 1.57, S: 1.37 }, // fetch footprint — deliberately wider than VIEW_BBOX below so
   // geometry still bleeds to the crop edges instead of the canvas running out of tiles right at the frame.
-  VIEW_BBOX: { W: 103.67, E: 103.88, N: 1.525, S: 1.408 }, // FIX 1 — tight JB city + Straits crop window (a
-  // sub-rect of BBOX above; BBOX itself is NOT re-fetched/changed). Brief's starting rect was S: 1.415; nudged to
-  // 1.408 because route pt5 (the Straits point, closest to this edge) cleared the original edge by only ~18px —
-  // see report for the exact margins.
-  MAX_SCREENSHOT_W: 1600, // brief: "scale down to <=1600px wide but keep it crisp" — now applied to VIEW_BBOX's
-  // own crop width (FIX 1), not the full fetched grid's width, since the crop is the deliverable.
+  VIEW_BBOX: { W: 103.67, E: 103.88, N: 1.525, S: 1.408 }, // tight JB city + Straits crop window (a
+  // sub-rect of BBOX above; BBOX itself is NOT re-fetched/changed).
+  MAX_SCREENSHOT_W: 1600, // display cap, applied to VIEW_BBOX's crop width (the crop is the deliverable)
   FILL_RULE: "nonzero", // MVT spec winding (exterior CW / holes CCW in tile-px space) -> nonzero is spec-correct for clip()
+  STROKE_SEED: 7, // FIDELITY PASS — per-feature Rough.js seeds derive from this: strokes are
+  // deterministic across repaints (plan constraint; only the route deliberately re-sketches at M2).
 
-  TEXTURE_SCALE: 0.4, // CanvasPattern.setTransform scale — our textures are
-  // 2048px square; at 1.0 only a sliver of one texture would show across a
-  // ~2500px canvas, so we shrink the pattern tile so grain repeats a few
-  // times instead of reading as one giant flat swatch. Pure my judgment call.
+  TEXTURE_SCALE: 0.4, // CanvasPattern scale, authored at REF_TILEPX (scaled by K like every px value,
+  // so texture grain keeps the same size relative to the geography at any resolution).
 
   COLORS: {
     ink: "#2B2620",
@@ -59,8 +59,9 @@ const CONFIG = {
     pinFill: "#F6F1E7",
     pinStroke: "#2B2620",
     washiFill: "#F4C95D",
-    washiShade: "rgba(120,90,20,0.30)", // faint darker torn-edge shadow on tape
-    washiSheen: "rgba(255,255,255,0.20)", // faint inner top sheen on tape
+    washiShade: "rgba(120,90,20,0.30)", // tear shading on the torn ENDS (never a full outline)
+    washiSheen: "rgba(255,255,255,0.20)", // gated by WASHI.sheenAlpha (0 = matte, board-faithful)
+    washiPatternTint: "#FFFFFF", // gingham/stripes bar tint over the tape fill (alpha via WASHI.patternAlpha)
     vignetteEdge: "rgba(74,58,38,0.20)",
   },
   WIDTHS: {
@@ -68,68 +69,85 @@ const CONFIG = {
     waterway: 1.2,
     roadMajor: 2.6,
     roadSecondary: 1.6,
-    route: 3.4,
-    pinStroke: 2.3,
-    washiStroke: 1.6,
+    washiStroke: 1.1, // width of the tear shading stroke on the tape's torn ends
   },
   ROUGHNESS: { coast: 1.4, road: 1.2, route: 1.6 },
   BOWING: { coast: 1, route: 2 },
   ALPHA: { park: 0.4, weathering: 0.22 },
 
-  // ---- CHANGE 3: route line as a fine blue marker (smooth curve + bleed) ----
+  // ---- route line as a fine blue marker (smooth curve + bleed) --------------
   ROUTE_WIDTH: 3, // fine-marker core width
   ROUTE_BLEED_EXTRA: 2, // felt-tip bleed under-stroke width is (core + this)
   ROUTE_BLEED_ALPHA: 0.3, // opacity of the soft bleed under-stroke
-  ROUTE_SMOOTH: true, // Catmull-Rom smoothing through route points (no jitter)
 
-  // ---- CHANGE 2: washi tape (translucent body + torn short edges) ----------
-  WASHI_ALPHA: 0.82, // tape body opacity — map shows through faintly
-  WASHI_TEAR_SEGMENTS: 6, // jagged segment count per torn short (left/right) edge
-  WASHI_TEAR_AMP: 2.6, // px perpendicular jitter amplitude of the torn edge
-  WASHI_TEAR_SEED: 20260705, // seed so the tear shape is deterministic
+  // ---- pins — board proportions: fine thin-ink circles, hand-font digits ----
+  PIN: {
+    diameter: 26, // board pins are ~2% of the map width — half the first cut's 36
+    strokeWidth: 1.7, // thin fineliner ring, not a heavy badge
+    numFontSize: 13, // hand-font digit, optically centered
+    declutter: true, // overlapping pins (real trips!) push apart deterministically…
+    declutterGap: 4, // …to this clearance, with an ink leader + dot at the true spot
+    leaderDot: 2.4,
+  },
 
-  // ---- CHANGE 1: label subsystem tunables ----------------------------------
-  // (a) curved water-body labels — text-on-path along a PCA centerline spine
+  // ---- washi tape — board-faithful: content-sized, tilted, torn ENDS only ---
+  WASHI: {
+    h: 30,
+    padX: 12, // horizontal padding around the "④ Booked" lettering; tape width follows content
+    minW: 90,
+    maxW: 240,
+    fontSize: 15, // hand-font ink lettering (Segoe UI is banned by design.md §2.4)
+    alpha: 0.94, // near-opaque like the board (dial down for see-through tape)
+    angleDeg: -3, // the slight hand-placed tilt the board tape has
+    tearSegs: 12, // multi-scale torn ends: coarse rip…
+    tearAmp: 3.2,
+    tearFine: 1.1, // …plus fine fiber serration
+    seed: 20260705, // deterministic tear shape
+    pattern: "plain", // 'plain' | 'gingham' | 'stripes' (subtle, token-color-safe)
+    patternAlpha: 0.13,
+    sheenAlpha: 0, // board tape is matte — gloss off by default, dial preserved
+    offset: 0.72, // tape center distance from its pin, in tape-heights
+  },
+
+  // ---- (a) curved water-body labels — text-on-path along a PCA spine --------
   WATER_LABEL: {
     fontStyle: "italic",
     fontFamily: "'Gochi Hand'",
     fontBase: 24, // base measuring size; auto-scaled to the water-body size
-    fontMin: 13, // never render curved water text smaller than this…
-    fontMax: 40, // …or larger than this
-    fillFrac: 0.86, // text should span this fraction of the spine length
-    cloudRadiusFrac: 0.09, // BUG FIX — was 0.17. Local water-vertex cloud radius, as fraction of canvasW;
-    // shrunk so the PCA spine is built from the LOCAL water body only. 0.17 was wide enough to blend
-    // multiple nearby water bodies (Straits + JB rivers + Singapore reservoirs) into one cloud, drifting
-    // the spine off the water; paired with drawCurvedLabel's anchor-centering fix in map-render-core.js.
+    fontMin: 12, // never render curved water text smaller than this…
+    fontMax: 28, // …or larger than this (board's channel lettering is modest — was 40)
+    fillFrac: 0.62, // text spans this fraction of the spine (was 0.86 — stretched across the whole strait)
+    cloudRadiusFrac: 0.09, // local water-vertex cloud radius, as fraction of canvasW (local body only;
+    // wider radii blend multiple water bodies into one cloud and drift the spine onto land)
     minCloud: 40, // need at least this many nearby water vertices to curve
-    buckets: 10, // spine centerline resolution (bins along the principal axis)
+    buckets: 12, // spine centerline resolution (bins along the principal axis)
     trim: 0.1, // trim this fraction off each spine end (text sits inside body)
-    smoothPasses: 1, // moving-average passes to smooth the spine polyline
-    letterSpacing: 1.5, // px added between glyphs along the path
-    haloWidth: 5, // paper-halo stroke width for curved glyphs
-    glyphSkipMargin: 4, // FIX 2 — a curved-label glyph is skipped (cursor still advances) only when its exact
-    // sample point lands inside a pin's TRUE visual disc (radius + this margin) or the washi box (+ this
-    // margin). Deliberately tight/point-based (not the padded rect used for point-label spacing below) —
-    // pins 3/4/5 all sit close to the strait's centerline, so a generously-padded test blanks out most of
-    // the word instead of just the 1-2 glyphs that actually land on a pin.
+    smoothPasses: 2, // moving-average passes to smooth the spine polyline
+    letterSpacing: 2, // px added between glyphs along the path
+    haloWidth: 4, // paper-halo stroke width for curved glyphs
+    glyphSkipMargin: 4, // clearance margin for the tight per-glyph pin/washi test inside the
+    // window search. Glyphs are NEVER dropped mid-word anymore — the whole word slides along
+    // the channel (and shrinks stepwise) until every glyph clears pins/washi/labels/frame.
   },
-  // (b) point (city/town) labels — greedy collision avoidance, stay horizontal
+  // ---- (b) point (city/town) labels — nudge → shrink → drop, edge-aware -----
   POINT_LABEL: {
+    fontSize: 22, // board-scale hand lettering (was 28)
     haloPad: 3, // px padding around each label bbox (spacing between labels)
-    haloWidth: 6, // paper-halo stroke width
-    nudges: [ [0, 0], [0, -1], [0, 1], [-1, 0], [1, 0] ], // offsets (×fontSize×step) tried in order
+    haloWidth: 5, // paper-halo stroke width
+    nudges: [
+      [0, 0], [0, -1], [0, 1], [-1, 0], [1, 0],
+      [-1, -1], [1, -1], [-1, 1], [1, 1], [0, -2], [0, 2],
+    ], // offsets (×fontSize×nudgeStep) tried in order — now incl. diagonals + 2-step verticals
     nudgeStep: 0.9, // nudge magnitude as a multiple of the font size
-    pinPad: 4, // FIX 2 — extra px clearance between a label's bbox and each route-pin / washi-tag occupied box
+    pinPad: 4, // extra px clearance between a label's bbox and each route-pin / washi occupied box
+    maxLabels: 8, // density cap — route map, not a street atlas (design.md §8; board shows a couple of names)
+    twoLineMaxW: 170, // wider single-line labels wrap to two lines (like the board's mosque label)
+    shrinkFloor: 0.8, // labels may shrink to this ×fontSize before dropping
+    edgeMargin: 10, // no text within this of the crop edge — kills the mid-word frame slicing
+    routePad: 3, // clearance between labels and the route pen line (tape may cross it; text may not)
   },
 
-  FONT_LABEL: "28px 'Gochi Hand'",
-  FONT_WATER_NAME: "italic 24px 'Gochi Hand'",
-  FONT_PIN_NUM: "bold 18px 'Segoe UI', sans-serif",
-  FONT_WASHI: "bold 16px 'Segoe UI', sans-serif",
-
-  PIN_DIAMETER: 36, // not specified by brief -> my default, easy to retune
-  WASHI_W: 118,
-  WASHI_H: 32,
+  FONT_FAMILY_HAND: "'Gochi Hand'", // every piece of map lettering (labels, pin digits, washi) — §2.4
 
   ROAD_CLASSES_MAJOR: ["motorway", "trunk", "primary"],
   ROAD_CLASSES_SECONDARY: ["secondary"],

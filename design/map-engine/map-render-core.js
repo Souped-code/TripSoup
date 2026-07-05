@@ -7,19 +7,53 @@
 // Design rule: everything is parameterized over a `config` object and
 // `textures` (already-loaded <img>/ImageBitmap elements) passed in at call
 // time. This module never string-interpolates CONFIG and has no baked-in
-// defaults of its own — the caller (render-engine.mjs today; map-studio.mjs
-// next) owns the CONFIG values and textures.
+// defaults of its own — the caller (render-engine.mjs / map-studio.mjs) owns
+// the CONFIG values and textures. upgradeConfig() (exported) migrates any
+// older flat-field CONFIG shape (e.g. a Copy-CONFIG export from an earlier
+// studio build) to the current shape, so pasted configs keep working.
+//
+// FIDELITY PASS (M0.5 audit, 2026-07-05) — what changed vs the first cut:
+//   * RESOLUTION-INVARIANT SIZING: every px-dimension in CONFIG (fonts, pin
+//     diameter, washi box, stroke widths, tear amplitude, texture grain) is
+//     authored at a reference resolution (REF_TILEPX, default TILE*SCALE at
+//     author time) and internally multiplied by K = TILEPX/REF_TILEPX, so the
+//     same config paints identical PROPORTIONS at any SCALE/DPR. Before this,
+//     SCALE silently changed the relative size of all text/pins.
+//   * TEXT: optically centered via measured glyph bounds (no em-box + magic
+//     +1px), explicit textAlign/Baseline at every draw site (no leaked canvas
+//     state), all map lettering in the hand font (design.md §2.4 bans system
+//     faces), washi label measured and the tape sized to its content,
+//     long point labels wrap to two lines (like the board's mosque label).
+//   * WASHI: slight tilt, multi-scale torn ENDS only (long edges straight,
+//     no full-perimeter outline), circled stop number ④ + 'Booked' in ink,
+//     optional gingham/stripes pattern, placement collision-tested against
+//     pins (tape may lie across the route — that's the point of tape — but
+//     never covers a pin or leaves the frame).
+//   * CROWDING (trip overlay wins): route/pins/washi never yield. Point
+//     labels nudge (incl. diagonals) → shrink stepwise → drop; they avoid the
+//     route line, pins, washi, each other, and the crop edge (no more labels
+//     sliced mid-word at the frame). Curved water labels slide along the
+//     channel spine to the clearest window and shrink before ever colliding;
+//     glyphs are NEVER dropped mid-word anymore (that produced "Straits …
+//     Johor"). Water labels also register their glyph boxes so later labels
+//     avoid them.
+//   * PINS: per-feature seeded Rough.js strokes (deterministic repaints — a
+//     plan-level constraint for M1's reorder redraws) and a declutter pass:
+//     overlapping pins get pushed apart with a small ink leader + dot at the
+//     true location.
 //
 // Public API (import * as MapRenderCore from './map-render-core.js'):
 //   preloadLibs() -> Promise<{Pbf, VectorTile, rough}>   optional warm-start
 //   loadImage(src) -> Promise<HTMLImageElement>
+//   upgradeConfig(config) -> config'                     old-shape migration (idempotent)
 //   fetchAndDecode(config, opts?) -> Promise<Decoded>    cached per view (Z/BBOX/TILE/SCALE/EXTENT_FALLBACK)
 //   clearDecodeCache() -> void
 //   paintFull(canvas, config, decoded, textures) -> Promise<Stats>
 //
 // Decoded shape: { layers, layerCounts, grid, MINX, MAXX, MINY, MAXY, TILEPX,
 //                  CANVAS_W, CANVAS_H, tilesFetched, tilesFailed, tileTemplate }
-// Stats shape:   { labelStats: {waterCurved, waterStraight, pointsPlaced, pointsSkipped},
+// Stats shape:   { labelStats: {waterCurved, waterStraight, waterSkipped,
+//                  pointsPlaced, pointsSkipped, pinsDisplaced},
 //                  crop: {x,y,w,h}, dispW, dispH, canvasW, canvasH }
 // textures shape: { land, water, park, weathering } (HTMLImageElement each)
 
@@ -53,6 +87,131 @@ export function loadImage(src) {
     img.onerror = () => reject(new Error('image failed to load: ' + src));
     img.src = src;
   });
+}
+
+// ============================================================================
+// 0.5 CONFIG shape migration + defaults for the fidelity-pass fields.
+// Accepts the pre-fidelity flat shape (FONT_LABEL/"28px 'Gochi Hand'",
+// PIN_DIAMETER, WASHI_W/H/ALPHA/TEAR_*, FONT_PIN_NUM, FONT_WASHI) and
+// returns the current shape. Idempotent: a new-shape config passes through
+// with only missing-field defaults filled. Never mutates its argument.
+// ============================================================================
+function parseFontPx(fontStr, fallback) {
+  const m = /(\d+(?:\.\d+)?)px/.exec(fontStr || '');
+  return m ? parseFloat(m[1]) : fallback;
+}
+
+export function upgradeConfig(cfg) {
+  const c = structuredClone(cfg);
+
+  // Reference resolution all size values are authored at. For an old config
+  // (no REF_TILEPX) this is its OWN TILE*SCALE — proportions render exactly
+  // as they did in the tool that exported it, then stay locked at any scale.
+  if (!c.REF_TILEPX) c.REF_TILEPX = (c.TILE || 256) * (c.SCALE || 4);
+
+  if (!c.FONT_FAMILY_HAND) c.FONT_FAMILY_HAND = "'Gochi Hand'";
+  if (!c.STROKE_SEED) c.STROKE_SEED = 7;
+
+  c.PIN = Object.assign(
+    {
+      diameter: c.PIN_DIAMETER != null ? c.PIN_DIAMETER : 26,
+      strokeWidth: (c.WIDTHS && c.WIDTHS.pinStroke) != null ? c.WIDTHS.pinStroke : 1.7,
+      numFontSize: parseFontPx(c.FONT_PIN_NUM, 13),
+      declutter: true,
+      declutterGap: 4,
+      leaderDot: 2.4,
+    },
+    c.PIN || {}
+  );
+
+  c.WASHI = Object.assign(
+    {
+      h: c.WASHI_H != null ? c.WASHI_H : 30,
+      padX: 12,
+      minW: c.WASHI_W != null ? Math.min(c.WASHI_W, 240) : 90,
+      maxW: 240,
+      fontSize: parseFontPx(c.FONT_WASHI, 15),
+      alpha: c.WASHI_ALPHA != null ? c.WASHI_ALPHA : 0.94,
+      angleDeg: -3,
+      tearSegs: c.WASHI_TEAR_SEGMENTS != null ? Math.max(8, c.WASHI_TEAR_SEGMENTS) : 12,
+      tearAmp: c.WASHI_TEAR_AMP != null ? c.WASHI_TEAR_AMP : 3.2,
+      tearFine: 1.1,
+      seed: c.WASHI_TEAR_SEED != null ? c.WASHI_TEAR_SEED : 20260705,
+      pattern: 'plain', // 'plain' | 'gingham' | 'stripes'
+      patternAlpha: 0.13,
+      sheenAlpha: 0, // board tape has no gloss — kept as a dial, default off
+      offset: 0.72, // tape center distance from its pin, in tape-heights
+    },
+    c.WASHI || {}
+  );
+
+  c.WATER_LABEL = Object.assign(
+    {
+      fontStyle: 'italic', fontBase: 24, fontMin: 12, fontMax: 28,
+      fillFrac: 0.62, cloudRadiusFrac: 0.09, minCloud: 40, buckets: 12,
+      trim: 0.1, smoothPasses: 2, letterSpacing: 2, haloWidth: 4,
+      glyphSkipMargin: 4,
+    },
+    c.WATER_LABEL || {}
+  );
+  if (!c.WATER_LABEL.fontFamily) c.WATER_LABEL.fontFamily = c.FONT_FAMILY_HAND;
+
+  c.POINT_LABEL = Object.assign(
+    {
+      fontSize: parseFontPx(c.FONT_LABEL, 22),
+      haloPad: 3, haloWidth: 5,
+      nudges: [
+        [0, 0], [0, -1], [0, 1], [-1, 0], [1, 0],
+        [-1, -1], [1, -1], [-1, 1], [1, 1], [0, -2], [0, 2],
+      ],
+      nudgeStep: 0.9, pinPad: 4,
+      maxLabels: 8, // route map, not a street atlas (design.md §8)
+      twoLineMaxW: 170, // wider single-line labels wrap like the board's mosque label
+      shrinkFloor: 0.8, // labels may shrink to this ×fontSize before dropping
+      edgeMargin: 10, // no text within this of the crop edge (kills mid-word slicing)
+      routePad: 3, // clearance between labels and the route pen line
+    },
+    c.POINT_LABEL || {}
+  );
+  // an OLD-shape config's 5-nudge list would defeat the new placement — but
+  // only replace it when the config really is old-shape (FONT_LABEL marks
+  // that); a deliberately short NEW-shape list is respected.
+  if (c.FONT_LABEL != null && c.POINT_LABEL.nudges.length < 8) {
+    c.POINT_LABEL.nudges = [
+      [0, 0], [0, -1], [0, 1], [-1, 0], [1, 0],
+      [-1, -1], [1, -1], [-1, 1], [1, 1], [0, -2], [0, 2],
+    ];
+  }
+
+  return c;
+}
+
+// Every CONFIG px value is authored at REF_TILEPX; multiply by K at paint
+// time so proportions are resolution-invariant. deriveSizes() is the single
+// place that scaling happens — draw code below reads D.*, never C.* px.
+function deriveSizes(C, K) {
+  const s = (v) => v * K;
+  return {
+    K,
+    coast: s(C.WIDTHS.coast), waterway: s(C.WIDTHS.waterway),
+    roadMajor: s(C.WIDTHS.roadMajor), roadSecondary: s(C.WIDTHS.roadSecondary),
+    washiEdge: s(C.WIDTHS.washiStroke != null ? C.WIDTHS.washiStroke : 1.1),
+    routeWidth: s(C.ROUTE_WIDTH), routeBleed: s(C.ROUTE_WIDTH + C.ROUTE_BLEED_EXTRA),
+    pinDiam: s(C.PIN.diameter), pinStroke: s(C.PIN.strokeWidth),
+    pinNum: s(C.PIN.numFontSize), pinGap: s(C.PIN.declutterGap), leaderDot: s(C.PIN.leaderDot),
+    washiH: s(C.WASHI.h), washiPadX: s(C.WASHI.padX),
+    washiMinW: s(C.WASHI.minW), washiMaxW: s(C.WASHI.maxW),
+    washiFont: s(C.WASHI.fontSize), washiTearAmp: s(C.WASHI.tearAmp),
+    washiTearFine: s(C.WASHI.tearFine), washiOffset: C.WASHI.offset, // in tape-heights
+    wlFontBase: s(C.WATER_LABEL.fontBase), wlFontMin: s(C.WATER_LABEL.fontMin),
+    wlFontMax: s(C.WATER_LABEL.fontMax), wlLetterSpacing: s(C.WATER_LABEL.letterSpacing),
+    wlHalo: s(C.WATER_LABEL.haloWidth), wlGlyphMargin: s(C.WATER_LABEL.glyphSkipMargin),
+    plFont: s(C.POINT_LABEL.fontSize), plHaloPad: s(C.POINT_LABEL.haloPad),
+    plHalo: s(C.POINT_LABEL.haloWidth), plPinPad: s(C.POINT_LABEL.pinPad),
+    plTwoLineMaxW: s(C.POINT_LABEL.twoLineMaxW), plEdge: s(C.POINT_LABEL.edgeMargin),
+    plRoutePad: s(C.POINT_LABEL.routePad),
+    textureScale: C.TEXTURE_SCALE * K,
+  };
 }
 
 // ============================================================================
@@ -98,11 +257,10 @@ function polyPath(features, grid) {
 }
 
 // ============================================================================
-// SMALL SHARED HELPERS (overlay art — used by washi + route below). Already
-// parameterized in the original (no closure over module-level config), so
-// carried over verbatim.
+// SMALL SHARED HELPERS
 // ============================================================================
-// mulberry32 — seeded PRNG so the torn washi edge is deterministic run-to-run.
+// mulberry32 — seeded PRNG so torn washi edges (and any other stochastic art)
+// are deterministic run-to-run.
 function makeRng(seed) {
   let a = seed >>> 0;
   return function () {
@@ -112,6 +270,10 @@ function makeRng(seed) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+
+// Deterministic per-feature Rough.js seed (plan constraint: strokes stable
+// across repaints — only the route deliberately re-sketches at M2).
+function featureSeed(C, idx) { return ((C.STROKE_SEED + 1) * 7919 + idx * 104729) % 2147483647 + 1; }
 
 // Smooth stroke through points via Catmull-Rom -> cubic bezier (no jitter).
 function strokeSmoothPath(ctx, pts, width, color, alpha) {
@@ -132,57 +294,233 @@ function strokeSmoothPath(ctx, pts, width, color, alpha) {
   ctx.stroke(); ctx.restore();
 }
 
-// CHANGE 3 — fine blue marker: soft wide bleed under-stroke + crisp core.
-function drawMarkerRoute(ctx, pts, C) {
-  strokeSmoothPath(ctx, pts, C.ROUTE_WIDTH + C.ROUTE_BLEED_EXTRA, C.COLORS.routeLine, C.ROUTE_BLEED_ALPHA);
-  strokeSmoothPath(ctx, pts, C.ROUTE_WIDTH, C.COLORS.routeLine, 1);
+// fine blue marker: soft wide bleed under-stroke + crisp core.
+function drawMarkerRoute(ctx, pts, C, D) {
+  strokeSmoothPath(ctx, pts, D.routeBleed, C.COLORS.routeLine, C.ROUTE_BLEED_ALPHA);
+  strokeSmoothPath(ctx, pts, D.routeWidth, C.COLORS.routeLine, 1);
 }
 
-// CHANGE 2 — washi tape: long (top/bottom) edges straight, short (left/right)
-// edges torn with small seeded perpendicular jitter; translucent body so the
-// map shows through; faint inner sheen + torn-edge shadow; label at full alpha.
-function tornTapePath(x, y, w, h, segs, amp, rng) {
-  const left = x, right = x + w, top = y, bot = y + h;
+// ============================================================================
+// TEXT HELPERS — optical centering + explicit state, no leaked canvas state.
+// ============================================================================
+function fontStr(style, sizePx, family) {
+  return (style ? style + ' ' : '') + sizePx + 'px ' + family;
+}
+
+// Draw text whose MEASURED glyph box is centered on (x, y) — not the em box
+// (em-box 'middle' centering is why lettering used to sit low in pins/tape).
+// alsoX additionally centers the visual box horizontally — worth it for
+// single digits, whose side bearings are lopsided in hand fonts.
+function textOpticalOffsets(ctx, text, alsoX) {
+  const m = ctx.measureText(text);
+  if (m.actualBoundingBoxAscent == null) return null; // engine without the API
+  return {
+    dy: (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2,
+    dx: alsoX ? (m.actualBoundingBoxLeft - m.actualBoundingBoxRight) / 2 : 0,
+  };
+}
+function fillTextOptical(ctx, text, x, y, alsoX) {
+  const o = textOpticalOffsets(ctx, text, alsoX);
+  if (!o) {
+    const prev = ctx.textBaseline;
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x, y);
+    ctx.textBaseline = prev;
+    return;
+  }
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText(text, x + o.dx, y + o.dy);
+}
+function strokeTextOptical(ctx, text, x, y, alsoX) {
+  const o = textOpticalOffsets(ctx, text, alsoX);
+  if (!o) {
+    const prev = ctx.textBaseline;
+    ctx.textBaseline = 'middle';
+    ctx.strokeText(text, x, y);
+    ctx.textBaseline = prev;
+    return;
+  }
+  ctx.textBaseline = 'alphabetic';
+  ctx.strokeText(text, x + o.dx, y + o.dy);
+}
+
+// ============================================================================
+// WASHI TAPE — board-faithful: content-sized, slightly tilted, torn ENDS only
+// (long edges straight, no perimeter outline), circled stop number + 'Booked'
+// hand-lettered in ink, optional gingham/stripes pattern. Placement is
+// collision-tested by planWashiTag; drawWashiTag renders a computed plan.
+// ============================================================================
+
+// Torn short edge: multi-scale jitter (coarse tear + fine fiber serration),
+// walking top->bottom at x0 in LOCAL tape coords. Returns the polyline points.
+function tornEdge(x0, top, bot, segs, ampCoarse, ampFine, rng, dir) {
   const pts = [];
-  pts.push({ x: left, y: top }); pts.push({ x: right, y: top });        // top edge straight L->R
-  for (let i = 1; i < segs; i++) { const t = i / segs; pts.push({ x: right + (rng() * 2 - 1) * amp, y: top + (bot - top) * t }); } // right torn top->bottom
-  pts.push({ x: right, y: bot });
-  pts.push({ x: left, y: bot });                                        // bottom edge straight R->L
-  for (let i = segs - 1; i >= 1; i--) { const t = i / segs; pts.push({ x: left + (rng() * 2 - 1) * amp, y: top + (bot - top) * t }); } // left torn bottom->top
+  let coarsePrev = (rng() * 2 - 1) * ampCoarse, coarseNext = (rng() * 2 - 1) * ampCoarse;
+  for (let i = 1; i < segs; i++) {
+    const t = i / segs;
+    // low-frequency tear (interpolated so neighbours cohere) + high-frequency fiber nicks
+    if (i % 3 === 0) { coarsePrev = coarseNext; coarseNext = (rng() * 2 - 1) * ampCoarse; }
+    const coarse = coarsePrev + (coarseNext - coarsePrev) * ((i % 3) / 3);
+    const fine = (rng() * 2 - 1) * ampFine;
+    pts.push({ x: x0 + dir * Math.abs(coarse) + fine, y: top + (bot - top) * t });
+  }
   return pts;
 }
-function drawWashiTape(ctx, x, y, w, h, label, C) {
-  const rng = makeRng(C.WASHI_TEAR_SEED);
-  const pts = tornTapePath(x, y, w, h, C.WASHI_TEAR_SEGMENTS, C.WASHI_TEAR_AMP, rng);
+
+// Local-space torn tape outline: (0,0) is the tape center; w/h full size.
+// dir on each end points INWARD so tears bite into the tape (like real rips).
+function tapeOutline(w, h, C, D, rng) {
+  const L = -w / 2, R = w / 2, T = -h / 2, B = h / 2;
+  const pts = [{ x: L, y: T }, { x: R, y: T }]; // top edge straight L->R
+  pts.push(...tornEdge(R, T, B, C.WASHI.tearSegs, D.washiTearAmp, D.washiTearFine, rng, -1)); // right end
+  pts.push({ x: R, y: B }, { x: L, y: B }); // bottom edge straight R->L
+  pts.push(...tornEdge(L, B, T, C.WASHI.tearSegs, D.washiTearAmp, D.washiTearFine, rng, +1)); // left end
+  return pts;
+}
+
+// Measure the tape's label ("④ Booked" = circled index + word) and produce
+// the placed, rotated tape plan: center, size, corners, AABB. Placement tries
+// candidate anchors around the pin (below, above, right, left, below-far) and
+// takes the first whose AABB hits no pin disc and stays inside the crop.
+// The tape MAY lie across the route line — that is what tape does — but never
+// covers a pin and never leaves the frame.
+function planWashiTag(ctx, C, D, pinPos, allPinDiscs, cropInset, numText, wordText) {
+  ctx.font = fontStr('', D.washiFont, C.FONT_FAMILY_HAND);
+  const circleR = D.washiFont * (numText.length > 1 ? 0.98 : 0.78); // 2-digit stops need a wider ring
+  const gap = D.washiFont * 0.42;
+  const bookedW = ctx.measureText(wordText).width;
+  const innerW = circleR * 2 + gap + bookedW;
+  const w = Math.max(D.washiMinW, Math.min(D.washiMaxW, innerW + 2 * D.washiPadX));
+  const h = D.washiH;
+  const angle = (C.WASHI.angleDeg * Math.PI) / 180;
+
+  const dist = h * D.washiOffset + D.pinDiam / 2;
+  const candidates = [
+    { dx: 0, dy: dist + h / 2 },            // below the pin (board's choice)
+    { dx: 0, dy: -(dist + h / 2) },         // above
+    { dx: dist + w / 2, dy: 0 },            // right
+    { dx: -(dist + w / 2), dy: 0 },         // left
+    { dx: 0, dy: dist + h * 1.6 },          // farther below
+  ];
+
+  const corners = (cx, cy) => {
+    const cos = Math.cos(angle), sin = Math.sin(angle);
+    const m = D.washiTearAmp + D.washiTearFine; // tear can poke past the rect
+    return [[-w / 2 - m, -h / 2], [w / 2 + m, -h / 2], [w / 2 + m, h / 2], [-w / 2 - m, h / 2]]
+      .map(([lx, ly]) => ({ x: cx + lx * cos - ly * sin, y: cy + lx * sin + ly * cos }));
+  };
+  const aabbOf = (cs) => ({
+    x0: Math.min(...cs.map(c => c.x)), y0: Math.min(...cs.map(c => c.y)),
+    x1: Math.max(...cs.map(c => c.x)), y1: Math.max(...cs.map(c => c.y)),
+  });
+
+  let best = null;
+  for (const cand of candidates) {
+    const cx = pinPos.x + cand.dx, cy = pinPos.y + cand.dy;
+    const box = aabbOf(corners(cx, cy));
+    const hitsPin = allPinDiscs.some((p) => {
+      const nx = Math.max(box.x0, Math.min(p.x, box.x1)), ny = Math.max(box.y0, Math.min(p.y, box.y1));
+      return (nx - p.x) * (nx - p.x) + (ny - p.y) * (ny - p.y) < p.r * p.r;
+    });
+    const inFrame = box.x0 >= cropInset.x0 && box.x1 <= cropInset.x1 && box.y0 >= cropInset.y0 && box.y1 <= cropInset.y1;
+    if (!hitsPin && inFrame) { best = { cx, cy, box }; break; }
+    if (!best) best = { cx, cy, box }; // keep the first as a fallback
+  }
+
+  return {
+    cx: best.cx, cy: best.cy, w, h, angle, aabb: best.box,
+    circleR, gap, bookedW, innerW, numText, wordText,
+  };
+}
+
+function drawWashiTag(ctx, rc, C, D, plan) {
+  const rng = makeRng(C.WASHI.seed);
+  const pts = tapeOutline(plan.w, plan.h, C, D, rng);
+
   ctx.save();
-  ctx.globalAlpha = C.WASHI_ALPHA; // translucent tape body
-  ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
-  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-  ctx.closePath();
-  ctx.fillStyle = C.COLORS.washiFill; ctx.fill();
-  // faint inner sheen — lighter toward the top edge
-  const sheen = ctx.createLinearGradient(0, y, 0, y + h);
-  sheen.addColorStop(0, C.COLORS.washiSheen); sheen.addColorStop(0.5, 'rgba(255,255,255,0)');
-  ctx.fillStyle = sheen; ctx.fill();
-  // torn-edge shadow — faint darker outline to sell the ragged ends
-  ctx.lineWidth = 1; ctx.strokeStyle = C.COLORS.washiShade; ctx.stroke();
+  ctx.translate(plan.cx, plan.cy);
+  ctx.rotate(plan.angle);
+
+  const path = new Path2D();
+  path.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) path.lineTo(pts[i].x, pts[i].y);
+  path.closePath();
+
+  // tape body — near-opaque like the board; the dial stays for the studio
+  ctx.globalAlpha = C.WASHI.alpha;
+  ctx.fillStyle = C.COLORS.washiFill;
+  ctx.fill(path);
+
+  // optional pattern, clipped to the tape (subtle, token-color-safe)
+  if (C.WASHI.pattern && C.WASHI.pattern !== 'plain') {
+    ctx.save();
+    ctx.clip(path);
+    ctx.globalAlpha = C.WASHI.alpha * C.WASHI.patternAlpha;
+    ctx.fillStyle = C.COLORS.washiPatternTint || '#FFFFFF'; // tint bar over the token fill, not a new hue
+    const pitch = plan.h / 3.2, bar = pitch * 0.42;
+    for (let x = -plan.w / 2 - pitch; x < plan.w / 2 + pitch; x += pitch) {
+      ctx.fillRect(x, -plan.h / 2, bar, plan.h);
+    }
+    if (C.WASHI.pattern === 'gingham') {
+      for (let y = -plan.h / 2; y < plan.h / 2 + pitch; y += pitch) {
+        ctx.fillRect(-plan.w / 2, y, plan.w, bar);
+      }
+    }
+    ctx.restore();
+  }
+
+  // faint top sheen — OFF by default (board tape is matte); dial preserved
+  if (C.WASHI.sheenAlpha > 0) {
+    ctx.globalAlpha = C.WASHI.sheenAlpha;
+    ctx.fillStyle = C.COLORS.washiSheen;
+    ctx.fillRect(-plan.w / 2, -plan.h / 2, plan.w, plan.h * 0.45);
+  }
+
+  // tear shading on the torn ENDS only — never a full-perimeter outline
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = D.washiEdge;
+  ctx.strokeStyle = C.COLORS.washiShade;
+  const segs = C.WASHI.tearSegs;
+  const right = new Path2D(), left = new Path2D();
+  // pts layout: [TL, TR, ...right tear (segs-1)..., BR, BL, ...left tear (segs-1)...]
+  const rStart = 1, rEnd = 1 + (segs - 1) + 1; // TR .. BR inclusive
+  right.moveTo(pts[rStart].x, pts[rStart].y);
+  for (let i = rStart + 1; i <= rEnd; i++) right.lineTo(pts[i].x, pts[i].y);
+  const lStart = rEnd + 1; // BL
+  left.moveTo(pts[lStart].x, pts[lStart].y);
+  for (let i = lStart + 1; i < pts.length; i++) left.lineTo(pts[i].x, pts[i].y);
+  left.lineTo(pts[0].x, pts[0].y);
+  ctx.stroke(right);
+  ctx.stroke(left);
+
+  // "④ Booked" — circled stop number + word, hand font, ink, optical centering
+  ctx.globalAlpha = 1;
+  const startX = -plan.innerW / 2;
+  const circleCx = startX + plan.circleR;
+  // NOTE: no `fill` key at all — rough.js treats the string 'none' as a real
+  // fill color and paints a stray hachure line through the digit.
+  rc.circle(circleCx, 0, plan.circleR * 2, {
+    stroke: C.COLORS.pinStroke, strokeWidth: Math.max(1, D.pinStroke * 0.75),
+    roughness: 0.6, disableMultiStroke: true, seed: featureSeed(C, 991),
+  });
+  ctx.fillStyle = C.COLORS.pinStroke;
+  ctx.textAlign = 'center';
+  ctx.font = fontStr('', D.washiFont * 0.92, C.FONT_FAMILY_HAND);
+  fillTextOptical(ctx, plan.numText, circleCx, 0, true);
+  ctx.textAlign = 'left';
+  ctx.font = fontStr('', D.washiFont, C.FONT_FAMILY_HAND);
+  fillTextOptical(ctx, plan.wordText, startX + plan.circleR * 2 + plan.gap, 0);
   ctx.restore();
-  // "N · Booked" label on top at full opacity
-  ctx.font = C.FONT_WASHI; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillStyle = C.COLORS.pinStroke; ctx.fillText(label, x + w / 2, y + h / 2 + 1);
 }
 
 // ============================================================================
 // LABEL SUBSYSTEM — governs all map text so it curves/rotates to fit the
-// geography and never overlaps (incl. the route pins/washi). Self-contained;
-// already parameterized over an explicit `C`/`cfg` config param in the
-// original, so carried over verbatim.
+// geography and never overlaps (incl. the route pins/washi and the frame
+// edge). Crowding policy: TRIP OVERLAY WINS — route/pins/washi never yield;
+// basemap text nudges, shrinks, slides, and finally drops.
 //   layoutWaterLabels() — curved water-body labels (called AFTER route/pins)
-//   layoutPointLabels()  — point-label collision pass (occupied-region aware)
-//   drawCurvedLabel() — text-on-path along a water-body spine (PCA centerline),
-//                        centered on the on-water anchor point (not spine midpoint)
+//   layoutPointLabels() — point-label collision pass (occupied-region aware)
 //   drawStraightLabel() — axis-aligned fallback when a robust spine fails
-//   drawPointLabel()  — horizontal city/town label w/ paper halo
 //   + PCA / spine / arc-length geometry helpers
 // ============================================================================
 
@@ -242,11 +580,11 @@ function sampleArc(arc, s) {
 
 function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
 
-// BUG FIX (water-label-on-land): arc-length position on the spine nearest a
-// given canvas point. Used so curved text can be centered on the anchor (the
-// OSM water_name point, always ON its own water body) instead of the spine's
-// raw arc midpoint — which can drift over land when the local PCA cloud
-// blends multiple nearby water bodies (see WATER_LABEL.cloudRadiusFrac).
+// Arc-length position on the spine nearest a given canvas point. Used so
+// curved text can be centered on the anchor (the OSM water_name point, always
+// ON its own water body) instead of the spine's raw arc midpoint — which can
+// drift over land when the local PCA cloud blends multiple nearby water
+// bodies (see WATER_LABEL.cloudRadiusFrac).
 function nearestArcLength(arc, p) {
   const { spine, cum } = arc;
   let best = 0, bestD2 = Infinity;
@@ -258,10 +596,7 @@ function nearestArcLength(arc, p) {
 }
 
 // Point-based blocker test for curved-label glyphs: true circles for pins
-// (their actual visual disc + a small margin) and the washi rect (+ margin).
-// Deliberately tighter than the occupied rects used for point-label
-// placement — this only flags a glyph whose own sample point truly lands on
-// a pin/tag, not anything merely nearby (see glyphSkipMargin comment in CONFIG).
+// (their actual visual disc + a small margin) and the washi AABB (+ margin).
 function glyphBlocked(x, y, blockers) {
   if (!blockers) return false;
   for (const c of blockers.pins) { const dx = x - c.x, dy = y - c.y; if (dx * dx + dy * dy <= c.r * c.r) return true; }
@@ -270,82 +605,110 @@ function glyphBlocked(x, y, blockers) {
   return false;
 }
 
-// Text-on-path: measure each glyph, advance a cursor along the spine by its
-// width, draw it translated to the cursor + rotated to the local tangent.
-// blockers (route-pin discs + washi rect, see glyphBlocked above) — any glyph
-// whose sample point falls inside one is skipped (cursor still advances, so
-// the rest of the word keeps correct spacing) so a pin/tag under the spine
-// stays fully legible instead of being painted over.
-function drawCurvedLabel(ctx, text, arc, cfg, blockers, anchor) {
-  const chars = [...text];
-  ctx.font = cfg.fontStyle + ' ' + cfg.fontBase + 'px ' + cfg.fontFamily;
-  let base = 0; for (const c of chars) base += ctx.measureText(c).width; base += cfg.letterSpacing * (chars.length - 1);
-  let size = (cfg.fontBase * (arc.total * cfg.fillFrac)) / (base || 1);
-  size = Math.max(cfg.fontMin, Math.min(cfg.fontMax, size));
-  ctx.font = cfg.fontStyle + ' ' + size + 'px ' + cfg.fontFamily;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+function boxOverlap(a, b) { return !(a.x1 < b.x0 || b.x1 < a.x0 || a.y1 < b.y0 || b.y1 < a.y0); }
+function boxInside(a, r) { return a.x0 >= r.x0 && a.y0 >= r.y0 && a.x1 <= r.x1 && a.y1 <= r.y1; }
+
+// Measure a curved label at `size`: per-glyph widths + candidate glyph
+// geometry (positions, tangent angles, boxes) for a window starting at arc
+// position `start`. Angles are neighbor-smoothed so lettering doesn't kink
+// on a coarse spine.
+function measureCurvedWindow(ctx, chars, size, ls, arc, start) {
   const widths = chars.map((c) => ctx.measureText(c).width);
-  const total = widths.reduce((a, b) => a + b, 0) + cfg.letterSpacing * (chars.length - 1);
-  // BUG FIX — center on the anchor's own nearest arc-length position (always
-  // on-water) instead of the spine's raw midpoint (arc.total/2), which can
-  // land on LAND when the spine's cloud blends multiple water bodies.
-  const sAnchor = anchor ? nearestArcLength(arc, anchor) : arc.total / 2;
-  let cursor = clamp(sAnchor - total / 2, 0, Math.max(0, arc.total - total));
+  const total = widths.reduce((a, b) => a + b, 0) + ls * (chars.length - 1);
+  const glyphs = [];
+  let cursor = start;
   for (let i = 0; i < chars.length; i++) {
-    const w = widths[i]; const s = sampleArc(arc, cursor + w / 2);
-    const blocked = glyphBlocked(s.x, s.y, blockers);
-    if (!blocked) {
-      ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(s.angle);
-      ctx.lineWidth = cfg.haloWidth; ctx.strokeStyle = cfg.halo; ctx.strokeText(chars[i], 0, 0);
-      ctx.fillStyle = cfg.fill; ctx.fillText(chars[i], 0, 0);
-      ctx.restore();
-    }
-    cursor += w + cfg.letterSpacing;
+    const w = widths[i];
+    const s = sampleArc(arc, cursor + w / 2);
+    const half = Math.max(w, size) * 0.62;
+    glyphs.push({
+      ch: chars[i], x: s.x, y: s.y, angle: s.angle,
+      box: { x0: s.x - half, y0: s.y - half, x1: s.x + half, y1: s.y + half },
+    });
+    cursor += w + ls;
   }
-  return size;
+  // smooth glyph angles (moving average, one pass) — kills spine-bucket kinks
+  for (let pass = 0; pass < 1; pass++) {
+    const angles = glyphs.map((g) => g.angle);
+    for (let i = 0; i < glyphs.length; i++) {
+      const a = angles[i - 1] != null ? angles[i - 1] : angles[i];
+      const b = angles[i + 1] != null ? angles[i + 1] : angles[i];
+      // average via vectors so ±π wraps don't explode
+      const vx = Math.cos(a) + Math.cos(angles[i]) * 2 + Math.cos(b);
+      const vy = Math.sin(a) + Math.sin(angles[i]) * 2 + Math.sin(b);
+      glyphs[i].angle = Math.atan2(vy, vx);
+    }
+  }
+  return { total, glyphs };
+}
+
+// Find a clear window for the whole word: try the anchor position first, then
+// slide along the channel, then shrink a step and repeat. NEVER drops glyphs
+// mid-word — if no window fits, the caller falls back (straight label / skip).
+function planCurvedLabel(ctx, text, arc, cfg, D, anchor, blockers, occupied, cropInset) {
+  const chars = [...text];
+  // auto-size from the spine length (measure at fontBase, scale to fillFrac)
+  ctx.font = fontStr(cfg.fontStyle, D.wlFontBase, cfg.fontFamily);
+  let base = 0; for (const c of chars) base += ctx.measureText(c).width;
+  base += D.wlLetterSpacing * (chars.length - 1);
+  const autoSize = (D.wlFontBase * (arc.total * cfg.fillFrac)) / (base || 1);
+
+  const slides = [0, -0.06, 0.06, -0.12, 0.12, -0.2, 0.2, -0.3, 0.3];
+  for (const mul of [1, 0.88, 0.78, 0.7]) {
+    const size = clamp(autoSize * mul, D.wlFontMin, D.wlFontMax);
+    ctx.font = fontStr(cfg.fontStyle, size, cfg.fontFamily);
+    const probe = measureCurvedWindow(ctx, chars, size, D.wlLetterSpacing, arc, 0);
+    if (probe.total > arc.total * 0.97) continue; // word longer than the water body at this size
+    const sAnchor = anchor ? nearestArcLength(arc, anchor) : arc.total / 2;
+    for (const off of slides) {
+      const start = clamp(sAnchor - probe.total / 2 + off * arc.total, 0, arc.total - probe.total);
+      const win = measureCurvedWindow(ctx, chars, size, D.wlLetterSpacing, arc, start);
+      let ok = true;
+      for (const g of win.glyphs) {
+        if (glyphBlocked(g.x, g.y, blockers)) { ok = false; break; }
+        if (!boxInside(g.box, cropInset)) { ok = false; break; }
+        for (const pb of occupied) { if (boxOverlap(g.box, pb)) { ok = false; break; } }
+        if (!ok) break;
+      }
+      if (ok) return { size, glyphs: win.glyphs };
+    }
+  }
+  return null;
+}
+
+function drawCurvedPlanned(ctx, plan, cfg, D) {
+  ctx.font = fontStr(cfg.fontStyle, plan.size, cfg.fontFamily);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+  for (const g of plan.glyphs) {
+    ctx.save(); ctx.translate(g.x, g.y); ctx.rotate(g.angle);
+    ctx.lineWidth = D.wlHalo; ctx.strokeStyle = cfg.halo; ctx.strokeText(g.ch, 0, 0);
+    ctx.fillStyle = cfg.fill; ctx.fillText(g.ch, 0, 0);
+    ctx.restore();
+  }
 }
 
 // Fallback: whole label rotated to the principal-axis angle (straight, still
 // axis-aligned — far better than horizontal when a spine can't be built).
-function drawStraightLabel(ctx, text, x, y, angle, cfg) {
+function drawStraightLabel(ctx, text, x, y, angle, cfg, sizePx, D) {
   ctx.save(); ctx.translate(x, y); ctx.rotate(angle);
-  ctx.font = cfg.fontStyle + ' ' + cfg.fontBase + 'px ' + cfg.fontFamily;
+  ctx.font = fontStr(cfg.fontStyle, sizePx, cfg.fontFamily);
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
-  ctx.lineWidth = cfg.haloWidth; ctx.strokeStyle = cfg.halo; ctx.strokeText(text, 0, 0);
+  ctx.lineWidth = D.wlHalo; ctx.strokeStyle = cfg.halo; ctx.strokeText(text, 0, 0);
   ctx.fillStyle = cfg.fill; ctx.fillText(text, 0, 0);
   ctx.restore();
 }
 
-function labelBox(ctx, text, x, y, font, pad) {
-  ctx.font = font; const m = ctx.measureText(text);
-  const asc = m.actualBoundingBoxAscent || parseInt(font) * 0.72;
-  const desc = m.actualBoundingBoxDescent || parseInt(font) * 0.28;
-  const w = m.width, h = asc + desc;
-  return { x0: x - w / 2 - pad, y0: y - h / 2 - pad, x1: x + w / 2 + pad, y1: y + h / 2 + pad };
-}
-function boxOverlap(a, b) { return !(a.x1 < b.x0 || b.x1 < a.x0 || a.y1 < b.y0 || b.y1 < a.y0); }
-
-function drawPointLabel(ctx, text, x, y, font, fill, halo, haloW) {
-  ctx.font = font; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
-  ctx.lineWidth = haloW; ctx.strokeStyle = halo; ctx.strokeText(text, x, y);
-  ctx.fillStyle = fill; ctx.fillText(text, x, y);
-}
-
-// Two independently-callable phases so the caller can (a) seed the
-// point-label collision pass with pin/washi occupied regions and (b) choose
-// to run water labels AFTER the route/pins are painted, so curved water text
-// always reads on top of them.
-
 // (a) WATER-BODY curved labels. waterCloud = ALL water ring vertices in canvas
 // px; each label pulls its own local subset within a radius (survives MVT
 // tile-clipping). waterNameFeatures carries a precomputed canvas-space anchor
-// point (pt).
+// point (pt). Labels avoid pins/washi (blockers), everything already placed
+// (occupied, incl. point labels and the route), each other, and the frame.
 function layoutWaterLabels(ctx, opts) {
-  const { waterNameFeatures, waterCloud, canvasW, blockers, C } = opts;
+  const { waterNameFeatures, waterCloud, canvasW, blockers, occupied, cropInset, C, D } = opts;
   const wl = C.WATER_LABEL;
   const R = wl.cloudRadiusFrac * canvasW, R2 = R * R;
   const seenW = new Set();
-  let curved = 0, straight = 0;
+  let curved = 0, straight = 0, skippedW = 0;
   for (const f of waterNameFeatures) {
     const text = f.props['name:en'] || f.props['name']; if (!text || seenW.has(text)) continue; seenW.add(text);
     const p = f.pt;
@@ -355,21 +718,86 @@ function layoutWaterLabels(ctx, opts) {
     if (cloud.length >= wl.minCloud) {
       const pca = pca2d(cloud);
       const spine = buildSpine(cloud, pca, wl.buckets, wl.trim, wl.smoothPasses);
-      if (spine.length >= 2) { const arc = buildArc(spine); if (arc.total > 20) { drawCurvedLabel(ctx, text, arc, cfg, blockers, p); curved++; continue; } }
-      drawStraightLabel(ctx, text, p.x, p.y, pca.angle, cfg); straight++; continue; // axis-aligned fallback
+      if (spine.length >= 2) {
+        const arc = buildArc(spine);
+        if (arc.total > 20) {
+          const plan = planCurvedLabel(ctx, text, arc, cfg, D, p, blockers, occupied, cropInset);
+          if (plan) {
+            drawCurvedPlanned(ctx, plan, cfg, D);
+            for (const g of plan.glyphs) occupied.push(g.box); // later labels avoid this one
+            curved++;
+            continue;
+          }
+        }
+      }
+      // no clear curved window — try a straight fallback if ITS box is clear.
+      // The fallback DRAWS rotated to pca.angle, so test the ROTATED extents
+      // (review finding: a steep water body could pass an axis-aligned test
+      // yet draw past the frame or onto a pin).
+      const size = clamp(D.wlFontBase, D.wlFontMin, D.wlFontMax);
+      ctx.font = fontStr(cfg.fontStyle, size, cfg.fontFamily);
+      const m = ctx.measureText(text);
+      const hw = m.width / 2 + D.plHaloPad, hh = size * 0.75;
+      const rcos = Math.abs(Math.cos(pca.angle)), rsin = Math.abs(Math.sin(pca.angle));
+      const hx = rcos * hw + rsin * hh, hy = rsin * hw + rcos * hh;
+      const box = { x0: p.x - hx, y0: p.y - hy, x1: p.x + hx, y1: p.y + hy };
+      const clear = boxInside(box, cropInset) && !occupied.some((pb) => boxOverlap(box, pb)) &&
+        !glyphBlocked(p.x, p.y, blockers);
+      if (clear) {
+        drawStraightLabel(ctx, text, p.x, p.y, pca.angle, cfg, size, D);
+        occupied.push(box);
+        straight++;
+      } else { skippedW++; } // trip overlay wins — water name is decor
+      continue;
     }
-    drawStraightLabel(ctx, text, p.x, p.y, 0, cfg); straight++; // last resort: horizontal
+    skippedW++; // not enough local water to place respectfully
   }
-  return { waterCurved: curved, waterStraight: straight };
+  return { waterCurved: curved, waterStraight: straight, waterSkipped: skippedW };
 }
 
-// (b) POINT (city/town) labels — greedy collision avoidance. opts.occupied
-// (route-pin bounding squares + the washi tag box, in canvas px) is pre-seeded
-// into the placed-boxes list so drawPointLabel's nudge loop treats them exactly
-// like already-placed labels — skip/nudge around them, never draw under them.
+// ---------------------------------------------------------------------------
+// POINT (city/town) labels — greedy collision avoidance with nudges (incl.
+// diagonals), stepwise shrink, two-line wrapping for long names, an edge
+// margin so nothing slices at the frame, and a density cap (route map, not a
+// street atlas). opts.occupied is pre-seeded with pins + washi + the route
+// line, and this pass PUSHES every placed label box into it (shared with the
+// water pass that runs later).
+// ---------------------------------------------------------------------------
+function splitTwoLines(text) {
+  const idx = [];
+  for (let i = 0; i < text.length; i++) if (text[i] === ' ') idx.push(i);
+  if (!idx.length) return null;
+  let best = idx[0], bestDiff = Infinity;
+  for (const i of idx) {
+    const diff = Math.abs(i - (text.length - i - 1));
+    if (diff < bestDiff) { bestDiff = diff; best = i; }
+  }
+  return [text.slice(0, best), text.slice(best + 1)];
+}
+
+function measurePointLabel(ctx, lines, sizePx, family, pad) {
+  ctx.font = fontStr('', sizePx, family);
+  const lineH = sizePx * 1.12;
+  let w = 0;
+  for (const ln of lines) w = Math.max(w, ctx.measureText(ln).width);
+  const h = lineH * lines.length;
+  return { w, h, lineH, box: (x, y) => ({ x0: x - w / 2 - pad, y0: y - h / 2 - pad, x1: x + w / 2 + pad, y1: y + h / 2 + pad }) };
+}
+
+function drawPointLabel(ctx, lines, x, y, sizePx, family, fill, halo, haloW, lineH) {
+  ctx.font = fontStr('', sizePx, family);
+  ctx.textAlign = 'center'; ctx.lineJoin = 'round';
+  const y0 = y - (lineH * (lines.length - 1)) / 2;
+  for (let i = 0; i < lines.length; i++) {
+    ctx.lineWidth = haloW; ctx.strokeStyle = halo;
+    strokeTextOptical(ctx, lines[i], x, y0 + i * lineH);
+    ctx.fillStyle = fill;
+    fillTextOptical(ctx, lines[i], x, y0 + i * lineH);
+  }
+}
+
 function layoutPointLabels(ctx, opts) {
-  const { placeFeatures, occupied, C } = opts;
-  const placed = [...(occupied || [])]; // pins + washi pre-seeded as occupied regions
+  const { placeFeatures, occupied, cropInset, C, D } = opts;
   const pl = C.POINT_LABEL;
   const classOrder = { city: 0, town: 1 };
   const seenP = new Set(), cands = [];
@@ -380,19 +808,103 @@ function layoutPointLabels(ctx, opts) {
     cands.push({ text, x: f.pt.x, y: f.pt.y, order: classOrder[cls], rank, len: text.length });
   }
   cands.sort((a, b) => a.order - b.order || a.rank - b.rank || a.len - b.len || a.text.localeCompare(b.text));
-  const fontSize = parseInt(C.FONT_LABEL);
+  // the fetch footprint is far wider than the visible crop — the density cap
+  // must ration IN-VIEW labels, not hand the budget to off-screen anchors
+  const inView = cands.filter((c) =>
+    c.x >= cropInset.x0 - D.plFont * 4 && c.x <= cropInset.x1 + D.plFont * 4 &&
+    c.y >= cropInset.y0 - D.plFont * 4 && c.y <= cropInset.y1 + D.plFont * 4);
+  const capped = inView.slice(0, pl.maxLabels);
+
+  const shrinkSteps = [1];
+  if (pl.shrinkFloor < 1) { shrinkSteps.push((1 + pl.shrinkFloor) / 2, pl.shrinkFloor); }
+
   let placedCount = 0, skipped = 0;
-  for (const c of cands) {
+  for (const c of capped) {
     let done = false;
-    for (const [ox, oy] of pl.nudges) {
-      const x = c.x + ox * fontSize * pl.nudgeStep, y = c.y + oy * fontSize * pl.nudgeStep;
-      const box = labelBox(ctx, c.text, x, y, C.FONT_LABEL, pl.haloPad);
-      let hit = false; for (const pb of placed) { if (boxOverlap(box, pb)) { hit = true; break; } }
-      if (!hit) { placed.push(box); drawPointLabel(ctx, c.text, x, y, C.FONT_LABEL, C.COLORS.ink, C.COLORS.paperHalo, pl.haloWidth); done = true; placedCount++; break; }
+    for (const mul of shrinkSteps) {
+      const size = D.plFont * mul;
+      // layout preference: single line, unless the name is long — then the
+      // board's answer is a stacked two-liner (see its mosque label)
+      ctx.font = fontStr('', size, C.FONT_FAMILY_HAND);
+      const oneLineW = ctx.measureText(c.text).width;
+      const layouts = [];
+      const two = splitTwoLines(c.text);
+      if (oneLineW > D.plTwoLineMaxW && two) layouts.push(two, [c.text]);
+      else { layouts.push([c.text]); if (two && oneLineW > D.plTwoLineMaxW * 0.8) layouts.push(two); }
+
+      for (const lines of layouts) {
+        const mm = measurePointLabel(ctx, lines, size, C.FONT_FAMILY_HAND, D.plHaloPad);
+        for (const [ox, oy] of pl.nudges) {
+          const x = c.x + ox * size * pl.nudgeStep, y = c.y + oy * size * pl.nudgeStep;
+          const box = mm.box(x, y);
+          if (!boxInside(box, cropInset)) continue;
+          let hit = false;
+          for (const pb of occupied) { if (boxOverlap(box, pb)) { hit = true; break; } }
+          if (!hit) {
+            occupied.push(box);
+            drawPointLabel(ctx, lines, x, y, size, C.FONT_FAMILY_HAND, C.COLORS.ink, C.COLORS.paperHalo, D.plHalo, mm.lineH);
+            done = true; placedCount++;
+            break;
+          }
+        }
+        if (done) break;
+      }
+      if (done) break;
     }
     if (!done) skipped++; // all candidate positions collide -> drop (no overlaps in output)
   }
   return { pointsPlaced: placedCount, pointsSkipped: skipped };
+}
+
+// ---------------------------------------------------------------------------
+// PIN DECLUTTER — overlapping pins (real trips put stops close together) get
+// pushed apart deterministically; a short ink leader + dot marks the true
+// location of any displaced pin. Returns draw positions aligned by index.
+// ---------------------------------------------------------------------------
+function resolvePinPositions(truePts, D, declutter) {
+  if (!declutter) return truePts.map((p) => ({ ...p, moved: false }));
+  const minDist = D.pinDiam + D.pinGap;
+  const placed = [];
+  for (const p of truePts) {
+    const pos = { x: p.x, y: p.y };
+    for (let iter = 0; iter < 4; iter++) {
+      let pushed = false;
+      for (const q of placed) {
+        const dx = pos.x - q.x, dy = pos.y - q.y;
+        const d = Math.hypot(dx, dy);
+        if (d < minDist) {
+          const ux = d > 1e-3 ? dx / d : 1, uy = d > 1e-3 ? dy / d : 0;
+          pos.x = q.x + ux * minDist; pos.y = q.y + uy * minDist;
+          pushed = true;
+        }
+      }
+      if (!pushed) break;
+    }
+    placed.push(pos);
+  }
+  return truePts.map((p, i) => ({
+    x: placed[i].x, y: placed[i].y,
+    moved: Math.hypot(placed[i].x - p.x, placed[i].y - p.y) > D.pinDiam * 0.35,
+    trueX: p.x, trueY: p.y,
+  }));
+}
+
+// Sample the route polyline into small occupied boxes so labels keep clear of
+// the pen line (the tape may cross it; text may not).
+function routeOccupiedBoxes(pts, D) {
+  const boxes = [];
+  const half = D.routeBleed / 2 + D.plRoutePad;
+  const step = Math.max(12, D.pinDiam * 0.9);
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1];
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    const n = Math.max(1, Math.ceil(len / step));
+    for (let j = 0; j <= n; j++) {
+      const x = a.x + ((b.x - a.x) * j) / n, y = a.y + ((b.y - a.y) * j) / n;
+      boxes.push({ x0: x - half, y0: y - half, x1: x + half, y1: y + half });
+    }
+  }
+  return boxes;
 }
 
 // ============================================================================
@@ -477,28 +989,42 @@ export async function fetchAndDecode(config, opts = {}) {
 // object (label placement counts + the crop/display geometry) so callers
 // don't have to re-derive them — the pixels land on `canvas` either way.
 // ============================================================================
-export async function paintFull(canvas, config, decoded, textures) {
+export async function paintFull(canvas, rawConfig, decoded, textures) {
   const { rough } = await preloadLibs();
+  const config = upgradeConfig(rawConfig);
   const grid = decoded.grid || computeGrid(config);
   const { CANVAS_W, CANVAS_H, layers } = decoded;
+  const D = deriveSizes(config, grid.TILEPX / config.REF_TILEPX);
 
   const work = document.createElement('canvas');
   work.width = CANVAS_W; work.height = CANVAS_H;
   const ctx = work.getContext('2d');
   const rc = rough.canvas(work);
 
-  await document.fonts.load(config.FONT_LABEL);
-  await document.fonts.load(config.FONT_WATER_NAME);
+  // load BOTH styles of the hand face (loading is per-face, not per-size)
+  await document.fonts.load('16px ' + config.FONT_FAMILY_HAND);
+  await document.fonts.load('italic 16px ' + config.FONT_FAMILY_HAND);
   await document.fonts.ready;
 
   const mkPattern = (img) => {
     const p = ctx.createPattern(img, 'repeat');
-    p.setTransform(new DOMMatrix().scale(config.TEXTURE_SCALE));
+    p.setTransform(new DOMMatrix().scale(D.textureScale));
     return p;
   };
   const landPattern = mkPattern(textures.land);
   const waterPattern = mkPattern(textures.water);
   const parkPattern = mkPattern(textures.park);
+
+  // Crop rect (canvas px) — computed EARLY because label layout needs the
+  // frame: no text may cross the crop edge (that's how labels stopped being
+  // sliced mid-word at the frame).
+  const tl = lonLatToCanvas(config, grid, config.VIEW_BBOX.W, config.VIEW_BBOX.N);
+  const br = lonLatToCanvas(config, grid, config.VIEW_BBOX.E, config.VIEW_BBOX.S);
+  const CROP = { x: tl.x, y: tl.y, w: br.x - tl.x, h: br.y - tl.y };
+  const cropInset = {
+    x0: CROP.x + D.plEdge, y0: CROP.y + D.plEdge,
+    x1: CROP.x + CROP.w - D.plEdge, y1: CROP.y + CROP.h - D.plEdge,
+  };
 
   // ==========================================================================
   // PAINT ORDER (bottom -> top)
@@ -517,19 +1043,20 @@ export async function paintFull(canvas, config, decoded, textures) {
   ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
   ctx.restore();
 
+  let fIdx = 0;
   for (const f of waterFeatures) {
     for (const ring of f.geom) {
       if (ring.length < 2) continue;
       const pts = ring.map((pt) => [px(grid, f.tx, pt.x, f.ext), py(grid, f.ty, pt.y, f.ext)]);
       pts.push(pts[0]); // close the ring for a continuous coast stroke
-      rc.linearPath(pts, { stroke: config.COLORS.coastStroke, strokeWidth: config.WIDTHS.coast, roughness: config.ROUGHNESS.coast, bowing: config.BOWING.coast });
+      rc.linearPath(pts, { stroke: config.COLORS.coastStroke, strokeWidth: D.coast, roughness: config.ROUGHNESS.coast, bowing: config.BOWING.coast, seed: featureSeed(config, fIdx++) });
     }
   }
   for (const f of layers.waterway) {
     for (const ring of f.geom) {
       if (ring.length < 2) continue;
       const pts = ring.map((pt) => [px(grid, f.tx, pt.x, f.ext), py(grid, f.ty, pt.y, f.ext)]);
-      rc.linearPath(pts, { stroke: config.COLORS.coastStroke, strokeWidth: config.WIDTHS.waterway, roughness: config.ROUGHNESS.coast });
+      rc.linearPath(pts, { stroke: config.COLORS.coastStroke, strokeWidth: D.waterway, roughness: config.ROUGHNESS.coast, seed: featureSeed(config, fIdx++) });
     }
   }
 
@@ -554,48 +1081,50 @@ export async function paintFull(canvas, config, decoded, textures) {
     const isMajor = MAJOR.has(cls), isSecondary = SECONDARY.has(cls);
     if (!isMajor && !isSecondary) continue;
     const opts = isMajor
-      ? { stroke: config.COLORS.roadMajor, strokeWidth: config.WIDTHS.roadMajor, roughness: config.ROUGHNESS.road }
-      : { stroke: config.COLORS.roadSecondary, strokeWidth: config.WIDTHS.roadSecondary, roughness: config.ROUGHNESS.road };
+      ? { stroke: config.COLORS.roadMajor, strokeWidth: D.roadMajor, roughness: config.ROUGHNESS.road }
+      : { stroke: config.COLORS.roadSecondary, strokeWidth: D.roadSecondary, roughness: config.ROUGHNESS.road };
     for (const ring of f.geom) {
       if (ring.length < 2) continue;
       const pts = ring.map((pt) => [px(grid, f.tx, pt.x, f.ext), py(grid, f.ty, pt.y, f.ext)]);
-      rc.linearPath(pts, opts);
+      rc.linearPath(pts, { ...opts, seed: featureSeed(config, fIdx++) });
     }
   }
 
   // 5a. pre-compute route/pin/washi geometry BEFORE labels are laid out, so
-  //     the point-label collision pass (5b) can treat pins + the washi tag
-  //     box as occupied regions to skip/nudge around. Actual DRAWING of the
-  //     route/pins/washi still happens later (step 7) so they remain the
-  //     crisp top layer; this just reuses the same coordinates.
-  const routeCanvasPts = config.ROUTE_POINTS.map(([lon, lat]) => lonLatToCanvas(config, grid, lon, lat));
-  const pinR = config.PIN_DIAMETER / 2 + config.WIDTHS.pinStroke + config.POINT_LABEL.pinPad; // pin path radius + stroke + clearance
-  const pinBoxes = routeCanvasPts.map((p) => ({ x0: p.x - pinR, y0: p.y - pinR, x1: p.x + pinR, y1: p.y + pinR }));
-  const tag = routeCanvasPts[config.WASHI_INDEX];
-  const tagX = tag.x - config.WASHI_W / 2, tagY = tag.y + 34;
-  const washiBox = {
-    x0: tagX - config.POINT_LABEL.pinPad, y0: tagY - config.POINT_LABEL.pinPad,
-    x1: tagX + config.WASHI_W + config.POINT_LABEL.pinPad, y1: tagY + config.WASHI_H + config.POINT_LABEL.pinPad,
-  };
-  const occupied = [...pinBoxes, washiBox];
-  // Separate, TIGHTER blockers for the curved water-label glyph-skip test —
-  // true pin discs + exact washi rect, each with only a small glyphSkipMargin,
-  // NOT the generous pinPad above (pinPad is sized for keeping whole
-  // point-labels comfortably clear; reused here it would blank out most of
-  // "Straits of Johor" since pins 3/4/5 all sit close to the strait's centerline).
-  const glyphMargin = config.WATER_LABEL.glyphSkipMargin;
+  //     the point-label collision pass (5b) can treat pins + washi + the pen
+  //     line as occupied regions. Actual DRAWING still happens later (step 7)
+  //     so they remain the crisp top layer; this reuses the same coordinates.
+  const routeTruePts = config.ROUTE_POINTS.map(([lon, lat]) => lonLatToCanvas(config, grid, lon, lat));
+  const pinPos = resolvePinPositions(routeTruePts, D, config.PIN.declutter);
+  let pinsDisplaced = 0; for (const p of pinPos) if (p.moved) pinsDisplaced++;
+
+  const pinR = D.pinDiam / 2 + D.pinStroke + D.plPinPad; // pin disc + stroke + clearance
+  const pinBoxes = pinPos.map((p) => ({ x0: p.x - pinR, y0: p.y - pinR, x1: p.x + pinR, y1: p.y + pinR }));
+  const pinDiscs = pinPos.map((p) => ({ x: p.x, y: p.y, r: pinR }));
+
+  const washiPin = pinPos[config.WASHI_INDEX];
+  const washiPlan = planWashiTag(ctx, config, D, washiPin, pinDiscs, cropInset,
+    String(config.WASHI_INDEX + 1), 'Booked');
+
+  const routeBoxes = routeOccupiedBoxes(routeTruePts, D);
+  const occupied = [...pinBoxes, washiPlan.aabb, ...routeBoxes];
+
+  // Separate, TIGHTER blockers for the curved water-label glyph test — true
+  // pin discs + the washi AABB, each with only a small glyph margin, NOT the
+  // generous pinPad above (that would blank out most of a channel label when
+  // several pins sit near the centerline).
   const waterLabelBlockers = {
-    pins: routeCanvasPts.map((p) => ({ x: p.x, y: p.y, r: config.PIN_DIAMETER / 2 + config.WIDTHS.pinStroke + glyphMargin })),
+    pins: pinPos.map((p) => ({ x: p.x, y: p.y, r: D.pinDiam / 2 + D.pinStroke + D.wlGlyphMargin })),
     washi: {
-      x0: tagX - glyphMargin, y0: tagY - glyphMargin,
-      x1: tagX + config.WASHI_W + glyphMargin, y1: tagY + config.WASHI_H + glyphMargin,
+      x0: washiPlan.aabb.x0 - D.wlGlyphMargin, y0: washiPlan.aabb.y0 - D.wlGlyphMargin,
+      x1: washiPlan.aabb.x1 + D.wlGlyphMargin, y1: washiPlan.aabb.y1 + D.wlGlyphMargin,
     },
   };
 
-  // 5b. POINT (city/town) labels — collision-avoids other labels AND the
-  //     occupied pin/washi regions above. See layoutPointLabels().
+  // 5b. POINT (city/town) labels — collision-avoids the occupied regions and
+  //     pushes each placed box back into `occupied` (shared with 7.5).
   const placeFeatures = layers.place.map((f) => ({ props: f.props, pt: { x: px(grid, f.tx, f.geom[0][0].x, f.ext), y: py(grid, f.ty, f.geom[0][0].y, f.ext) } }));
-  const pointLabelStats = layoutPointLabels(ctx, { placeFeatures, occupied, C: config });
+  const pointLabelStats = layoutPointLabels(ctx, { placeFeatures, occupied, cropInset, C: config, D });
 
   // 6. weathering overlay + vignette
   ctx.save();
@@ -614,41 +1143,48 @@ export async function paintFull(canvas, config, decoded, textures) {
 
   // 7. overlay — sample route + numbered pins + "Booked" washi tag (geometry
   //    already computed in 5a; reused here so labels and pins agree exactly).
-  // fine blue marker — smooth curve through the points (no wobble), soft
-  // wide bleed under-stroke beneath a crisp core.
-  drawMarkerRoute(ctx, routeCanvasPts, config);
-  routeCanvasPts.forEach((p, i) => {
-    rc.circle(p.x, p.y, config.PIN_DIAMETER, {
-      stroke: config.COLORS.pinStroke, strokeWidth: config.WIDTHS.pinStroke, fill: config.COLORS.pinFill, fillStyle: 'solid',
+  drawMarkerRoute(ctx, routeTruePts, config, D);
+  pinPos.forEach((p, i) => {
+    if (p.moved) {
+      // ink leader from the true location to the displaced pin + a dot
+      ctx.save();
+      ctx.strokeStyle = config.COLORS.pinStroke; ctx.lineWidth = Math.max(1, D.pinStroke * 0.6);
+      ctx.beginPath(); ctx.moveTo(p.trueX, p.trueY); ctx.lineTo(p.x, p.y); ctx.stroke();
+      ctx.fillStyle = config.COLORS.pinStroke;
+      ctx.beginPath(); ctx.arc(p.trueX, p.trueY, D.leaderDot, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+    rc.circle(p.x, p.y, D.pinDiam, {
+      stroke: config.COLORS.pinStroke, strokeWidth: D.pinStroke, fill: config.COLORS.pinFill, fillStyle: 'solid',
+      roughness: 0.9, seed: featureSeed(config, 5000 + i),
     });
-    ctx.font = config.FONT_PIN_NUM;
+    ctx.font = fontStr('', D.pinNum, config.FONT_FAMILY_HAND);
+    ctx.textAlign = 'center';
     ctx.fillStyle = config.COLORS.pinStroke;
-    ctx.fillText(String(i + 1), p.x, p.y + 1);
+    fillTextOptical(ctx, String(i + 1), p.x, p.y, true);
   });
-  // translucent washi tape with torn short edges (see drawWashiTape).
-  drawWashiTape(ctx, tagX, tagY, config.WASHI_W, config.WASHI_H, (config.WASHI_INDEX + 1) + ' · Booked', config);
+  drawWashiTag(ctx, rc, config, D, washiPlan);
 
-  // 7.5. WATER-BODY curved labels, drawn AFTER the route/pins/washi so
-  //      "Straits of Johor" (or any water label) reads on top even where its
-  //      PCA spine happens to cross the pen line or a pin, rather than being
-  //      painted under it. (Point labels stay at 5b, before weathering, so
-  //      they still receive the same aged/weathered tint; only water labels
-  //      sit as the un-weathered top layer, matching route/pins/washi.)
+  // 7.5. WATER-BODY curved labels, drawn AFTER the route/pins/washi so a
+  //      channel name reads on top of the pen line where they cross — but the
+  //      placement search (planCurvedLabel) guarantees it never lands ON a
+  //      pin, the washi, a point label, another water label, or the frame
+  //      edge, and it never drops glyphs mid-word.
   const waterCloud = [];
   for (const f of layers.water) for (const ring of f.geom) for (const pt of ring)
     waterCloud.push({ x: px(grid, f.tx, pt.x, f.ext), y: py(grid, f.ty, pt.y, f.ext) });
   const waterNameFeatures = layers.water_name.map((f) => ({ props: f.props, pt: { x: px(grid, f.tx, f.geom[0][0].x, f.ext), y: py(grid, f.ty, f.geom[0][0].y, f.ext) } }));
-  const waterLabelStats = layoutWaterLabels(ctx, { waterNameFeatures, waterCloud, canvasW: CANVAS_W, blockers: waterLabelBlockers, C: config });
+  const waterLabelStats = layoutWaterLabels(ctx, {
+    waterNameFeatures, waterCloud, canvasW: CANVAS_W,
+    blockers: waterLabelBlockers, occupied, cropInset, C: config, D,
+  });
 
-  const labelStats = { ...waterLabelStats, ...pointLabelStats };
+  const labelStats = { ...waterLabelStats, ...pointLabelStats, pinsDisplaced };
 
   // 8. crop to VIEW_BBOX, then downscale the CROP (not the whole fetched
   //    grid) onto the passed-in display `canvas`. CROP is projected with the
   //    same lonLatToCanvas() math used for every pin/label, so it's
   //    pixel-exact against everything just painted.
-  const tl = lonLatToCanvas(config, grid, config.VIEW_BBOX.W, config.VIEW_BBOX.N);
-  const br = lonLatToCanvas(config, grid, config.VIEW_BBOX.E, config.VIEW_BBOX.S);
-  const CROP = { x: tl.x, y: tl.y, w: br.x - tl.x, h: br.y - tl.y };
   const cropW = Math.round(CROP.w), cropH = Math.round(CROP.h);
   const dispW = Math.min(cropW, config.MAX_SCREENSHOT_W);
   const scale = dispW / cropW;

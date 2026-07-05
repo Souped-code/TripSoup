@@ -30,14 +30,16 @@ const CONFIG_DEFAULTS = {
   Z: 11, // render zoom — Z11's sparser road geometry reads more like the hand-drawn board than Z12. Do not raise.
   EXTENT_FALLBACK: 4096, // MVT extent fallback if layer.extent is missing
   TILE: 256, // base slippy-tile size (px)
-  SCALE: 4, // STUDIO OVERRIDE (render-engine.mjs default is 2) — upscale factor -> tilePx = TILE*SCALE; higher
-  // SCALE paints the same sparse Z11 geometry at higher resolution instead of raising Z. Exposed as a slider.
+  SCALE: 4, // resolution multiplier -> tilePx = TILE*SCALE. FIDELITY PASS: thanks to REF_TILEPX
+  // normalization in map-render-core.js this now changes RESOLUTION only — proportions are locked.
+  REF_TILEPX: 1024, // the resolution (TILE*SCALE) every px value below is authored at
   BBOX: { W: 103.62, E: 103.98, N: 1.57, S: 1.37 }, // fetch footprint — deliberately wider than VIEW_BBOX so
   // geometry bleeds to the crop edges. Not exposed as a control (VIEW_BBOX below is the tunable crop window;
   // its slider ranges are kept safely inside this fetch footprint so the crop never runs into unfetched tiles).
   VIEW_BBOX: { W: 103.67, E: 103.88, N: 1.525, S: 1.408 }, // tight JB city + Straits crop window (sub-rect of BBOX)
   MAX_SCREENSHOT_W: 1600, // display-canvas width cap; crop is downscaled onto this only if wider than the cap
   FILL_RULE: "nonzero",
+  STROKE_SEED: 7, // deterministic per-feature Rough.js strokes (repaints are stable)
 
   TEXTURE_SCALE: 0.4, // CanvasPattern scale — shared by land/water/park patterns (one knob, not three)
 
@@ -52,8 +54,9 @@ const CONFIG_DEFAULTS = {
     pinFill: "#F6F1E7",
     pinStroke: "#2B2620",
     washiFill: "#F4C95D",
-    washiShade: "rgba(120,90,20,0.30)",
-    washiSheen: "rgba(255,255,255,0.20)",
+    washiShade: "rgba(120,90,20,0.30)", // tear shading on the torn ENDS (never a full outline)
+    washiSheen: "rgba(255,255,255,0.20)", // gated by WASHI.sheenAlpha (0 = matte, board-faithful)
+    washiPatternTint: "#FFFFFF", // gingham/stripes bar tint over the tape fill (alpha via WASHI.patternAlpha)
     vignetteEdge: "rgba(74,58,38,0.20)",
   },
   WIDTHS: {
@@ -61,11 +64,7 @@ const CONFIG_DEFAULTS = {
     waterway: 1.2,
     roadMajor: 2.6,
     roadSecondary: 1.6,
-    route: 3.4, // NOTE: unused by the current paint code (drawMarkerRoute uses ROUTE_WIDTH/ROUTE_BLEED_EXTRA
-    // instead) — kept in config for shape-parity with render-engine.mjs but deliberately not exposed as a
-    // studio control since moving it would have no visible effect.
-    pinStroke: 2.3,
-    washiStroke: 1.6,
+    washiStroke: 1.1, // width of the tear shading stroke on the tape's torn ends
   },
   ROUGHNESS: { coast: 1.4, road: 1.2, route: 1.6 },
   BOWING: { coast: 1, route: 2 },
@@ -74,47 +73,69 @@ const CONFIG_DEFAULTS = {
   ROUTE_WIDTH: 3,
   ROUTE_BLEED_EXTRA: 2,
   ROUTE_BLEED_ALPHA: 0.3,
-  ROUTE_SMOOTH: true, // NOTE: also not currently read by map-render-core.js (strokeSmoothPath always smooths) —
-  // kept for shape-parity, not exposed as a control for the same reason as WIDTHS.route above.
 
-  WASHI_ALPHA: 0.82,
-  WASHI_TEAR_SEGMENTS: 6,
-  WASHI_TEAR_AMP: 2.6,
-  WASHI_TEAR_SEED: 20260705,
+  PIN: {
+    diameter: 26, // board pins are fine thin-ink circles (~2% of map width)
+    strokeWidth: 1.7,
+    numFontSize: 13, // hand-font digit, optically centered
+    declutter: true, // overlapping pins push apart deterministically (ink leader + dot at the true spot)
+    declutterGap: 4,
+    leaderDot: 2.4,
+  },
+
+  WASHI: {
+    h: 30,
+    padX: 12, // tape width follows its lettering ("④ Booked") + this padding
+    minW: 90,
+    maxW: 240,
+    fontSize: 15,
+    alpha: 0.94, // near-opaque like the board
+    angleDeg: -3, // slight hand-placed tilt
+    tearSegs: 12, // multi-scale torn ends: coarse rip + fine fiber serration
+    tearAmp: 3.2,
+    tearFine: 1.1,
+    seed: 20260705,
+    pattern: "plain", // 'plain' | 'gingham' | 'stripes'
+    patternAlpha: 0.13,
+    sheenAlpha: 0, // matte by default
+    offset: 0.72, // tape center distance from its pin, in tape-heights
+  },
 
   WATER_LABEL: {
     fontStyle: "italic",
     fontFamily: "'Gochi Hand'",
     fontBase: 24,
-    fontMin: 13,
-    fontMax: 40,
-    fillFrac: 0.86,
-    cloudRadiusFrac: 0.09, // BUG FIX — was 0.17 (see render-engine.mjs CONFIG for the full note); local-water-
-    // body-only spine radius, paired with map-render-core.js's anchor-centered drawCurvedLabel.
+    fontMin: 12,
+    fontMax: 28, // board's channel lettering is modest (was 40)
+    fillFrac: 0.62, // was 0.86 — stretched the word across the whole strait
+    cloudRadiusFrac: 0.09, // local-water-body-only spine radius (wider blends multiple bodies)
     minCloud: 40,
-    buckets: 10,
+    buckets: 12,
     trim: 0.1,
-    smoothPasses: 1,
-    letterSpacing: 1.5,
-    haloWidth: 5,
-    glyphSkipMargin: 4,
+    smoothPasses: 2,
+    letterSpacing: 2,
+    haloWidth: 4,
+    glyphSkipMargin: 4, // clearance for the per-glyph pin/washi test inside the window search —
+    // glyphs are never dropped mid-word; the whole word slides/shrinks until it clears.
   },
   POINT_LABEL: {
+    fontSize: 22, // board-scale hand lettering (was FONT_LABEL "28px")
     haloPad: 3,
-    haloWidth: 6,
-    nudges: [ [0, 0], [0, -1], [0, 1], [-1, 0], [1, 0] ],
+    haloWidth: 5,
+    nudges: [
+      [0, 0], [0, -1], [0, 1], [-1, 0], [1, 0],
+      [-1, -1], [1, -1], [-1, 1], [1, 1], [0, -2], [0, 2],
+    ],
     nudgeStep: 0.9,
     pinPad: 4,
+    maxLabels: 8, // density cap — route map, not a street atlas (design.md §8)
+    twoLineMaxW: 170, // longer names wrap to two lines (board's mosque label)
+    shrinkFloor: 0.8, // labels may shrink to this ×fontSize before dropping
+    edgeMargin: 10, // no text within this of the crop edge
+    routePad: 3, // labels keep clear of the route pen line
   },
 
-  FONT_LABEL: "28px 'Gochi Hand'",
-  FONT_WATER_NAME: "italic 24px 'Gochi Hand'",
-  FONT_PIN_NUM: "bold 18px 'Segoe UI', sans-serif",
-  FONT_WASHI: "bold 16px 'Segoe UI', sans-serif",
-
-  PIN_DIAMETER: 36,
-  WASHI_W: 118,
-  WASHI_H: 32,
+  FONT_FAMILY_HAND: "'Gochi Hand'", // ALL map lettering (labels, pin digits, washi) — design.md §2.4
 
   ROAD_CLASSES_MAJOR: ["motorway", "trunk", "primary"],
   ROAD_CLASSES_SECONDARY: ["secondary"],
@@ -183,6 +204,10 @@ function ctl(group, label, type, path, min, max, step, isView) {
 function ctlCustom(group, label, type, getFn, setFn, min, max, step, isView) {
   return { group: group, label: label, type: type, get: getFn, set: setFn, min: min, max: max, step: step, view: !!isView };
 }
+function ctlSelect(group, label, path, options) {
+  var acc = pathAcc(path);
+  return { group: group, label: label, type: 'select', get: acc.get, set: acc.set, options: options, view: false };
+}
 function roadToggle(className, arrayPath) {
   var acc = pathAcc(arrayPath);
   return {
@@ -242,13 +267,17 @@ CONTROLS.push(ctl('Roads', 'Secondary Road Width', 'range', 'WIDTHS.roadSecondar
 })();
 
 CONTROLS.push(ctl('Labels', 'Water Label Font Min', 'range', 'WATER_LABEL.fontMin', 8, 30, 1));
-CONTROLS.push(ctl('Labels', 'Water Label Font Max', 'range', 'WATER_LABEL.fontMax', 20, 60, 1));
+CONTROLS.push(ctl('Labels', 'Water Label Font Max', 'range', 'WATER_LABEL.fontMax', 16, 60, 1));
+CONTROLS.push(ctl('Labels', 'Water Label Fill Fraction (of channel length)', 'range', 'WATER_LABEL.fillFrac', 0.3, 0.95, 0.01));
 CONTROLS.push(ctl('Labels', 'Water Label Letter Spacing', 'range', 'WATER_LABEL.letterSpacing', 0, 5, 0.1));
-CONTROLS.push(ctlCustom('Labels', 'Point Label Size (px)', 'range',
-  function (cfg) { return parseInt(cfg.FONT_LABEL, 10); },
-  function (cfg, val) { cfg.FONT_LABEL = val + "px 'Gochi Hand'"; },
-  12, 40, 1));
+CONTROLS.push(ctl('Labels', 'Point Label Size (px)', 'range', 'POINT_LABEL.fontSize', 12, 40, 1));
 CONTROLS.push(ctl('Labels', 'Point Label Halo Width', 'range', 'POINT_LABEL.haloWidth', 0, 12, 0.5));
+CONTROLS.push(ctl('Labels', 'Max Point Labels (density)', 'range', 'POINT_LABEL.maxLabels', 0, 24, 1));
+
+CONTROLS.push(ctl('Pins', 'Pin Diameter', 'range', 'PIN.diameter', 12, 48, 1));
+CONTROLS.push(ctl('Pins', 'Pin Stroke Width', 'range', 'PIN.strokeWidth', 0.5, 4, 0.1));
+CONTROLS.push(ctl('Pins', 'Pin Number Size', 'range', 'PIN.numFontSize', 8, 24, 1));
+CONTROLS.push(ctl('Pins', 'Declutter Overlapping Pins', 'checkbox', 'PIN.declutter'));
 
 CONTROLS.push(ctl('Route', 'Route Line Color', 'color', 'COLORS.routeLine'));
 CONTROLS.push(ctl('Route', 'Route Width', 'range', 'ROUTE_WIDTH', 0.5, 8, 0.1));
@@ -256,9 +285,19 @@ CONTROLS.push(ctl('Route', 'Route Bleed Extra', 'range', 'ROUTE_BLEED_EXTRA', 0,
 CONTROLS.push(ctl('Route', 'Route Bleed Alpha', 'range', 'ROUTE_BLEED_ALPHA', 0, 1, 0.01));
 
 CONTROLS.push(ctl('Washi', 'Washi Fill Color', 'color', 'COLORS.washiFill'));
-CONTROLS.push(ctl('Washi', 'Washi Alpha', 'range', 'WASHI_ALPHA', 0, 1, 0.01));
-CONTROLS.push(ctl('Washi', 'Washi Tear Amplitude', 'range', 'WASHI_TEAR_AMP', 0, 10, 0.1));
-CONTROLS.push(ctl('Washi', 'Washi Tear Segments', 'range', 'WASHI_TEAR_SEGMENTS', 2, 14, 1));
+CONTROLS.push(ctl('Washi', 'Washi Alpha', 'range', 'WASHI.alpha', 0, 1, 0.01));
+CONTROLS.push(ctl('Washi', 'Washi Angle (deg)', 'range', 'WASHI.angleDeg', -12, 12, 0.5));
+CONTROLS.push(ctl('Washi', 'Washi Font Size', 'range', 'WASHI.fontSize', 10, 24, 1));
+CONTROLS.push(ctl('Washi', 'Washi Tear Amplitude', 'range', 'WASHI.tearAmp', 0, 10, 0.1));
+CONTROLS.push(ctl('Washi', 'Washi Tear Fine Serration', 'range', 'WASHI.tearFine', 0, 4, 0.1));
+CONTROLS.push(ctl('Washi', 'Washi Tear Segments', 'range', 'WASHI.tearSegs', 4, 20, 1));
+CONTROLS.push(ctlSelect('Washi', 'Washi Pattern', 'WASHI.pattern', ['plain', 'gingham', 'stripes']));
+CONTROLS.push(ctl('Washi', 'Washi Pattern Alpha', 'range', 'WASHI.patternAlpha', 0, 0.4, 0.01));
+
+CONTROLS.push(ctl('Crowding', 'Frame Edge Margin (no text past this)', 'range', 'POINT_LABEL.edgeMargin', 0, 40, 1));
+CONTROLS.push(ctl('Crowding', 'Route Clearance (labels)', 'range', 'POINT_LABEL.routePad', 0, 12, 0.5));
+CONTROLS.push(ctl('Crowding', 'Pin Clearance (labels)', 'range', 'POINT_LABEL.pinPad', 0, 16, 0.5));
+CONTROLS.push(ctl('Crowding', 'Label Shrink Floor', 'range', 'POINT_LABEL.shrinkFloor', 0.6, 1, 0.01));
 
 CONTROLS.push(ctl('Weathering', 'Weathering Opacity', 'range', 'ALPHA.weathering', 0, 1, 0.01));
 CONTROLS.push(ctlCustom('Weathering', 'Vignette Color', 'color',
@@ -297,21 +336,32 @@ CONTROLS.forEach(function (c) {
   var label = document.createElement('label');
   label.textContent = c.label;
   row.appendChild(label);
-  var input = document.createElement('input');
-  input.setAttribute('data-testid', slug(c.group + '-' + c.label));
-  if (c.type === 'color') {
-    input.type = 'color';
+  var input;
+  if (c.type === 'select') {
+    input = document.createElement('select');
+    (c.options || []).forEach(function (opt) {
+      var o = document.createElement('option');
+      o.value = opt; o.textContent = opt;
+      input.appendChild(o);
+    });
     input.value = c.get(config);
-  } else if (c.type === 'checkbox') {
-    input.type = 'checkbox';
-    input.checked = !!c.get(config);
   } else {
-    input.type = 'range';
-    input.min = String(c.min);
-    input.max = String(c.max);
-    input.step = String(c.step);
-    input.value = String(c.get(config));
+    input = document.createElement('input');
+    if (c.type === 'color') {
+      input.type = 'color';
+      input.value = c.get(config);
+    } else if (c.type === 'checkbox') {
+      input.type = 'checkbox';
+      input.checked = !!c.get(config);
+    } else {
+      input.type = 'range';
+      input.min = String(c.min);
+      input.max = String(c.max);
+      input.step = String(c.step);
+      input.value = String(c.get(config));
+    }
   }
+  input.setAttribute('data-testid', slug(c.group + '-' + c.label));
   row.appendChild(input);
   var readout = null;
   if (c.type === 'range') {
@@ -325,7 +375,7 @@ CONTROLS.forEach(function (c) {
   c._readout = readout;
   input.addEventListener('input', function () {
     var val;
-    if (c.type === 'color') val = input.value;
+    if (c.type === 'color' || c.type === 'select') val = input.value;
     else if (c.type === 'checkbox') val = input.checked;
     else val = parseFloat(input.value);
     c.set(config, val);
@@ -464,7 +514,7 @@ document.getElementById('btn-reset').addEventListener('click', function () {
   config = structuredClone(DEFAULT_CONFIG);
   CONTROLS.forEach(function (c) {
     var val = c.get(config);
-    if (c.type === 'color') { c._input.value = val; }
+    if (c.type === 'color' || c.type === 'select') { c._input.value = val; }
     else if (c.type === 'checkbox') { c._input.checked = !!val; }
     else { c._input.value = String(val); if (c._readout) c._readout.textContent = fmt(val); }
   });

@@ -156,13 +156,11 @@ try {
   await cbSelect.evaluate((el) => { el.value = "off"; el.dispatchEvent(new Event("change", { bubbles: true })); });
   await page.waitForFunction((prevCount) => window.__paintCount > prevCount, cbAfter.paintCount, { timeout: 3000 });
   const restoredPixels = await page.evaluate(samplePixels);
-  // NOTE: paintFull's coastline/road/pin strokes are drawn with Rough.js
-  // WITHOUT a fixed seed (pre-existing, not this change), so its hand-drawn
-  // jitter differs slightly between any two separate paintFull calls even
-  // with identical config -- exact pixel equality across repaints is not a
-  // valid test. Use mean absolute per-channel diff instead: small (sketch
-  // jitter / antialiasing noise) is expected; large would mean the sim
-  // compounded instead of resetting from the true colors each time.
+  // Rough.js strokes are seeded per feature since the 2026-07-06 fidelity
+  // pass, so repaints with identical config are byte-identical (this check
+  // now measures meanDiff 0). The mean-diff tolerance is kept as a guard: a
+  // small diff would mean antialiasing drift crept in; a large one would mean
+  // the sim compounded instead of resetting from the true colors each time.
   const diffs = trueColorPixels.map((v, i) => Math.abs(v - restoredPixels[i]));
   const meanDiff = diffs.reduce((a, b) => a + b, 0) / diffs.length;
   const maxDiff = Math.max(...diffs);

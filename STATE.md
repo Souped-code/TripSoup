@@ -760,3 +760,57 @@ design.md palette+type+Gracie; the ALLOW+FLAG dedup call; the custom map-engine 
 Motion adopted for the reveal (component libs Chris shared = ideas only, NOT their glassmorphism visuals).
 Textures + final map CONFIG = Chris's calls. Read before touching anything: master plan (D2.3), design.md,
 `design/map-engine-plan.md`, `design/map-engine/README.md`, and this handoff.
+
+---
+
+## M0.5 engine fidelity pass (2026-07-06, Fable session — Chris's audit request)
+
+Chris (this session, via grill round): washi = **board-faithful shape + patterned variants** (explicitly
+NOT the physical-cues option — no drop shadow/fiber/multiply); text/pins = **match the board's
+proportions** + density thinning; crowding = **trip-overlay-wins policy + studio knobs**; Copy-CONFIG =
+he'll paste it (NOT yet received — see open items).
+
+**Built (all in `design/map-engine/`, engine core + both callers + smoketest comment):**
+- **Resolution-invariant sizing:** every CONFIG px value authored at `REF_TILEPX` 1024; paint scales by
+  `K = TILEPX/REF_TILEPX` (deriveSizes). SCALE now changes resolution only — the root cause of "fonts
+  don't render accurately" across studio/harness (28px meant different proportions at SCALE 2 vs 4).
+- **Text:** optical centering from measured glyph bounds (X too for digits); explicit text state at every
+  draw site; ALL map lettering → `FONT_FAMILY_HAND` (Segoe UI on washi/pins violated design.md §2.4);
+  tape content-sized; two-line wrap for long place names; per-feature seeded Rough.js strokes
+  (byte-identical repaints — smoketest colorblind-restore now meanDiff **0**; M1/M2 determinism
+  constraint pre-satisfied).
+- **Washi:** tilt (−3°), multi-scale torn ENDS only, no perimeter outline, matte (sheen dial default 0),
+  circled stop number + 'Booked' in ink (rough circle; `fill:'none'` hachure artifact found+fixed),
+  optional gingham/stripes pattern (tint token `washiPatternTint`), placement collision-tested (may lie
+  across the route, never covers a pin, never leaves frame — 5 candidates, best-effort fallback noted).
+- **Crowding:** shared occupied-region list across ALL passes (pins + washi + route-line sample boxes +
+  point labels + water-label glyphs); point labels nudge (11 posns incl. diagonals) → shrink (floor 0.8)
+  → drop, fully-inside-frame required (kills mid-word frame slicing), density cap applied AFTER
+  in-view filtering (first cut capped on the whole fetch footprint — found via stats, fixed); curved
+  water labels slide along the spine (9 offsets) + shrink (4 steps) to a fully clear window, glyphs
+  NEVER dropped mid-word (the "Straits … Johor" bug); pin declutter with ink leader + true-spot dot.
+- **`upgradeConfig()` exported:** old flat Copy-CONFIG shapes (FONT_LABEL/PIN_DIAMETER/WASHI_*) migrate
+  losslessly at their own authored proportions (REF_TILEPX inferred = TILE×SCALE). Studio gained Pins /
+  Crowding / extended Washi control groups + a 'select' control type; smoketest-pinned control labels
+  unchanged.
+
+**Verified:** harness ok 6/6 tiles 0 errors (multiple runs incl. final); washi detail crop inspected at
+3×; studio smoketest PASS end-to-end (boot/control/view/colorblind, meanDiff 0); repo gates re-run
+fresh: tsc clean · jest **109/109** (18 suites) · Playwright **14/14**. Fresh-context review (opus,
+diff cold): verdict **PASS, 0 blocking**, 2 minor + 7 observations — both minors fixed (rotated-extent
+test for the straight water-label fallback; nudges-migration gated to old-shape configs) + 3
+observations hardened (pattern tint tokenized; 2-digit washi ring sizing for M1; stale smoketest
+comment). Accepted as-is with rationale: washi placement best-effort fallback (5th candidate wins even
+if imperfect — revisit at M1 with real trips), curved-glyph square boxes (~0.19×size under-cover at 45°,
+invisible at hand-font sizes), route-box sampling gaps (smaller than any label box), latent
+`WASHI_INDEX`/empty-geom crash paths (impossible with shipped config; M1 wiring owns real-data guards).
+Comparison refreshed: `design/refs/d2.3-map-engine-vs-board.png`.
+
+**Deviation (logged):** Chris ordered "M0.5 config-lock first, then audit" — inverted deliberately: the
+fidelity fixes add tunables his old export can't carry, so lock-then-fix would have double-tuned. His
+paste (whenever it lands) migrates via `upgradeConfig` and becomes the defaults; final lock after ONE
+studio pass over the new dials.
+
+**OPEN (art gate still ⛔):** (1) Chris's Copy-CONFIG paste → set as defaults in both callers;
+(2) Chris re-tunes new dials in the studio + re-vets `design/refs/d2.3-map-engine-vs-board.png` →
+M0.5 CLOSED. M1 wiring proceeds meanwhile (config values are data, not API).

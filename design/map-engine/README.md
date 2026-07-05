@@ -35,11 +35,35 @@ Open the printed URL. Tune → **Copy CONFIG** → those values become the engin
 - The `CONFIG` block holds every tunable (colors, stroke weights, texture scale, crop `VIEW_BBOX`,
   label sizes, route/washi params, `Z`, `SCALE`).
 
+## Fidelity pass (2026-07-06, Chris's audit request)
+Chris's complaints — text not rendering neatly in its spaces, washi not tape-like, overlap/format
+breakdown when elements get close — were audited and fixed in `map-render-core.js`:
+- **Resolution-invariant sizing:** every px value in CONFIG is authored at `REF_TILEPX` (1024 =
+  TILE 256 × SCALE 4) and scaled by `K = TILEPX/REF_TILEPX` at paint. SCALE now changes resolution
+  only, never proportions (this was why studio-tuned text looked wrong at other sizes).
+- **Text:** optical centering from measured glyph bounds (pins, washi, labels); ALL map lettering in
+  the hand font (`FONT_FAMILY_HAND` — design.md §2.4 bans Segoe/system faces); tape sized to its
+  lettering; long place names wrap to two lines (like the board's mosque label).
+- **Washi (board-faithful + patterns, per Chris's picks):** slight tilt, multi-scale torn ENDS only,
+  no perimeter outline, matte (sheen off), circled stop number ④ + 'Booked' in ink, optional
+  gingham/stripes pattern, placement collision-tested (may lie across the route, never covers a pin,
+  never leaves the frame).
+- **Crowding (trip overlay wins + studio knobs):** point labels nudge (incl. diagonals) → shrink →
+  drop; avoid route/pins/washi/each other/frame edge (no more mid-word slicing); density capped
+  (route map, not an atlas — §8); curved water labels slide along the channel spine + shrink to a
+  fully clear window and NEVER drop glyphs mid-word; pins declutter with an ink leader + true-spot dot.
+- **Determinism:** per-feature seeded Rough.js strokes — repaints are byte-identical (M1/M2 constraint;
+  smoketest's colorblind-restore now reports meanDiff 0).
+- **`upgradeConfig()` (exported):** migrates any older flat-shape CONFIG (e.g. an earlier Copy-CONFIG
+  export: `FONT_LABEL`, `PIN_DIAMETER`, `WASHI_*`) to the current `PIN:{}`/`WASHI:{}` shape — old
+  pastes keep working, at their own authored proportions.
+
 ## Status / next
-- **Art direction PROVEN** (see `render-engine-v0-vs-board.png`): real JB geometry reads unmistakably as
-  the board's journal map.
-- **M0.5 art gate** closes when Chris exports **Copy CONFIG** from the studio → paste those values in as
-  the engine's `CONFIG` defaults + confirm the textures.
+- **Art direction PROVEN** (see `render-engine-v0-vs-board.png` / `design/refs/d2.3-map-engine-vs-board.png`):
+  real JB geometry reads unmistakably as the board's journal map, now at board proportions.
+- **M0.5 art gate** closes when Chris pastes his **Copy CONFIG** (older exports auto-migrate via
+  `upgradeConfig`), re-tunes the new dials (Pins / Washi pattern / Crowding groups) in the studio,
+  and re-exports → those values become the engine's `CONFIG` defaults.
 - **Then M1:** wire `map-render-core.js` into the real reveal at `app/trip/[id]` (fixed-view), route
   re-sketching on reorder — see design/map-engine-plan.md phases M1/M2, then the D2.3 sidebar (T6, incl.
   the duplicate `duplicateOf` flag) + §2 surfaces (T7), done-check, merge.
