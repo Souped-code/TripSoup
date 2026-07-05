@@ -116,8 +116,8 @@ hard-coded hex in component code.
 | `--ink-soft` | `#6B6155` | Secondary text, captions, muted labels |
 | `--action` | `#3F6B4C` | **The** functional accent — soothing pine green. CTAs, active/focus/selected, progress, success. The accessible version of the board's green, darkened per the shadow rule below |
 | `--soup` | `#E0662E` | Brand orange — logo, Gracie, illustration, large display accents ONLY. Never actions |
-| `--route-blue` | `#3E6C8E` | Fountain-pen blue — the map's route line and "drawn" elements only |
-| `--washi` | `#F4C95D` | Booked/anchor highlight — the yellow tape from the accepted board |
+| `--route-blue` | `#3E6C8E` | Fountain-pen blue — UI "drawn" elements. **Map-pen split (Chris, 2026-07-06 M0.5 lock):** the render engine's route pen is the vivid `#2e79ea` (`COLORS.routeLine` in `src/lib/map/map-style-defaults.mjs`); this UI token is unchanged (the vivid fails 4.5:1 for text) |
+| `--washi` | `#F4C95D` | Booked/anchor highlight — the yellow tape from the accepted board. The map's booked tag renders the brightened variant `#ffdf6b` (Chris, 2026-07-06 — §3 lighter-shade derivation; booked stays yellow on every surface) |
 | `--washi-coral` | `#F0907A` | Fun tape (decorative: drag handles, itinerary row tabs) |
 | `--washi-sky` | `#7FB8D8` | Fun tape (decorative) |
 | `--washi-pink` | `#E88BA5` | Fun tape (decorative) |
@@ -253,13 +253,17 @@ map (see below) and a sidebar styled as a torn journal page, the itinerary rende
 handwritten-style list with times. Drag handles look like strips of washi tape; dragging
 plays the pencil-scribble sfx and re-paths the map line.
 
-### Map style (MapLibre)
-Style JSON tuned to the same paper tones: land fill = `--paper`, water = a desaturated
-`#C9D6D2` (deliberately not `--route-blue` — water and routes must read as visually
-distinct), roads as thin ink-colored lines, POI labels kept minimal (this is a route map,
-not a full street atlas). The route itself draws on as a hand-sketched pen line in
-`--route-blue` — a draw-on animation (dasharray interpolation) or a slight jitter shader,
-not a static straight polyline.
+### Map style (custom render engine — supersedes the MapLibre plan, Chris-directed 2026-07-05)
+The map is painted by our own journal render engine (`src/lib/map/map-render-core.js`:
+AI-watercolor textures + Rough.js hand-inked strokes + the hand-font label subsystem over
+real OpenFreeMap geometry — no per-trip AI, basemap painted once, trip overlay redraws on
+reorder). **Every art value lives in `src/lib/map/map-style-defaults.mjs` (M0.5-LOCKED by
+Chris 2026-07-06 via Map Studio Copy-CONFIG)** — tune there via the studio
+(`design/map-engine/map-studio.mjs`), never inline. Principles preserved from the original
+direction: land = warm paper, water desaturated and distinct from the pen, thin ink roads,
+POI labels minimal (route map, not a street atlas). The pen line is the vivid map-pen blue
+(see `--route-blue` note above) and will draw on with M2's motion pass, never a static
+straight polyline.
 
 ---
 
