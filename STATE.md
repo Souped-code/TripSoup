@@ -1056,3 +1056,13 @@ reading like the board). Cosmetic nit accepted: on eligible legs the mode word +
 "walk · walk 3 min…" — slightly stuttery, Chris may re-copy at his eyeball. Jest untouched
 (no new unit surface). **Remaining: T8 full-flow e2e · T9 whole-branch audit · T10 done-check
 + merge (merge = production deploy — gets Chris's explicit go first).**
+
+## T8 — full-flow e2e (2026-07-06, same Fable session)
+
+`e2e/fullflow.spec.ts`: ONE spec drives the whole product journey on fixture data with stubbed
+tiles + reduced motion — paste the messy blob on the real greeting → real /api/pipeline SSE cook
+→ redirect to the reveal → journal map paints + sidebar carries the three cooked stops →
+keyboard drag one slot (manualOrder; map re-paths; Re-optimize appears) → §2 toggle on the first
+eligible leg (mode flips, "your pick", pinned order unchanged) → /share/<id> recomputes the SAME
+doc: exact pinned order, the leg pick honoured, zero editing affordances. **Playwright 26/26**
+(whole suite) · tsc clean. T8 DONE.
