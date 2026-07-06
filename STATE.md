@@ -1039,3 +1039,20 @@ build/dev compile ever fails weirdly again, check disk first.
 notes" pocket — the sidebar rows' right column is reserved for it) · T8 full-flow e2e ·
 T9 fresh-context whole-branch audit · T10 done-check + STATE + LIVE-CHECKLIST + merge to
 main. CHRIS-STEP unchanged: AWS Location key → Vercel env (road-following pen goes live).
+
+## T7 — §2 LOCKED surfaces on the sidebar (2026-07-06, same Fable session; orchestrator-built)
+
+Leg lines between rows (only when the plan's order IS the displayed order — hidden during the
+optimistic drag window so §2 semantics always come from the plan, never guessed client-side):
+mode word + BOTH times on eligible legs ("walk 3 min · drive 4 min"), "take the drive/walk"
+toggle → legOverrides upsert (same shape as the old board's toggleLeg) → PUT → re-plan →
+re-timed, never re-ordered, "— your pick" marker, persists across reload. Planner's notes
+pocket (collapsed <details>): walkMax + driveOverheadMin drafts, explicit Apply (one deliberate
+PUT + re-plan of EVERY day — settings are doc-level), validation 0–120. Tokens/voice per law.
+**Verified:** tsc clean · Playwright **25/25** (2 new: eligible-leg both-times + toggle
+re-time/persist/no-reorder; walkMax-0 forces all legs to drive via the pocket) · build clean ·
+visual pass (fixture-city Bristol render: leg lines, toggle links, booked row, pocket — all
+reading like the board). Cosmetic nit accepted: on eligible legs the mode word + times read
+"walk · walk 3 min…" — slightly stuttery, Chris may re-copy at his eyeball. Jest untouched
+(no new unit surface). **Remaining: T8 full-flow e2e · T9 whole-branch audit · T10 done-check
++ merge (merge = production deploy — gets Chris's explicit go first).**

@@ -119,7 +119,7 @@ export function RevealClient({
   // Serialized behind `busy` so two mutations (a fast double-drag, a drag
   // racing Re-optimize, etc.) can never interleave.
   const runMutation = useCallback(
-    async (buildNextDoc: (d: TripDoc) => TripDoc, failureVerb: string) => {
+    async (buildNextDoc: (d: TripDoc) => TripDoc, failureVerb: string, replanAll = false) => {
       if (busy) return;
       const dayIndex = activeDay;
       setBusy(true);
@@ -127,9 +127,19 @@ export function RevealClient({
       try {
         const nextDoc = buildNextDoc(doc);
         await putDoc(nextDoc);
-        const nextPlan = await postPlan(nextDoc.tripId, dayIndex);
-        setDoc(nextDoc);
-        setPlans((p) => p.map((pl, i) => (i === dayIndex ? nextPlan : pl)));
+        if (replanAll) {
+          // doc-level changes (T7: the planner's-notes settings) stale EVERY
+          // day's plan, not just the active one — re-plan them all
+          const nextPlans = await Promise.all(
+            nextDoc.days.map((_, i) => postPlan(nextDoc.tripId, i))
+          );
+          setDoc(nextDoc);
+          setPlans(nextPlans);
+        } else {
+          const nextPlan = await postPlan(nextDoc.tripId, dayIndex);
+          setDoc(nextDoc);
+          setPlans((p) => p.map((pl, i) => (i === dayIndex ? nextPlan : pl)));
+        }
         setPendingOrder(null);
       } catch (e) {
         setPendingOrder(null); // revert to the pre-mutation order
@@ -168,6 +178,36 @@ export function RevealClient({
       }),
     }), "Re-optimizing didn't stick");
   }, [runMutation, activeDay]);
+
+  // T7 — §2 LOCKED surface: per-leg mode toggle. Same upsert shape as the old
+  // board's toggleLeg (src/ui/board/TripBoard.tsx): drop any existing override
+  // for this day+leg, append the new pick; planService re-times the fixed
+  // order (never re-orders) and marks the leg chosenBy "user".
+  const handleToggleLeg = useCallback(
+    (fromId: string, toId: string, mode: "walk" | "drive") => {
+      void runMutation(
+        (d) => ({
+          ...d,
+          legOverrides: [
+            ...d.legOverrides.filter(
+              (o) => !(o.dayIndex === activeDay && o.fromId === fromId && o.toId === toId)
+            ),
+            { dayIndex: activeDay, fromId, toId, mode },
+          ],
+        }),
+        "That leg wouldn't switch"
+      );
+    },
+    [runMutation, activeDay]
+  );
+
+  // T7 — §2 LOCKED surface: walkMax / driveOverheadMin, the planner's notes.
+  const handleSettingsChange = useCallback(
+    (settings: TripDoc["settings"]) => {
+      void runMutation((d) => ({ ...d, settings }), "Those notes didn't take", true);
+    },
+    [runMutation]
+  );
 
   const handleRemoveStop = useCallback(
     (stopId: string) => {
@@ -230,9 +270,12 @@ export function RevealClient({
           orderedIds={orderedIds}
           busy={busy}
           actionError={actionError}
+          settings={doc.settings}
           onReorder={handleReorder}
           onReoptimize={handleReoptimize}
           onRemoveStop={handleRemoveStop}
+          onToggleLeg={handleToggleLeg}
+          onSettingsChange={handleSettingsChange}
         />
       </div>
     </div>

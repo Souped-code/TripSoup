@@ -182,3 +182,68 @@
   text-decoration: none;
   margin-top: 4px;
 }
+
+/* T7 — leg lines between rows (§2 LOCKED: both times on eligible legs) ---- */
+.reveal-leg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: baseline;
+  font-family: var(--font-body);
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+  margin: 0 0 6px;
+}
+.reveal-leg__mode {
+  font-family: var(--font-display);
+  color: var(--route-blue);
+}
+.reveal-leg__toggle {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--action);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.reveal-leg__toggle:disabled {
+  color: var(--ink-soft);
+  cursor: default;
+}
+
+/* T7 — the planner's notes pocket (§2 LOCKED: walkMax + driveOverheadMin) -- */
+.reveal-pocket {
+  margin: 14px 0 4px;
+  font-family: var(--font-body);
+  color: var(--ink);
+  border-top: 1px dashed var(--ink-soft);
+  padding-top: 10px;
+}
+.reveal-pocket summary {
+  cursor: pointer;
+  font-family: var(--font-display);
+  color: var(--ink-soft);
+}
+.reveal-pocket__form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: center;
+  margin-top: 10px;
+  font-size: 0.85rem;
+}
+.reveal-pocket__form label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.reveal-pocket__form input {
+  width: 64px;
+  font: inherit;
+  padding: 2px 6px;
+  background: var(--paper);
+  border: 1px solid var(--ink-soft);
+  border-radius: 3px;
+  color: var(--ink);
+}

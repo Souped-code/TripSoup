@@ -212,3 +212,83 @@ test("the reveal page has no automatically detectable accessibility violations",
   const accessibilityScanResults = await new AxeBuilder({ page }).analyze();
   expect(accessibilityScanResults.violations).toEqual([]);
 });
+
+// ---------------------------------------------------------------------------
+// T7 — the §2 LOCKED surfaces, on the sidebar
+// ---------------------------------------------------------------------------
+
+const byName = new Map(FIXTURE_STOPS.map((s) => [s.name, s]));
+
+// The old-town cluster's hops are walk-eligible by construction (same set
+// trip.spec.ts's toggle test relies on), so the auto plan is guaranteed to
+// produce at least one walk leg carrying BOTH times + a toggle.
+async function createOldTownTrip(page: Page): Promise<TripDoc> {
+  const created = await page.request.post("/api/trips");
+  expect(created.ok()).toBeTruthy();
+  const doc = (await created.json()) as TripDoc;
+  const names = ["Market Hall", "Clock Tower Square", "Guildhall Museum", "Riverside Cafe"];
+  doc.days[0].stops = names.map((n) => {
+    const f = byName.get(n)!;
+    return { id: f.id, name: f.name, location: f.location, durationMin: 30 };
+  });
+  const put = await page.request.put(`/api/trips/${doc.tripId}`, { data: doc });
+  expect(put.ok()).toBeTruthy();
+  return doc;
+}
+
+test("T7: an eligible leg shows both times; the toggle re-times without re-ordering and persists", async ({
+  page,
+}) => {
+  await stubTiles(page);
+  const doc = await createOldTownTrip(page);
+  await page.goto(`/trip/${doc.tripId}`);
+  const map = await expectPainted(page);
+  const orderBefore = (await map.getAttribute("data-order"))!;
+
+  // eligible legs are exactly the ones offering a toggle
+  const firstToggle = page.locator('[data-testid^="sidebar-toggle-"]').first();
+  await expect(firstToggle).toBeVisible();
+  const pair = (await firstToggle.getAttribute("data-testid"))!.replace("sidebar-toggle-", "");
+  const legBox = page.getByTestId(`sidebar-leg-${pair}`);
+
+  // §2 decide-then-offer: BOTH times visible on the eligible leg
+  await expect(legBox.getByTestId("sidebar-leg-times")).toContainText(/walk \d+ min · drive \d+ min/);
+  const modeBefore = (await legBox.getByTestId("sidebar-leg-mode").textContent())!.trim();
+  const modeAfter = modeBefore === "walk" ? "drive" : "walk";
+
+  await firstToggle.click();
+  await expect(legBox.getByTestId("sidebar-leg-mode")).toHaveText(modeAfter, { timeout: 15000 });
+  await expect(legBox.getByTestId("sidebar-leg-times")).toContainText("your pick");
+  // re-timed, never re-ordered
+  await expect(map).toHaveAttribute("data-order", orderBefore);
+
+  // the pick persists (legOverrides on the doc, not client state)
+  await page.reload();
+  await expectPainted(page);
+  await expect(page.getByTestId(`sidebar-leg-${pair}`).getByTestId("sidebar-leg-mode")).toHaveText(modeAfter);
+  await expect(page.getByTestId(`sidebar-leg-${pair}`).getByTestId("sidebar-leg-times")).toContainText(
+    "your pick"
+  );
+});
+
+test("T7: planner's notes — walkMax 0 forces every leg to drive", async ({ page }) => {
+  await stubTiles(page);
+  const doc = await createOldTownTrip(page);
+  await page.goto(`/trip/${doc.tripId}`);
+  await expectPainted(page);
+  await expect(
+    page.locator('[data-testid="sidebar-leg-mode"]', { hasText: "walk" }).first()
+  ).toBeVisible();
+
+  await page.getByTestId("sidebar-pocket").locator("summary").click();
+  await page.getByTestId("sidebar-walkmax").fill("0");
+  await page.getByTestId("sidebar-settings-apply").click();
+
+  // the all-days re-plan lands: no walk legs remain anywhere on the day
+  await expect(page.locator('[data-testid="sidebar-leg-mode"]', { hasText: "walk" })).toHaveCount(0, {
+    timeout: 15000,
+  });
+  const modes = await page.locator('[data-testid="sidebar-leg-mode"]').allTextContents();
+  expect(modes.length).toBeGreaterThan(0);
+  for (const m of modes) expect(m.trim()).toBe("drive");
+});
