@@ -911,3 +911,67 @@ lazy Motion) · **T6** torn-journal sidebar (dnd-kit reorder → manualOrder wir
 overlay + duplicateOf flag UI) · **T7** LOCKED §2 surfaces · **T8** full-flow e2e · **T9** whole-
 branch audit · **T10** done-check + merge to main. Higgsfield ~776 cr. `.superpowers/` scratch
 remains untracked by design.
+
+---
+
+## M2 — road-following pen + reveal motion (2026-07-06, same Fable session)
+
+**Chris's calls (AskUserQuestion round):** route geometry = **AWS Location / GrabMaps** (Grab
+data in SEA, global standard data from the same API; observed gap: the pen didn't follow roads —
+not in the original design, but the board's illustrator line does); **fold into M2 now** (draw-on
+animates the final path); **matrix stays Google through launch** (evaluate a swap post-launch as
+a cost lever). Also noted for later: pedestrian matrix (truthful walk labels — open
+LIVE-CHECKLIST item), transit/scooter modes, isolines; their waypoint optimizer rejected (our
+anchor/walk-drive solver IS the product).
+
+**Built:**
+- **M2a (sonnet subagent; diff verified line-by-line by the orchestrator):**
+  `src/lib/maps/routeGeometry.ts` + `app/api/route-geometry/route.ts` — AWS geo-routes v2 proxy
+  (POST 1–25 legs → per-leg simplified [lng,lat] polylines or null). Fail-OPEN everywhere
+  (decorative — the documented OPPOSITE of kvMatrixCache's throw-to-protect-billing contract);
+  no key → all-null with ZERO fetches/cache calls (dev/jest/Playwright spend nothing);
+  Douglas-Peucker simplify (≈39 m tol, ≤80 pts, off-by-one-safe cap); 4-in-flight semaphore;
+  KV cache (`geo:v1:` keys, 5dp rounding, nulls never cached) with in-memory dev fallback;
+  rate-limited; journal-voice errors. Env: `AWS_LOCATION_API_KEY`, `AWS_LOCATION_REGION`
+  (default ap-southeast-1). Jest guard extended: tests may not ASSIGN the AWS key env var
+  (module is deliberately import-safe, unlike realAdapter — reasoning verified). **LIVE-SHAPE
+  NOTE:** the AWS response field parse (Routes[].Legs[].Geometry.LineString) is defensively
+  guarded but UNVERIFIED against a real call — confirm at the key-creation CHRIS-STEP.
+- **M2b (engine):** `buildRoutePath` (per-leg polylines projected, endpoint-snapped onto pins,
+  thinned to keep the pen soul), `trimPathByProgress` (arc-length draw-on clip),
+  `computePinArcFractions` (pins pop when the tip passes), paintOverlay params
+  {legGeometries, routeProgress, pinPop, washiSettle}, drawWashiTag alphaMul, buildScene
+  opts.legGeometries (label collision seeds from the REAL pen path on the geometry rebuild).
+  All default to previous behavior — bench re-verified identical.
+- **M2c/d (RevealMap):** progressive geometry (sketch instantly → proxy fetch → ONE scene
+  rebuild with geometry-aware labels → repaint; stale-order responses discarded; every failure
+  → sketch; data-geometry pending→roads|sketch), full choreography via `motion` (clouds part
+  1.1s → pen draws on → pins pop with overshoot as the tip passes → tape settles; reorder =
+  0.9s re-sketch + pencil sfx), per-frame paints bypass React state (no 60fps churn),
+  prefers-reduced-motion collapses everything to instant frames, sfx behind the §2.10 mute
+  toggle ("sound: on/off" text chip — no stock icons per §2.6; default ON, persisted,
+  first-gesture-gated). New dep: motion 12.x (reveal route chunk only).
+
+**Verified (fresh, this session):** tsc clean · jest **119/119** (19 suites; 10 new) ·
+Playwright **18/18** (4 reveal specs: paint/washi/manualOrder + NEW roads-upgrade +
+sketch-fallback, proxy stubbed, reduced-motion emulated) · `next build` clean (landing bundle
+untouched) · **live animation probe** (real dev server, motion ON): clouds present at ready →
+mid-drift at +500ms (translateX −42.7%, scale 1.117) → removed at end; anim idle→running→done;
+geometry→sketch without key; ZERO console/page errors; frame captures confirm draw-on
+progression, mid-pop pins, washi settling last. One dev-only artifact diagnosed (first-hit
+lazy-compile full reload mid-animation — absent in production builds). M2a's 26+-leg case
+traced: 400 → RevealMap degrades to sketch (and the solver rejects >15-stop segments upstream
+anyway). Accepted edge: duplicate identical pairs in one request may double-fetch once
+(pathological input, cache converges).
+
+**⚠ Independent fresh-context review PENDING:** the reviewer subagent was killed mid-run by the
+account session limit (resets 09:30 SGT). Committed now for rollback safety per protocol; M2 is
+NOT declared closed until that review runs clean. The orchestrator DID line-verify the M2a
+subagent diff (mandatory step, done — no defects; two accepted observations above).
+
+**CHRIS-STEP (enables road lines on the live site — everything ships safely without it):**
+AWS account → Amazon Location console → create API key restricted to `geo-routes:*`
+(resource `arn:aws:geo-routes:ap-southeast-1::provider/default`), note the pricing panel +
+set a billing alarm → add `AWS_LOCATION_API_KEY` (+ optional `AWS_LOCATION_REGION`) to Vercel
+Production env → redeploy → paste a real trip and confirm the pen follows roads (this also
+verifies the LIVE-SHAPE NOTE above).

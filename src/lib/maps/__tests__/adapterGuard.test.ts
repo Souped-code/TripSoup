@@ -38,4 +38,24 @@ describe("adapter import guard (§3)", () => {
       });
     }
   });
+
+  // routeGeometry.ts (D2.3 M2a) is NOT gated like realAdapter/llmAdapter — it
+  // is safe to import and construct with no key (every failure path resolves
+  // to null, by design). So banning its import outright doesn't fit this
+  // guard's usual mechanism: routeGeometry.test.ts legitimately imports it to
+  // exercise the stubbed-deps paths. The equivalent danger here is a test
+  // putting a REAL key into the env, which would make createRouteGeometrySource()'s
+  // default (env-based) apiKey resolution start hitting live AWS the moment a
+  // test forgets to inject a stub fetcher. So this scans for that instead —
+  // same mechanism (source scan over testFiles), different target.
+  it("no test file sets a real AWS_LOCATION_API_KEY (route geometry must be exercised via injected deps only)", () => {
+    const assignPattern = /process\.env\.AWS_LOCATION_API_KEY\s*=/;
+    for (const file of testFiles) {
+      const content = fs.readFileSync(file, "utf8");
+      expect({ file, setsAwsLocationKey: assignPattern.test(content) }).toEqual({
+        file,
+        setsAwsLocationKey: false,
+      });
+    }
+  });
 });

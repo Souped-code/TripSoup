@@ -1,12 +1,15 @@
-// D2.3 M1 done-checks — the real reveal map at /trip/[id], fixture data only.
+// D2.3 M1+M2 done-checks — the real reveal map at /trip/[id], fixture data only.
 //  - the journal engine paints: canvas has real pixels, all stops in the
 //    painted order, the booked (anchored) stop wears the washi tag
 //  - manualOrder re-paths the map: pin the reverse order, reload, the painted
 //    order follows it exactly (through the real planTripDay machinery)
+//  - M2 geometry: with the proxy answering road polylines the pen upgrades to
+//    data-geometry="roads"; with no key / failing proxy it settles on "sketch"
 // Tile traffic is stubbed at the network layer (TileJSON → a stub template,
 // every tile → 404): the engine tolerates failed tiles by design (paints
 // textures + overlay on an empty geometry set), so the wiring is exercised
-// end-to-end with zero external network and zero flake.
+// end-to-end with zero external network and zero flake. Reduced motion is
+// emulated so the M2 choreography collapses to instant final frames.
 
 import { expect, test, type Page } from "@playwright/test";
 import { FIXTURE_STOPS } from "../src/lib/maps/fixtureCity";
@@ -52,6 +55,11 @@ async function expectPainted(page: Page) {
   await expect(map).not.toHaveAttribute("data-paints", "0");
   return map;
 }
+
+test.beforeEach(async ({ page }) => {
+  // instant final frames — the choreography itself is eyeballed, not e2e'd
+  await page.emulateMedia({ reducedMotion: "reduce" });
+});
 
 test("reveal paints the journal map: canvas pixels, full order, washi on the booked stop", async ({
   page,
@@ -107,4 +115,40 @@ test("manualOrder re-paths the reveal: pinned order paints exactly", async ({ pa
   await page.reload();
   await expectPainted(page);
   await expect(map).toHaveAttribute("data-order", pinned.join("|"));
+});
+
+test("M2 geometry: road polylines from the proxy upgrade the pen to roads", async ({ page }) => {
+  await stubTiles(page);
+  const doc = await createRevealTrip(page);
+
+  // stub OUR proxy with a plausible dog-leg polyline per requested leg
+  await page.route("**/api/route-geometry", async (route) => {
+    const body = route.request().postDataJSON() as {
+      legs: Array<{ from: { lat: number; lng: number }; to: { lat: number; lng: number } }>;
+    };
+    const legs = body.legs.map(({ from, to }) => [
+      [from.lng, from.lat],
+      [(from.lng + to.lng) / 2, from.lat], // an L-shaped detour — clearly not the chord
+      [(from.lng + to.lng) / 2, to.lat],
+      [to.lng, to.lat],
+    ]);
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ legs }) });
+  });
+
+  await page.goto(`/trip/${doc.tripId}`);
+  const map = await expectPainted(page);
+  await expect(map).toHaveAttribute("data-geometry", "roads", { timeout: 15000 });
+  // the geometry swap repaints on a rebuilt scene — still no crash, still painted
+  await expect(map).not.toHaveAttribute("data-paints", "0");
+});
+
+test("M2 geometry: proxy failure settles on the hand-sketch fallback", async ({ page }) => {
+  await stubTiles(page);
+  const doc = await createRevealTrip(page);
+
+  await page.route("**/api/route-geometry", (route) => route.fulfill({ status: 502, body: "{}" }));
+
+  await page.goto(`/trip/${doc.tripId}`);
+  const map = await expectPainted(page);
+  await expect(map).toHaveAttribute("data-geometry", "sketch", { timeout: 15000 });
 });

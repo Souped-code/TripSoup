@@ -63,8 +63,13 @@
 //   upgradeConfig(config) -> config'                      old-shape migration (idempotent)
 //   fetchAndDecode(config, opts?) -> Promise<Decoded>     cached per view (Z/BBOX/TILE/SCALE/EXTENT_FALLBACK)
 //   clearDecodeCache() -> void
-//   buildScene(config, decoded, textures) -> Promise<Scene>
-//   paintOverlay(scene, {routePoints, washiIndex}) -> {pinsDisplaced, washiPlaced}
+//   buildScene(config, decoded, textures, opts?) -> Promise<Scene>
+//     opts.legGeometries: per-leg road polylines to seed label collision from
+//     the real pen path (M2) instead of straight chords
+//   paintOverlay(scene, {routePoints, washiIndex, legGeometries?,
+//     routeProgress?, pinPop?, washiSettle?}) -> {pinsDisplaced, washiPlaced}
+//     (M2: road-following pen + draw-on/spring animation params — see the
+//     function's doc block)
 //   renderToDisplay(scene, canvas, maxW?) -> {crop, dispW, dispH, canvasW, canvasH}
 //   paintFull(canvas, config, decoded, textures) -> Promise<Stats>
 //
@@ -334,6 +339,64 @@ function drawMarkerRoute(ctx, pts, C, D) {
   strokeSmoothPath(ctx, pts, D.routeWidth, C.COLORS.routeLine, 1);
 }
 
+// M2 — ROAD-FOLLOWING PEN PATH. Given visit-ordered pin positions and
+// optional per-leg road polylines ([lng,lat] arrays aligned to consecutive
+// pairs; a null leg falls back to its straight chord), build the single pen
+// polyline in canvas px: project, snap each leg's endpoints onto the pins
+// (the road snap point rarely equals the stop coordinate — visible gaps
+// otherwise), and thin points closer than minGapPx so the Catmull-Rom stroke
+// keeps its hand-drawn feel instead of tracing every survey jag.
+function buildRoutePath(routeTruePts, legGeometries, config, grid, minGapPx) {
+  if (!legGeometries || !legGeometries.length) return routeTruePts.slice();
+  const out = [];
+  const push = (p) => {
+    const last = out[out.length - 1];
+    if (!last || Math.hypot(p.x - last.x, p.y - last.y) >= minGapPx) out.push(p);
+  };
+  for (let i = 0; i < routeTruePts.length - 1; i++) {
+    const a = routeTruePts[i], b = routeTruePts[i + 1];
+    const leg = legGeometries[i];
+    if (Array.isArray(leg) && leg.length >= 2) {
+      const pts = leg.map(([lon, lat]) => lonLatToCanvas(config, grid, lon, lat));
+      pts[0] = { x: a.x, y: a.y };
+      pts[pts.length - 1] = { x: b.x, y: b.y };
+      for (const p of pts) push(p);
+    } else {
+      push(a); push(b);
+    }
+    const lastOut = out[out.length - 1];
+    if (!lastOut || lastOut.x !== b.x || lastOut.y !== b.y) out.push({ x: b.x, y: b.y });
+  }
+  if (!out.length || out[0].x !== routeTruePts[0].x || out[0].y !== routeTruePts[0].y) {
+    out.unshift({ x: routeTruePts[0].x, y: routeTruePts[0].y });
+  }
+  return out;
+}
+
+// M2 — draw-on support: the prefix of `pts` covering fraction p (0..1) of the
+// path's arc length, with an interpolated tip point. p>=1 returns pts as-is.
+function trimPathByProgress(pts, p) {
+  if (p >= 1 || pts.length < 2) return pts;
+  if (p <= 0) return [pts[0]];
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) {
+    cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+  }
+  const target = cum[cum.length - 1] * p;
+  const out = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    if (cum[i] <= target) { out.push(pts[i]); continue; }
+    const seg = cum[i] - cum[i - 1];
+    const f = seg > 0 ? (target - cum[i - 1]) / seg : 0;
+    out.push({
+      x: pts[i - 1].x + (pts[i].x - pts[i - 1].x) * f,
+      y: pts[i - 1].y + (pts[i].y - pts[i - 1].y) * f,
+    });
+    break;
+  }
+  return out;
+}
+
 // ============================================================================
 // TEXT HELPERS — optical centering + explicit state, no leaked canvas state.
 // ============================================================================
@@ -470,6 +533,9 @@ function planWashiTag(ctx, C, D, pinPos, allPinDiscs, cropInset, numText, wordTe
 function drawWashiTag(ctx, rc, C, D, plan) {
   const rng = makeRng(C.WASHI.seed);
   const pts = tapeOutline(plan.w, plan.h, C, D, rng);
+  // M2 settle animation: paintOverlay sets alphaMul while the tape "presses
+  // down" onto the page; 1 (or absent) is the resting state.
+  const aMul = plan.alphaMul != null ? plan.alphaMul : 1;
 
   ctx.save();
   ctx.translate(plan.cx, plan.cy);
@@ -481,7 +547,7 @@ function drawWashiTag(ctx, rc, C, D, plan) {
   path.closePath();
 
   // tape body — near-opaque like the board; the dial stays for the studio
-  ctx.globalAlpha = C.WASHI.alpha;
+  ctx.globalAlpha = C.WASHI.alpha * aMul;
   ctx.fillStyle = C.COLORS.washiFill;
   ctx.fill(path);
 
@@ -489,7 +555,7 @@ function drawWashiTag(ctx, rc, C, D, plan) {
   if (C.WASHI.pattern && C.WASHI.pattern !== 'plain') {
     ctx.save();
     ctx.clip(path);
-    ctx.globalAlpha = C.WASHI.alpha * C.WASHI.patternAlpha;
+    ctx.globalAlpha = C.WASHI.alpha * C.WASHI.patternAlpha * aMul;
     ctx.fillStyle = C.COLORS.washiPatternTint || '#FFFFFF'; // tint bar over the token fill, not a new hue
     const pitch = plan.h / 3.2, bar = pitch * 0.42;
     for (let x = -plan.w / 2 - pitch; x < plan.w / 2 + pitch; x += pitch) {
@@ -505,13 +571,13 @@ function drawWashiTag(ctx, rc, C, D, plan) {
 
   // faint top sheen — OFF by default (board tape is matte); dial preserved
   if (C.WASHI.sheenAlpha > 0) {
-    ctx.globalAlpha = C.WASHI.sheenAlpha;
+    ctx.globalAlpha = C.WASHI.sheenAlpha * aMul;
     ctx.fillStyle = C.COLORS.washiSheen;
     ctx.fillRect(-plan.w / 2, -plan.h / 2, plan.w, plan.h * 0.45);
   }
 
   // tear shading on the torn ENDS only — never a full-perimeter outline
-  ctx.globalAlpha = 1;
+  ctx.globalAlpha = aMul;
   ctx.lineWidth = D.washiEdge;
   ctx.strokeStyle = C.COLORS.washiShade;
   const segs = C.WASHI.tearSegs;
@@ -528,7 +594,7 @@ function drawWashiTag(ctx, rc, C, D, plan) {
   ctx.stroke(left);
 
   // "④ Booked" — circled stop number + word, hand font, ink, optical centering
-  ctx.globalAlpha = 1;
+  ctx.globalAlpha = aMul;
   const startX = -plan.innerW / 2;
   const circleCx = startX + plan.circleR;
   // NOTE: no `fill` key at all — rough.js treats the string 'none' as a real
@@ -1023,7 +1089,7 @@ export async function fetchAndDecode(config, opts = {}) {
 // on top of the snapshot without re-laying labels — the plan's "basemap never
 // re-renders on reorder" rule).
 // ============================================================================
-export async function buildScene(rawConfig, decoded, textures) {
+export async function buildScene(rawConfig, decoded, textures, opts = {}) {
   const { rough } = await preloadLibs();
   const config = upgradeConfig(rawConfig);
   const grid = decoded.grid || computeGrid(config);
@@ -1144,7 +1210,12 @@ export async function buildScene(rawConfig, decoded, textures) {
         String(config.WASHI_INDEX + 1), 'Booked')
     : null;
 
-  const routeBoxes = routeOccupiedBoxes(routeTruePts, D);
+  // M2: when the caller already has road-following leg geometry, seed label
+  // collision from the REAL pen path (opts.legGeometries, aligned to the
+  // consecutive pairs of config.ROUTE_POINTS) instead of the straight chords —
+  // otherwise labels can end up under the road-following line.
+  const routeSeedPath = buildRoutePath(routeTruePts, opts.legGeometries || null, config, grid, 2.5 * D.K);
+  const routeBoxes = routeOccupiedBoxes(routeSeedPath, D);
   const occupied = [...pinBoxes, ...(washiPlan ? [washiPlan.aabb] : []), ...routeBoxes];
 
   // Separate, TIGHTER blockers for the curved water-label glyph test — true
@@ -1205,16 +1276,30 @@ export async function buildScene(rawConfig, decoded, textures) {
 }
 
 // ============================================================================
-// paintOverlay(scene, {routePoints, washiIndex}) — restore the base snapshot,
-// then draw the trip overlay for a VISIT ORDER: pen route through the points
-// in order, numbered pins (declutter + ink leader for displaced ones), and
-// the washi tag on the booked stop (skipped when washiIndex is null/invalid).
-// Cheap relative to buildScene — this is the reorder redraw path.
+// paintOverlay(scene, overlay) — restore the base snapshot, then draw the
+// trip overlay for a VISIT ORDER: pen route through the points in order,
+// numbered pins (declutter + ink leader for displaced ones), and the washi
+// tag on the booked stop (skipped when washiIndex is null/invalid). Cheap
+// relative to buildScene — this is the reorder/animation redraw path.
+//
+// overlay:
+//   routePoints    [lon,lat][] in visit order (default config.ROUTE_POINTS)
+//   washiIndex     number|null (default config.WASHI_INDEX)
+//   legGeometries  ([lng,lat][]|null)[] per consecutive pair — road-following
+//                  pen (M2); null/absent legs draw their straight chord
+//   routeProgress  0..1 draw-on clip of the pen path (default 1)
+//   pinPop         number[] per-pin scale for the drop-in spring (default 1s;
+//                  <=0.02 skips the pin, digit fades in above 0.6)
+//   washiSettle    0..1 settle of the tape (alpha + rotation, default 1)
 // ============================================================================
 export function paintOverlay(scene, overlay) {
   const { ctx, rc, config, D, grid } = scene;
   const routePoints = (overlay && overlay.routePoints) || config.ROUTE_POINTS;
   const washiIndex = overlay && 'washiIndex' in overlay ? overlay.washiIndex : config.WASHI_INDEX;
+  const legGeometries = (overlay && overlay.legGeometries) || null;
+  const routeProgress = overlay && overlay.routeProgress != null ? overlay.routeProgress : 1;
+  const pinPop = (overlay && overlay.pinPop) || null;
+  const washiSettle = overlay && overlay.washiSettle != null ? overlay.washiSettle : 1;
 
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -1227,9 +1312,13 @@ export function paintOverlay(scene, overlay) {
   const pinPos = resolvePinPositions(routeTruePts, D, config.PIN.declutter);
   let pinsDisplaced = 0; for (const p of pinPos) if (p.moved) pinsDisplaced++;
 
-  drawMarkerRoute(ctx, routeTruePts, config, D);
+  const penPath = buildRoutePath(routeTruePts, legGeometries, config, grid, 2.5 * D.K);
+  drawMarkerRoute(ctx, trimPathByProgress(penPath, routeProgress), config, D);
+
   pinPos.forEach((p, i) => {
-    if (p.moved) {
+    const pop = pinPop ? clamp(pinPop[i] != null ? pinPop[i] : 1, 0, 1.15) : 1;
+    if (pop <= 0.02) return;
+    if (p.moved && pop >= 1) {
       // ink leader from the true location to the displaced pin + a dot
       ctx.save();
       ctx.strokeStyle = config.COLORS.pinStroke; ctx.lineWidth = Math.max(1, D.pinStroke * 0.6);
@@ -1238,26 +1327,65 @@ export function paintOverlay(scene, overlay) {
       ctx.beginPath(); ctx.arc(p.trueX, p.trueY, D.leaderDot, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
     }
-    rc.circle(p.x, p.y, D.pinDiam, {
+    rc.circle(p.x, p.y, D.pinDiam * pop, {
       stroke: config.COLORS.pinStroke, strokeWidth: D.pinStroke, fill: config.COLORS.pinFill, fillStyle: 'solid',
       roughness: 0.9, seed: featureSeed(config, 5000 + i),
     });
-    ctx.font = fontStr('', D.pinNum, config.FONT_FAMILY_HAND);
-    ctx.textAlign = 'center';
-    ctx.fillStyle = config.COLORS.pinStroke;
-    fillTextOptical(ctx, String(i + 1), p.x, p.y, true);
+    if (pop > 0.6) {
+      ctx.save();
+      ctx.globalAlpha = clamp((pop - 0.6) / 0.35, 0, 1);
+      ctx.font = fontStr('', D.pinNum, config.FONT_FAMILY_HAND);
+      ctx.textAlign = 'center';
+      ctx.fillStyle = config.COLORS.pinStroke;
+      fillTextOptical(ctx, String(i + 1), p.x, p.y, true);
+      ctx.restore();
+    }
   });
 
   let washiPlaced = false;
-  if (Number.isInteger(washiIndex) && washiIndex >= 0 && washiIndex < pinPos.length) {
+  if (washiSettle > 0.02 &&
+      Number.isInteger(washiIndex) && washiIndex >= 0 && washiIndex < pinPos.length) {
     const pinDiscs = pinPos.map((p) => ({ x: p.x, y: p.y, r: D.pinDiam / 2 + D.pinStroke + D.plPinPad }));
     const plan = planWashiTag(ctx, config, D, pinPos[washiIndex], pinDiscs, scene.cropInset,
       String(washiIndex + 1), 'Booked');
+    if (washiSettle < 1) {
+      // settling tape: fades in while rotating down onto its final angle
+      plan.angle = ((config.WASHI.angleDeg + (1 - washiSettle) * 4) * Math.PI) / 180;
+      plan.alphaMul = washiSettle;
+    }
     drawWashiTag(ctx, rc, config, D, plan);
     washiPlaced = true;
   }
 
   return { pinsDisplaced, washiPlaced };
+}
+
+// ============================================================================
+// computePinArcFractions(scene, overlay) — for the M2 draw-on choreography:
+// each pin's position along the pen path as a fraction of total arc length
+// (0..1), so a pin can pop exactly when the drawing tip passes it. Uses the
+// same path construction as paintOverlay.
+// ============================================================================
+export function computePinArcFractions(scene, overlay) {
+  const { config, D, grid } = scene;
+  const routePoints = (overlay && overlay.routePoints) || config.ROUTE_POINTS;
+  const legGeometries = (overlay && overlay.legGeometries) || null;
+  const routeTruePts = routePoints.map(([lon, lat]) => lonLatToCanvas(config, grid, lon, lat));
+  const path = buildRoutePath(routeTruePts, legGeometries, config, grid, 2.5 * D.K);
+  if (path.length < 2) return routeTruePts.map(() => 0);
+  const cum = [0];
+  for (let i = 1; i < path.length; i++) {
+    cum.push(cum[i - 1] + Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y));
+  }
+  const total = cum[cum.length - 1] || 1;
+  return routeTruePts.map((pin) => {
+    let best = 0, bestD2 = Infinity;
+    for (let i = 0; i < path.length; i++) {
+      const dx = path[i].x - pin.x, dy = path[i].y - pin.y, d2 = dx * dx + dy * dy;
+      if (d2 < bestD2) { bestD2 = d2; best = cum[i]; }
+    }
+    return best / total;
+  });
 }
 
 // ============================================================================
