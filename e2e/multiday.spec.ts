@@ -6,7 +6,7 @@ import { FIXTURE_STOPS } from "../src/lib/maps/fixtureCity";
 const byName = new Map(FIXTURE_STOPS.map((s) => [s.name, s]));
 
 test("second day has its own stops, paste box, and failure panel", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/debug/trip");
   await page.getByTestId("new-trip").click();
   await expect(page.getByTestId("day-0")).toBeVisible();
 

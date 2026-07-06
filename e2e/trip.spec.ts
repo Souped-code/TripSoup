@@ -29,7 +29,7 @@ function expectedPlan(day: Day) {
 }
 
 async function newTrip(page: Page): Promise<void> {
-  await page.goto("/");
+  await page.goto("/debug/trip");
   await page.getByTestId("new-trip").click();
   await expect(page.getByTestId("day-0")).toBeVisible();
 }

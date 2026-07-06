@@ -74,7 +74,7 @@ textarea { width: 100%; }
    Additive only. Nothing above this line is touched. These custom properties
    are consumed exclusively by the new src/ui/journal/* components and the
    app/debug/design gallery page — no existing selector above reads them, so
-   the current production UI (/, /trip/[id], /share/[id]) is unaffected. */
+   the current production UI (/, /debug/trip/[id], /share/[id]) is unaffected. */
 :root {
   --paper: #F6F1E7;
   --paper-shade: #EAE2D3;

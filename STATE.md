@@ -695,3 +695,410 @@ solver fallback, anchor-break→infeasible. Gates: tsc clean, jest **104/104**, 
 boards are mood targets; real map = MapLibre + custom style JSON over free OSM vector
 tiles (style rules apply globally by data category), authored in D2 with a real
 side-by-side against the board. Higgsfield credits ~28 remain.
+
+---
+
+## SESSION HANDOFF (2026-07-05, Opus 4.8 1M) → Fable fresh session
+
+Ran D2.3 (reveal + map) on branch **`d2.3-reveal`** (off main @ 1909c14). **main auto-deploys to Vercel
+prod — do NOT push half-built D2.3 to main; merge only at the D2.4 done-check.** Orchestration protocol:
+delegate→corroborate, fresh-context audit before any phase-complete, **serialize gate-runners** (every
+implementer/reviewer runs `npx playwright test` which binds `next dev` on :3111 — one at a time). Live
+task ledger: `.superpowers/sdd/progress.md` (git-ignored scratch — read it for the full task-by-task trail).
+
+### Committed on `d2.3-reveal` (backend + front-door — DONE; branch gates: tsc clean · jest 109 · Playwright 14)
+- **T2** (`73d1c8f`): old editable board → `app/debug/trip/[id]` env-gated (`DEBUG_BOARD=1`) + `/debug/trip`
+  entry; trip/share/multiday e2e retargeted. Fresh-reviewer clean; 404-gate live-verified.
+- **T3** (`c25f9a6`): greeting page `/` (paste-box hero, design.md §8) wired to the D2.2 pipeline; interim
+  reveal `app/trip/[id]/page.tsx` (reuses PlanView). Screenshot-reviewed. Pre-existing parse quirk noted
+  (heuristic parser folds an inline time hint into the display name — later polish).
+- **T4→T4b** (`5ea9719` superseded by `e630af6`): duplicate handling. **Chris's call: ALLOW + FLAG, not
+  dedup.** Two links → same place/day = TWO stops; 2nd gets a deterministic suffixed id (`place#2`) +
+  `duplicateOf` (added to TripStop, PUT-validated). Real matrix adapter is location-driven (safe; LOCKED
+  cacheKey format untouched). 5 non-vacuous tests. **The `duplicateOf` UI is a T6 deliverable — NOT built.**
+
+### The MAP — pivoted to a custom render engine (phase M0, IN PROGRESS)
+Chris **rejected** the plan's "MapLibre + paper style JSON" after two tries (flat vector style, then a
+filtered "artistic layer") — both read as a street map in a paper costume, not the illustrated board.
+**New direction, Chris-approved plan → `design/map-engine-plan.md`:** build our own journal-map render
+engine. Fidelity = AI watercolor textures (once, offline) + procedural render; **no per-trip AI**;
+whole-world via render-on-demand + cache (v2), never a planet pre-render; layer split = painted basemap +
+live overlay (route/pins/washi) that redraws on reorder.
+
+**M0 art direction is PROVEN** — the engine paints real Johor Bahru geometry (OpenFreeMap MVT) with our
+textures + Rough.js and reads as the board (`design/refs/d2.3-map-engine-vs-board.png`). Persisted to repo:
+- `design/map-engine/` (see its **README.md**): `map-render-core.js` (the engine core / M1 module —
+  `fetchAndDecode` + `paintFull`), `render-engine.mjs` (screenshot harness), `map-studio.mjs` (**live
+  tuning tool**), 4 textures, briefs.
+- `public/map/assets/tex/{land,water,park,weathering}.png` — production textures (Recraft V4.1,
+  palette-locked to design.md §3, Chris-approved; water v2 bluer/uniform, park v2 olive/distinct).
+- **Map Studio** (`design/map-engine/map-studio.mjs`; launcher `C:\Users\65881\map-studio.bat`): sliders/
+  color-pickers bound to the render CONFIG, instant repaint, **Copy-CONFIG** export, Download-PNG,
+  colorblind-sim toggle. This is how Chris dials the art.
+- Iterated per Chris's notes: label subsystem (curved water text-on-path via PCA channel-spine +
+  collision point labels — **water-label-on-land bug FIXED**: anchor-centered text + `cloudRadiusFrac`
+  0.17→0.09), translucent torn-edge washi, fine-marker route, JB+Straits crop, textures v2. Higgsfield ~776 cr.
+
+### ⛔ M0.5 art gate is NOT closed — Fable, do this FIRST:
+1. **Get Chris's tuned CONFIG** from the studio (he runs `map-studio.bat`, tunes, clicks **Copy CONFIG**).
+   Paste that JSON in as the `CONFIG` defaults in `design/map-engine/render-engine.mjs` + `map-studio.mjs`.
+   That LOCKS the art. The current CONFIG is a WIP default, not final.
+2. **M1:** wire `map-render-core.js` into the real reveal at `app/trip/[id]` (adapt the browser module for
+   Next/React — it loads pbf/@mapbox/vector-tile/roughjs from jsDelivr; bundle or lazy-load them on the
+   reveal route only). Fixed-view; route re-sketches on reorder (`manualOrder` plumbing exists).
+3. **M2:** Motion (motion.dev, Chris-approved) lazy on the reveal route — cloud transition, route draw-on,
+   re-sketch + sfx.
+4. **T6 sidebar:** torn-journal, dnd-kit reorder → `manualOrder`, re-optimize clears, infeasible → red
+   margin note, **+ the `duplicateOf` flag UI + remove control + reveal heads-up**.
+5. **T7:** LOCKED §2 surfaces — per-leg walk/drive toggle (both times) + walkMax/driveOverhead "planner's
+   notes" pocket.
+6. **T8** D2.4 Playwright full-flow · **T9** fresh-context whole-branch audit · **T10** done-check +
+   STATE.md + LIVE-CHECKLIST + merge `d2.3-reveal` → main.
+
+### LOCKED / do not relitigate
+design.md palette+type+Gracie; the ALLOW+FLAG dedup call; the custom map-engine direction + its plan;
+Motion adopted for the reveal (component libs Chris shared = ideas only, NOT their glassmorphism visuals).
+Textures + final map CONFIG = Chris's calls. Read before touching anything: master plan (D2.3), design.md,
+`design/map-engine-plan.md`, `design/map-engine/README.md`, and this handoff.
+
+---
+
+## M0.5 engine fidelity pass (2026-07-06, Fable session — Chris's audit request)
+
+Chris (this session, via grill round): washi = **board-faithful shape + patterned variants** (explicitly
+NOT the physical-cues option — no drop shadow/fiber/multiply); text/pins = **match the board's
+proportions** + density thinning; crowding = **trip-overlay-wins policy + studio knobs**; Copy-CONFIG =
+he'll paste it (NOT yet received — see open items).
+
+**Built (all in `design/map-engine/`, engine core + both callers + smoketest comment):**
+- **Resolution-invariant sizing:** every CONFIG px value authored at `REF_TILEPX` 1024; paint scales by
+  `K = TILEPX/REF_TILEPX` (deriveSizes). SCALE now changes resolution only — the root cause of "fonts
+  don't render accurately" across studio/harness (28px meant different proportions at SCALE 2 vs 4).
+- **Text:** optical centering from measured glyph bounds (X too for digits); explicit text state at every
+  draw site; ALL map lettering → `FONT_FAMILY_HAND` (Segoe UI on washi/pins violated design.md §2.4);
+  tape content-sized; two-line wrap for long place names; per-feature seeded Rough.js strokes
+  (byte-identical repaints — smoketest colorblind-restore now meanDiff **0**; M1/M2 determinism
+  constraint pre-satisfied).
+- **Washi:** tilt (−3°), multi-scale torn ENDS only, no perimeter outline, matte (sheen dial default 0),
+  circled stop number + 'Booked' in ink (rough circle; `fill:'none'` hachure artifact found+fixed),
+  optional gingham/stripes pattern (tint token `washiPatternTint`), placement collision-tested (may lie
+  across the route, never covers a pin, never leaves frame — 5 candidates, best-effort fallback noted).
+- **Crowding:** shared occupied-region list across ALL passes (pins + washi + route-line sample boxes +
+  point labels + water-label glyphs); point labels nudge (11 posns incl. diagonals) → shrink (floor 0.8)
+  → drop, fully-inside-frame required (kills mid-word frame slicing), density cap applied AFTER
+  in-view filtering (first cut capped on the whole fetch footprint — found via stats, fixed); curved
+  water labels slide along the spine (9 offsets) + shrink (4 steps) to a fully clear window, glyphs
+  NEVER dropped mid-word (the "Straits … Johor" bug); pin declutter with ink leader + true-spot dot.
+- **`upgradeConfig()` exported:** old flat Copy-CONFIG shapes (FONT_LABEL/PIN_DIAMETER/WASHI_*) migrate
+  losslessly at their own authored proportions (REF_TILEPX inferred = TILE×SCALE). Studio gained Pins /
+  Crowding / extended Washi control groups + a 'select' control type; smoketest-pinned control labels
+  unchanged.
+
+**Verified:** harness ok 6/6 tiles 0 errors (multiple runs incl. final); washi detail crop inspected at
+3×; studio smoketest PASS end-to-end (boot/control/view/colorblind, meanDiff 0); repo gates re-run
+fresh: tsc clean · jest **109/109** (18 suites) · Playwright **14/14**. Fresh-context review (opus,
+diff cold): verdict **PASS, 0 blocking**, 2 minor + 7 observations — both minors fixed (rotated-extent
+test for the straight water-label fallback; nudges-migration gated to old-shape configs) + 3
+observations hardened (pattern tint tokenized; 2-digit washi ring sizing for M1; stale smoketest
+comment). Accepted as-is with rationale: washi placement best-effort fallback (5th candidate wins even
+if imperfect — revisit at M1 with real trips), curved-glyph square boxes (~0.19×size under-cover at 45°,
+invisible at hand-font sizes), route-box sampling gaps (smaller than any label box), latent
+`WASHI_INDEX`/empty-geom crash paths (impossible with shipped config; M1 wiring owns real-data guards).
+Comparison refreshed: `design/refs/d2.3-map-engine-vs-board.png`.
+
+**Deviation (logged):** Chris ordered "M0.5 config-lock first, then audit" — inverted deliberately: the
+fidelity fixes add tunables his old export can't carry, so lock-then-fix would have double-tuned. His
+paste (whenever it lands) migrates via `upgradeConfig` and becomes the defaults; final lock after ONE
+studio pass over the new dials.
+
+**OPEN (art gate still ⛔):** (1) Chris's Copy-CONFIG paste → set as defaults in both callers;
+(2) Chris re-tunes new dials in the studio + re-vets `design/refs/d2.3-map-engine-vs-board.png` →
+M0.5 CLOSED. M1 wiring proceeds meanwhile (config values are data, not API).
+→ Both resolved same session — see the next two sections.
+
+---
+
+## M0.5 art gate CLOSED (2026-07-06, same Fable session — three Copy-CONFIG passes by Chris)
+
+Chris drove the lock live across three studio exports, all integrated into the new single style
+source **`src/lib/map/map-style-defaults.mjs`** (see below for why that file exists):
+- **Pass 1 (old-shape export):** slider-backed deltas adopted (texture grain 0.51, road tan
+  `#967240`, coast 0.9 / arterials 2.0, weathering 0.35 + vignette 0.35 at the time, parks 0.47,
+  route marker 3.4/2.8→2.1/0.37, tape alpha, tertiary roads ON, labels 15px / halo 2, water
+  15–20px / spacing 3, crop W 103.671). Stale old-build internals REJECTED (cloudRadiusFrac 0.17,
+  PIN 36, Segoe fonts, 5-nudge list) — they'd have resurrected fixed bugs. Deviation from "adopt
+  the paste verbatim" logged and explained to Chris.
+- **Emergent fix:** his 15px labels exposed a placement gap — nudge distance scales with font
+  size, so the ladder couldn't clear the route corridor and "Johor Bahru" silently dropped.
+  Ladder extended to 21 candidates (3-step reach) in all three copies (style defaults +
+  upgradeConfig defaults + old-shape migration list) — city restored, still zero overlaps.
+- **Pass 2 (new-shape export, post-fidelity dials):** gingham tape trial, salmon `#ff9e9e` fill,
+  pins 21/1.2/18, fine tear serration (20 segs / 1.7+1.5 amp), weathering + vignette to ZERO,
+  water text 11–16px / fillFrac 0.45, maxLabels 10, shrinkFloor 1, edgeMargin 15, SCALE 6 (bench).
+  Two token divergences flagged to Chris per §9 (salmon vs the yellow booked semantic; vivid pen
+  vs `--route-blue`).
+- **Pass 3 (LOCKED):** Chris resolved both — booked tape back to YELLOW as `#ffdf6b` (a §3
+  lighter-shade derivation of `--washi`, so booked stays yellow on every surface), pattern plain;
+  vivid map pen `#2e79ea` CONFIRMED. design.md §3 rows annotated (map-pen split — UI token
+  `#3E6C8E` unchanged since the vivid fails 4.5:1 for text; washi variant note) and §8's stale
+  MapLibre map-style section rewritten to point at the engine + lock file. Weathering/vignette at
+  0 are his deliberate zeros (clean paper; warmth carried by the land texture — no §9 conflict:
+  the lock governs hues, not overlay intensity).
+- Ground truth refreshed: `design/refs/d2.3-map-engine-vs-board.png` (locked render vs board).
+  **M0.5 DONE.**
+
+## M1 — engine wired into the real reveal at /trip/[id] (2026-07-06, same session)
+
+**Built:**
+- **Engine moved to product:** `git mv design/map-engine/map-render-core.js →
+  src/lib/map/map-render-core.js` (history preserved). Both bench tools serve it from there
+  (CORE_PATH) at the same URL, and import the new **`src/lib/map/map-style-defaults.mjs`** —
+  ONE art source for app + harness + studio (kills the config-drift risk that motivated the
+  "paste into BOTH callers" step in the old handoff).
+- **Core M1 API:** `provideLibs()` (app injects npm-bundled pbf@3.2.1 / @mapbox/vector-tile@1.3.1 /
+  roughjs@4.6.6 — exact CDN-parity versions; the jsDelivr fallback imports carry
+  webpackIgnore+turbopackIgnore so bundlers never resolve them); **base/overlay scene split**
+  per the plan's layer rule — `buildScene` (geography + labels painted once, snapshotted) /
+  `paintOverlay` (route/pins/washi per visit order on the restored snapshot) /
+  `renderToDisplay` (crop → display canvas, width-capped); `paintFull` wrapper keeps the bench
+  byte-compatible (z-order note: water labels now sit under the overlay; placement already avoids
+  it, so only a REORDERED route can cross one — accepted, logged). `WASHI_INDEX` null/-1/oob →
+  no tape (real trips may have no booked anchor).
+- **`src/ui/reveal/RevealMap.tsx`** (client): computes the fixed view from stop coords (padded
+  bbox → Z toward ~1150px crop at K≈1, Mercator-correct placeholder aspect), resolves the hand
+  font from next/font's `--font-display` variable (canvas needs the REAL renamed family), lazy
+  npm-lib injection, textures from `public/map/assets/tex/`, base painted once + overlay redrawn
+  on order/booked changes, ResizeObserver re-blit, DPR-capped display, journal-voice error state
+  with retry, decode cache cleared on unmount. e2e hooks: data-phase/paints/order/washi.
+- **`app/trip/[id]/page.tsx`:** mounts RevealMap above PlanView for the first day with stops
+  (order = `plan.order` when ok — manualOrder flows through — else stored order; booked = first
+  anchored stop; multi-day caption until T6's day tabs). **Resilience fix found by live smoke:**
+  `planTripDay` failures used to 500 the whole reveal; now caught per-day → PlanView's rejected
+  state renders and the map still paints the stored order.
+- `src/types/untyped-map-libs.d.ts` (ambient decls; no @types deps), `e2e/reveal.spec.ts`.
+
+**Verified and how (fresh runs this session):**
+- `npx tsc --noEmit` → clean · `npx jest` → **109/109** (18 suites) · `npx playwright test` →
+  **16/16** (2 new reveal specs: map paints with all stops + washi on the anchored stop, canvas
+  pixel variance; pinned manualOrder reload paints that exact order — tiles network-stubbed:
+  TileJSON → stub, tiles → 404, engine's failed-tile tolerance exercised, zero external network).
+- `npx next build` → **clean production build**; /trip/[id] = 12.6 kB route JS + 115 kB first
+  load; engine libs are lazy async chunks; landing page untouched (plan constraint met).
+- **Live visual smoke** (real OpenFreeMap tiles, dev server, real JB coords): page ready, 1 paint,
+  all 5 stops in order, washi=1, ZERO console/page errors — screenshot eyeballed (locked art on
+  the real page; PlanView correctly showed its rejected state for the synthetic fixture-unknown
+  ids — the resilience path, working as designed). Also proves the npm-lib decode path against
+  real tiles (dev bundling).
+- Bench after the move: harness ok 6/6 + studio smoketest PASS (all controls, meanDiff 0).
+- **Fresh-context review (opus, cold diff): 0 blocking, 2 minor, 6 observations.** Every locked
+  value verified byte-exact; ladder copies identical; upgradeConfig round-trips the lock
+  unchanged; no canvas-state leaks across overlay repaints; overlayFor desync ruled out
+  (plan.order is a strict permutation by construction). Both minors FIXED post-review (decode
+  cache cleared on unmount; Mercator placeholder aspect) + re-verified (tsc, reveal e2e 2/2).
+  Observations accepted with rationale: transient stale-scene paint masked by React batching
+  (M2 note), pin-declutter direction is order-dependent-but-deterministic (M2 drag-UX note),
+  production-webpack real-tile decode unexercised by automated tests (dev-bundled live smoke +
+  identical engine source on the bench path = low risk; add to the D2.4 deployed-preview
+  eyeball), loose pixel threshold backed by attribute assertions, weathering-zero documented,
+  computeView Z-floor canvas guard unnecessary at product scale.
+
+**Deviations:** M0.5/M1 ordering inverted vs the handoff (fidelity fixes before config lock) —
+logged above with rationale; plan's "MapLibre + style JSON" reveal fully superseded by the
+engine (already an approved deviation, now reflected in design.md §8).
+
+**Next (per handoff order):** **M2** motion (cloud transition, route draw-on + re-sketch + sfx,
+lazy Motion) · **T6** torn-journal sidebar (dnd-kit reorder → manualOrder wired to the live map
+overlay + duplicateOf flag UI) · **T7** LOCKED §2 surfaces · **T8** full-flow e2e · **T9** whole-
+branch audit · **T10** done-check + merge to main. Higgsfield ~776 cr. `.superpowers/` scratch
+remains untracked by design.
+
+---
+
+## M2 — road-following pen + reveal motion (2026-07-06, same Fable session)
+
+**Chris's calls (AskUserQuestion round):** route geometry = **AWS Location / GrabMaps** (Grab
+data in SEA, global standard data from the same API; observed gap: the pen didn't follow roads —
+not in the original design, but the board's illustrator line does); **fold into M2 now** (draw-on
+animates the final path); **matrix stays Google through launch** (evaluate a swap post-launch as
+a cost lever). Also noted for later: pedestrian matrix (truthful walk labels — open
+LIVE-CHECKLIST item), transit/scooter modes, isolines; their waypoint optimizer rejected (our
+anchor/walk-drive solver IS the product).
+
+**Built:**
+- **M2a (sonnet subagent; diff verified line-by-line by the orchestrator):**
+  `src/lib/maps/routeGeometry.ts` + `app/api/route-geometry/route.ts` — AWS geo-routes v2 proxy
+  (POST 1–25 legs → per-leg simplified [lng,lat] polylines or null). Fail-OPEN everywhere
+  (decorative — the documented OPPOSITE of kvMatrixCache's throw-to-protect-billing contract);
+  no key → all-null with ZERO fetches/cache calls (dev/jest/Playwright spend nothing);
+  Douglas-Peucker simplify (≈39 m tol, ≤80 pts, off-by-one-safe cap); 4-in-flight semaphore;
+  KV cache (`geo:v1:` keys, 5dp rounding, nulls never cached) with in-memory dev fallback;
+  rate-limited; journal-voice errors. Env: `AWS_LOCATION_API_KEY`, `AWS_LOCATION_REGION`
+  (default ap-southeast-1). Jest guard extended: tests may not ASSIGN the AWS key env var
+  (module is deliberately import-safe, unlike realAdapter — reasoning verified). **LIVE-SHAPE
+  NOTE:** the AWS response field parse (Routes[].Legs[].Geometry.LineString) is defensively
+  guarded but UNVERIFIED against a real call — confirm at the key-creation CHRIS-STEP.
+- **M2b (engine):** `buildRoutePath` (per-leg polylines projected, endpoint-snapped onto pins,
+  thinned to keep the pen soul), `trimPathByProgress` (arc-length draw-on clip),
+  `computePinArcFractions` (pins pop when the tip passes), paintOverlay params
+  {legGeometries, routeProgress, pinPop, washiSettle}, drawWashiTag alphaMul, buildScene
+  opts.legGeometries (label collision seeds from the REAL pen path on the geometry rebuild).
+  All default to previous behavior — bench re-verified identical.
+- **M2c/d (RevealMap):** progressive geometry (sketch instantly → proxy fetch → ONE scene
+  rebuild with geometry-aware labels → repaint; stale-order responses discarded; every failure
+  → sketch; data-geometry pending→roads|sketch), full choreography via `motion` (clouds part
+  1.1s → pen draws on → pins pop with overshoot as the tip passes → tape settles; reorder =
+  0.9s re-sketch + pencil sfx), per-frame paints bypass React state (no 60fps churn),
+  prefers-reduced-motion collapses everything to instant frames, sfx behind the §2.10 mute
+  toggle ("sound: on/off" text chip — no stock icons per §2.6; default ON, persisted,
+  first-gesture-gated). New dep: motion 12.x (reveal route chunk only).
+
+**Verified (fresh, this session):** tsc clean · jest **119/119** (19 suites; 10 new) ·
+Playwright **18/18** (4 reveal specs: paint/washi/manualOrder + NEW roads-upgrade +
+sketch-fallback, proxy stubbed, reduced-motion emulated) · `next build` clean (landing bundle
+untouched) · **live animation probe** (real dev server, motion ON): clouds present at ready →
+mid-drift at +500ms (translateX −42.7%, scale 1.117) → removed at end; anim idle→running→done;
+geometry→sketch without key; ZERO console/page errors; frame captures confirm draw-on
+progression, mid-pop pins, washi settling last. One dev-only artifact diagnosed (first-hit
+lazy-compile full reload mid-animation — absent in production builds). M2a's 26+-leg case
+traced: 400 → RevealMap degrades to sketch (and the solver rejects >15-stop segments upstream
+anyway). Accepted edge: duplicate identical pairs in one request may double-fetch once
+(pathological input, cache converges).
+
+**⚠ Independent fresh-context review PENDING:** the reviewer subagent was killed mid-run by the
+account session limit (resets 09:30 SGT). Committed now for rollback safety per protocol; M2 is
+NOT declared closed until that review runs clean. The orchestrator DID line-verify the M2a
+subagent diff (mandatory step, done — no defects; two accepted observations above).
+
+**CHRIS-STEP (enables road lines on the live site — everything ships safely without it):**
+AWS account → Amazon Location console → create API key restricted to `geo-routes:*`
+(resource `arn:aws:geo-routes:ap-southeast-1::provider/default`), note the pricing panel +
+set a billing alarm → add `AWS_LOCATION_API_KEY` (+ optional `AWS_LOCATION_REGION`) to Vercel
+Production env → redeploy → paste a real trip and confirm the pen follows roads (this also
+verifies the LIVE-SHAPE NOTE above).
+
+---
+
+## M2 CLOSED + T6 — sidebar shipped (2026-07-06, same Fable session)
+
+**M2 independent review (opus, committed diff 4725ad1): verdict REFUTED → all findings fixed,
+then closed.** B1 (BLOCKING, real): pin pops were driven off route progress, which saturates at
+t=0.72 — the destination pin's window could only open 0.133 wide, freezing it at ~52% scale for
+~0.6s before the finalize frame snapped it to full, on EVERY reveal. Fixed: pops are now
+TIME-driven from each pin's crossing moment (fixed 0.12 window); proven by simulation — worst-case
+last pin starts t=0.722, completes t=0.842, exact 1.0000 at the final frame, no snap. M1 (minor):
+the reorder→roads scene rebuild mixed the INITIAL order's config with CURRENT-order geometry,
+garbling the label-collision seed — rebuild now carries the current ROUTE_POINTS/WASHI_INDEX.
+Also fixed from observations: dead stale-guard removed (staleness honestly documented as handled
+by the effect's alive flag), env-key guard regex hardened (bracket assignment form, === exempt),
+cloud animation stopped on unmount, unknown-stop path settles data-geometry to "sketch" instead
+of sticking at "pending", redundant aria-pressed dropped from the sound chip, interrupt comment
+reworded honestly. Accepted with rationale: no negative-caching of null legs (out-of-coverage
+legs re-bill per reveal — post-launch cost lever, revisit with real usage), washi settle's ±4°
+transient vs its planned AABB (fades at max deviation), pop-timing keyed to true positions vs
+decluttered draw positions (visual nuance). Reviewer confirmed clean: no key leakage, directional
+cache keys, race-free semaphore, SSR safety, §2.6/§2.10 compliance, e2e coordinate order.
+
+**T6 (sonnet subagent; diff line-verified by the orchestrator + visual pass):**
+- `src/ui/reveal/RevealClient.tsx` — owns doc/plans/activeDay; visit order = plan.order →
+  valid manualOrder → stored; optimistic pendingOrder overlay with revert; ALL mutations
+  (reorder / re-optimize / remove-stop) serialized behind one busy flag, PUT doc → POST
+  /plan → commit-or-revert with a journal-voice margin error; day tabs (washi buttons,
+  yellow = active); transient state cleared on tab switch.
+- `src/ui/reveal/JournalSidebar.tsx` + `reveal.css` — torn journal page (fixed-wobble
+  clip-path, hydration-safe; ruled-lines texture on the non-scrolling layer with the §2.1
+  not-a-gradient rationale commented), dnd-kit rows (Pointer + Keyboard sensors) with
+  WashiTag handles (decorative tones rotate; booked = yellow "✓ Booked" + hand-authored
+  anchor glyph — the product's first icon, authored per §2.6), wait notes, quality lines
+  ("Your order — Gracie's re-timed it." + Re-optimize; heuristic note), red-ink margin note
+  (rotated, on a --paper inset so --danger clears 4.5:1 for axe), duplicateOf note
+  ("same place as stop N — remove if it snuck in twice?") + remove control that scrubs
+  manualOrder/precedence/legOverrides, green "Share this plan" → /share/[id].
+- `WashiTag` extended additively (tone prop + as="button" forwardRef for the keyboard-
+  focusable dnd activator; default renders identically — existing caller unaffected).
+- `/trip/[id]` page slimmed to fetch + `<RevealClient>`; greeting.spec retargeted to the
+  sidebar testids (PlanView left this page; unchanged on /share and /debug).
+- **Real bug found by the subagent's own verification:** dnd-kit's KeyboardSensor updates
+  collision state on the browser's RAF loop — back-to-back synthetic Space/Arrow/Space
+  landed the drop before `over` updated, silently no-oping. Fixed with settle pauses in a
+  test helper; re-ran the spec ×2 to prove non-flakiness.
+- **Post-visual-pass polish (orchestrator):** rejected-plan margin notes no longer double-
+  prefix (rejected messages arrive self-explanatory; only infeasible gets the framing).
+
+**Verified (fresh, orchestrator-run):** tsc clean · jest **119/119** (19 suites) ·
+Playwright **23/23** (5 new sidebar specs incl. keyboard reorder → manualOrder → map
+re-path, re-optimize round-trip, duplicate remove, and an axe scan with 0 violations) ·
+`next build` clean · visual smoke: stacked layout, ruled sidebar, rotated washi handles,
+booked tag + anchor glyph, red margin scribble, share button — the board's sidebar
+language, live. Screenshot session captured mid-draw-on with zero console errors.
+
+**Ops note:** C: hit 100% full mid-run (wedged one dev-server compile; the stalled
+verification chain was killed and re-run staged). Chris cleared to ~15.8GB free. If a
+build/dev compile ever fails weirdly again, check disk first.
+
+**Remaining in D2.3:** T7 (per-leg walk/drive toggles + walkMax/driveOverhead "planner's
+notes" pocket — the sidebar rows' right column is reserved for it) · T8 full-flow e2e ·
+T9 fresh-context whole-branch audit · T10 done-check + STATE + LIVE-CHECKLIST + merge to
+main. CHRIS-STEP unchanged: AWS Location key → Vercel env (road-following pen goes live).
+
+## T7 — §2 LOCKED surfaces on the sidebar (2026-07-06, same Fable session; orchestrator-built)
+
+Leg lines between rows (only when the plan's order IS the displayed order — hidden during the
+optimistic drag window so §2 semantics always come from the plan, never guessed client-side):
+mode word + BOTH times on eligible legs ("walk 3 min · drive 4 min"), "take the drive/walk"
+toggle → legOverrides upsert (same shape as the old board's toggleLeg) → PUT → re-plan →
+re-timed, never re-ordered, "— your pick" marker, persists across reload. Planner's notes
+pocket (collapsed <details>): walkMax + driveOverheadMin drafts, explicit Apply (one deliberate
+PUT + re-plan of EVERY day — settings are doc-level), validation 0–120. Tokens/voice per law.
+**Verified:** tsc clean · Playwright **25/25** (2 new: eligible-leg both-times + toggle
+re-time/persist/no-reorder; walkMax-0 forces all legs to drive via the pocket) · build clean ·
+visual pass (fixture-city Bristol render: leg lines, toggle links, booked row, pocket — all
+reading like the board). Cosmetic nit accepted: on eligible legs the mode word + times read
+"walk · walk 3 min…" — slightly stuttery, Chris may re-copy at his eyeball. Jest untouched
+(no new unit surface). **Remaining: T8 full-flow e2e · T9 whole-branch audit · T10 done-check
++ merge (merge = production deploy — gets Chris's explicit go first).**
+
+## T8 — full-flow e2e (2026-07-06, same Fable session)
+
+`e2e/fullflow.spec.ts`: ONE spec drives the whole product journey on fixture data with stubbed
+tiles + reduced motion — paste the messy blob on the real greeting → real /api/pipeline SSE cook
+→ redirect to the reveal → journal map paints + sidebar carries the three cooked stops →
+keyboard drag one slot (manualOrder; map re-paths; Re-optimize appears) → §2 toggle on the first
+eligible leg (mode flips, "your pick", pinned order unchanged) → /share/<id> recomputes the SAME
+doc: exact pinned order, the leg pick honoured, zero editing affordances. **Playwright 26/26**
+(whole suite) · tsc clean. T8 DONE.
+
+## T9 — whole-branch fresh-context audit (2026-07-06): VERDICT MERGE-READY, 0 blocking
+
+Independent opus auditor read the full 1909c14..e1b6995 diff cold. **Zero blocking.** Both
+minors FIXED this session: (M1) the pipeline resolve step now carries the same 40-input spend
+cap the resolve route has had since D0 — overflow links surface in the failure panel with a
+journal-voice note, never silently dropped; (M2) app/layout.tsx's stale font-claims comment
+rewritten honestly. Observations dispositioned: (O1) design.md §8 now states explicitly that
+the M0.5 lock file is the sanctioned home of the map's supporting hues (Chris locked them via
+his own Copy-CONFIG passes; §3's no-hex rule governs component code) — no new approval needed,
+documented; (O2) FIXED — removing an original stop now clears duplicateOf on its surviving
+copies; (O3) unbilled create/PUT routes stay unlimited (KV-only, validated writes — accepted);
+(O4) greeting's discarded plan compute = one redundant cache-hit solve (accepted); (O5) ~56MB
+texture duplication repo-side only (bench copies deletable post-launch if size ever matters);
+(O6) leg-line copy stutter already flagged for Chris's eyeball. Auditor's verified-clean list:
+locked ports byte-untouched (solver/schedule/matrixSource zero diff), suffixed duplicate ids
+safe through the real matrix, no key material anywhere, all billed routes rate-limited +
+capped, both optional keys degrade cleanly (no-AWS → sketch; no-ANTHROPIC → heuristic), only
+extracted URLs reach Places, §2/§4/§5 law holds on every new surface, M2's B1/M1 fixes present
+and correct, CDN lib path dead in the app, debug surfaces gated, docs honest.
+**Post-fix gates:** tsc clean · jest 119/119 · Playwright 26/26.
+
+## T10 — done-check (2026-07-06)
+
+D2.3 done contract against the plan: greeting IS the front door wired to the real pipeline ✓ ·
+reveal = custom journal map engine (M0.5 art LOCKED by Chris; M1 wired; M2 road-pen behind an
+optional key + full choreography with reduced-motion) ✓ · torn-journal sidebar with dnd
+reorder → manualOrder → live re-path + re-optimize + duplicateOf flag UI (T6) ✓ · §2 LOCKED
+surfaces carried into the new UI (T7 leg toggles both-times + planner's notes pocket) ✓ ·
+duplicate ALLOW+FLAG end to end (T4b→T6) ✓ · old board env-gated at /debug (T2) ✓ · full-flow
+e2e (T8) ✓ · whole-branch audit clean (T9) ✓ · gates green at HEAD ✓ · LIVE-CHECKLIST §§7–8
+appended (post-merge live checks + the optional AWS key step) ✓.
+**Merge to main = production deploy of the new front door — awaiting Chris's explicit GO.**
+UNVERIFIED-by-design at merge time: AWS live response shape (checklist §8), live paste with
+ANTHROPIC key (checklist §7 / D2.4), Gracie art still provisional (Chris's own pass, D1
+proviso), sfx still placeholder foley.

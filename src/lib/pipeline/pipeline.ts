@@ -64,6 +64,53 @@ export function parseTimeHint(raw: string): number | null {
   return null;
 }
 
+// Flag same-place duplicates within a single day (D2.3 T4b — SUPERSEDES T4's
+// dedupDayStops, commit 5ea9719). Chris's product call overrides the earlier
+// dedup: two pasted links resolving to the SAME place within a day are now
+// BOTH kept as stops — dropping one silently hides user intent (e.g. a
+// deliberately split long visit), so instead every occurrence survives, and
+// later occurrences are marked so the UI (T6 sidebar) can flag them for the
+// user to remove if accidental.
+//
+// The engine constraint this must satisfy (do not violate elsewhere):
+// schedule.ts's validateDay throws if two stops in a day share an id, and the
+// id-keyed travel matrix assumes each id is a distinct node — so two stops at
+// the same place MUST have distinct ids. Rule: walk in list order, tracking
+// resolved place ids seen so far *within this day*. The FIRST occurrence of a
+// place keeps its id (= the place id) untouched. Each LATER occurrence of that
+// same place gets a deterministic, occurrence-order suffixed id
+// `${placeId}#${n}` (n = 2, 3, … — never random; determinism is LOCKED) and a
+// new `duplicateOf` set to the first occurrence's (bare) place id. "Same
+// place" is judged by the resolved Stop.id BEFORE suffixing is applied.
+//
+// Mutates the given TripStop objects IN PLACE — callers below rely on this:
+// the exact same object references also live in `resolvedByItemIndex`, so the
+// precedence block (which reads ids off those objects) sees the final ids
+// too, without needing its own copy of this logic.
+//
+// No merging, no anchor-carry: each stop keeps its own name / location /
+// anchor / duration untouched. They are genuinely separate stops now, not a
+// survivor + a dropped twin.
+//
+// Scoped to ONE day's stop list per call — a place may legitimately recur on
+// a DIFFERENT day (e.g. breakfast at the same cafe twice), so this must never
+// run across days; callers below invoke it once per day.
+function markDuplicateStops(stops: TripStop[]): void {
+  const occurrencesSeen = new Map<string, number>(); // bare place id -> count so far, this day
+  for (const stop of stops) {
+    const placeId = stop.id; // resolved place id, read BEFORE this stop is possibly suffixed
+    const priorCount = occurrencesSeen.get(placeId);
+    if (priorCount === undefined) {
+      occurrencesSeen.set(placeId, 1);
+      continue; // first occurrence of this place in this day — keeps the bare id
+    }
+    const n = priorCount + 1;
+    occurrencesSeen.set(placeId, n);
+    stop.id = `${placeId}#${n}`;
+    stop.duplicateOf = placeId;
+  }
+}
+
 export async function* runPipeline(
   text: string
 ): AsyncGenerator<PipelineProgress, PipelineResult> {
@@ -89,10 +136,17 @@ export async function* runPipeline(
     // resolve queries — labels are display+context only. Do not "helpfully"
     // fall back to `item.label` or `item.raw` here for label-only items.
     // -------------------------------------------------------------------
-    const urls: string[] = [];
+    const allUrls: string[] = [];
     for (const item of parsed.items) {
-      if (item.kind === "link" && item.url) urls.push(item.url);
+      if (item.kind === "link" && item.url) allUrls.push(item.url);
     }
+    // Spend guard (T9 audit, finding M1): every URL can become a billed
+    // Places call and the pipeline is the public front door — same 40-input
+    // cap /api/trips/[id]/resolve has carried since the D0 audit. The
+    // overflow is REPORTED as failures below, never silently dropped.
+    const RESOLVE_CAP = 40;
+    const urls = allUrls.slice(0, RESOLVE_CAP);
+    const overflowUrls = allUrls.slice(RESOLVE_CAP);
 
     yield {
       stage: "resolve",
@@ -112,6 +166,13 @@ export async function* runPipeline(
     const provider = getMapsProvider();
     const resolveResult =
       urls.length > 0 ? await provider.resolvePlaces(urls) : { stops: [], failures: [] };
+    // capped-out links surface in the same failure panel as unresolvable ones
+    for (const url of overflowUrls) {
+      resolveResult.failures.push({
+        source: url,
+        reason: `That's a lot of links — Gracie cooks the first ${RESOLVE_CAP} per paste. Split the rest into another trip?`,
+      });
+    }
 
     const stopBySource = new Map<string, Stop>(resolveResult.stops.map((s) => [s.source, s]));
 
@@ -180,6 +241,13 @@ export async function* runPipeline(
           .filter((s): s is TripStop => s !== undefined),
       }));
     }
+
+    // D2.3 T4b: flag same-place duplicates WITHIN each day (supersedes T4's
+    // dedup — see markDuplicateStops above). Must run BEFORE dayIndexOfStopId
+    // and the precedence block below: it mutates ids in place on the same
+    // TripStop objects resolvedByItemIndex holds, so those two steps observe
+    // the final ids.
+    for (const day of days) markDuplicateStops(day.stops);
 
     // stopId -> day index, so precedence pairs attach to the day X's stop landed in.
     const dayIndexOfStopId = new Map<string, number>();
