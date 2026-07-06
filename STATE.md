@@ -975,3 +975,67 @@ AWS account → Amazon Location console → create API key restricted to `geo-ro
 set a billing alarm → add `AWS_LOCATION_API_KEY` (+ optional `AWS_LOCATION_REGION`) to Vercel
 Production env → redeploy → paste a real trip and confirm the pen follows roads (this also
 verifies the LIVE-SHAPE NOTE above).
+
+---
+
+## M2 CLOSED + T6 — sidebar shipped (2026-07-06, same Fable session)
+
+**M2 independent review (opus, committed diff 4725ad1): verdict REFUTED → all findings fixed,
+then closed.** B1 (BLOCKING, real): pin pops were driven off route progress, which saturates at
+t=0.72 — the destination pin's window could only open 0.133 wide, freezing it at ~52% scale for
+~0.6s before the finalize frame snapped it to full, on EVERY reveal. Fixed: pops are now
+TIME-driven from each pin's crossing moment (fixed 0.12 window); proven by simulation — worst-case
+last pin starts t=0.722, completes t=0.842, exact 1.0000 at the final frame, no snap. M1 (minor):
+the reorder→roads scene rebuild mixed the INITIAL order's config with CURRENT-order geometry,
+garbling the label-collision seed — rebuild now carries the current ROUTE_POINTS/WASHI_INDEX.
+Also fixed from observations: dead stale-guard removed (staleness honestly documented as handled
+by the effect's alive flag), env-key guard regex hardened (bracket assignment form, === exempt),
+cloud animation stopped on unmount, unknown-stop path settles data-geometry to "sketch" instead
+of sticking at "pending", redundant aria-pressed dropped from the sound chip, interrupt comment
+reworded honestly. Accepted with rationale: no negative-caching of null legs (out-of-coverage
+legs re-bill per reveal — post-launch cost lever, revisit with real usage), washi settle's ±4°
+transient vs its planned AABB (fades at max deviation), pop-timing keyed to true positions vs
+decluttered draw positions (visual nuance). Reviewer confirmed clean: no key leakage, directional
+cache keys, race-free semaphore, SSR safety, §2.6/§2.10 compliance, e2e coordinate order.
+
+**T6 (sonnet subagent; diff line-verified by the orchestrator + visual pass):**
+- `src/ui/reveal/RevealClient.tsx` — owns doc/plans/activeDay; visit order = plan.order →
+  valid manualOrder → stored; optimistic pendingOrder overlay with revert; ALL mutations
+  (reorder / re-optimize / remove-stop) serialized behind one busy flag, PUT doc → POST
+  /plan → commit-or-revert with a journal-voice margin error; day tabs (washi buttons,
+  yellow = active); transient state cleared on tab switch.
+- `src/ui/reveal/JournalSidebar.tsx` + `reveal.css` — torn journal page (fixed-wobble
+  clip-path, hydration-safe; ruled-lines texture on the non-scrolling layer with the §2.1
+  not-a-gradient rationale commented), dnd-kit rows (Pointer + Keyboard sensors) with
+  WashiTag handles (decorative tones rotate; booked = yellow "✓ Booked" + hand-authored
+  anchor glyph — the product's first icon, authored per §2.6), wait notes, quality lines
+  ("Your order — Gracie's re-timed it." + Re-optimize; heuristic note), red-ink margin note
+  (rotated, on a --paper inset so --danger clears 4.5:1 for axe), duplicateOf note
+  ("same place as stop N — remove if it snuck in twice?") + remove control that scrubs
+  manualOrder/precedence/legOverrides, green "Share this plan" → /share/[id].
+- `WashiTag` extended additively (tone prop + as="button" forwardRef for the keyboard-
+  focusable dnd activator; default renders identically — existing caller unaffected).
+- `/trip/[id]` page slimmed to fetch + `<RevealClient>`; greeting.spec retargeted to the
+  sidebar testids (PlanView left this page; unchanged on /share and /debug).
+- **Real bug found by the subagent's own verification:** dnd-kit's KeyboardSensor updates
+  collision state on the browser's RAF loop — back-to-back synthetic Space/Arrow/Space
+  landed the drop before `over` updated, silently no-oping. Fixed with settle pauses in a
+  test helper; re-ran the spec ×2 to prove non-flakiness.
+- **Post-visual-pass polish (orchestrator):** rejected-plan margin notes no longer double-
+  prefix (rejected messages arrive self-explanatory; only infeasible gets the framing).
+
+**Verified (fresh, orchestrator-run):** tsc clean · jest **119/119** (19 suites) ·
+Playwright **23/23** (5 new sidebar specs incl. keyboard reorder → manualOrder → map
+re-path, re-optimize round-trip, duplicate remove, and an axe scan with 0 violations) ·
+`next build` clean · visual smoke: stacked layout, ruled sidebar, rotated washi handles,
+booked tag + anchor glyph, red margin scribble, share button — the board's sidebar
+language, live. Screenshot session captured mid-draw-on with zero console errors.
+
+**Ops note:** C: hit 100% full mid-run (wedged one dev-server compile; the stalled
+verification chain was killed and re-run staged). Chris cleared to ~15.8GB free. If a
+build/dev compile ever fails weirdly again, check disk first.
+
+**Remaining in D2.3:** T7 (per-leg walk/drive toggles + walkMax/driveOverhead "planner's
+notes" pocket — the sidebar rows' right column is reserved for it) · T8 full-flow e2e ·
+T9 fresh-context whole-branch audit · T10 done-check + STATE + LIVE-CHECKLIST + merge to
+main. CHRIS-STEP unchanged: AWS Location key → Vercel env (road-following pen goes live).

@@ -1,0 +1,184 @@
+/* D2.3 T6 — reveal layout + torn-journal sidebar (design.md §5, §8).
+ * Shared by RevealClient.tsx (grid layout, day tabs) and JournalSidebar.tsx
+ * (torn page, rows, margin note) — one shared css file per component
+ * family, the same house pattern src/ui/journal/journal.css establishes.
+ * Only app/globals.css's :root token custom properties are used below —
+ * never a hard-coded hex (design.md §3).
+ */
+
+.reveal-tabs {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.reveal-tab {
+  font-size: 0.95rem;
+}
+
+/* Responsive grid (design.md §8): >=900px puts the map beside the sidebar
+ * (~62/38); below that they stack, sidebar under the map. This media query
+ * is the one the D2.3 brief calls for — everything else here is plain
+ * component styling. */
+.reveal-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px;
+  align-items: start;
+}
+@media (min-width: 900px) {
+  .reveal-layout {
+    grid-template-columns: 62fr 38fr;
+  }
+}
+.reveal-layout__map {
+  min-width: 0; /* grid item shrink guard so the canvas can size down */
+}
+
+/* JournalSidebar ---------------------------------------------------------
+ * The torn left edge is drawn with clip-path: polygon() (a fixed, hand-
+ * placed wobble list computed in JournalSidebar.tsx — not Math.random(),
+ * which would mismatch between the server and client render passes) rather
+ * than a bigger border-radius (design.md §5 explicitly bans that shortcut).
+ */
+.reveal-sidebar {
+  position: relative;
+  background: var(--paper-shade);
+  box-shadow: var(--shadow-paper-lift);
+  min-width: 0;
+  isolation: isolate; /* keeps the ::before texture layer scoped to this box */
+}
+/* Faint ruled-lines texture: a repeating-linear-gradient hairline pattern at
+ * <=0.05 opacity. This is a *texture*, not the §2.1 gradient-fill ban (that
+ * rule targets gradients used as decorative hero/button fills) — same
+ * technique + same opacity ceiling design.md §5 calls out for the sidebar's
+ * ruled/dotted page texture. It sits on the OUTER, non-scrolling container
+ * as its own layer (::before) so it never repaints while the inner row list
+ * scrolls (§5's mobile-framerate rule for background textures). */
+.reveal-sidebar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.05;
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--ink) 0px,
+    var(--ink) 1px,
+    transparent 1px,
+    transparent 30px
+  );
+}
+.reveal-sidebar__scroll {
+  position: relative;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: 22px 20px 22px 28px;
+}
+.reveal-sidebar__heading {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 1.9rem;
+  color: var(--ink);
+  margin: 0 0 14px;
+}
+
+.reveal-rows {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+.reveal-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 10px 0;
+  border-bottom: 1px dashed rgba(43, 38, 32, 0.15);
+}
+.reveal-row:last-child {
+  border-bottom: none;
+}
+.reveal-row__handle {
+  flex: 0 0 auto;
+  min-width: 30px;
+  text-align: center;
+  white-space: nowrap;
+}
+.reveal-row__body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.reveal-row__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  font-family: var(--font-body);
+  color: var(--ink);
+}
+.reveal-row__time {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.reveal-row__name {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.reveal-row__wait,
+.reveal-row__dup {
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+.reveal-row__remove-btn {
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  color: var(--ink);
+  text-decoration: underline;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.reveal-row__remove-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.reveal-quality {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-family: var(--font-body);
+  color: var(--ink-soft);
+  margin: 4px 0 14px;
+}
+
+/* Margin note: sits on --paper (not the sidebar's --paper-shade) so --danger
+ * text clears 4.5:1 at any size (design.md §3: --danger on --paper is
+ * 4.83:1) instead of leaning on the large-text 3:1 exception. */
+.reveal-margin-note {
+  background: var(--paper);
+  color: var(--danger);
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  line-height: 1.35;
+  padding: 10px 14px;
+  border-radius: 3px 7px 4px 6px;
+  transform: rotate(-2deg);
+  margin: 4px 6px 16px 0;
+  box-shadow: var(--shadow-paper-lift);
+}
+
+.reveal-share {
+  display: block;
+  text-align: center;
+  text-decoration: none;
+  margin-top: 4px;
+}

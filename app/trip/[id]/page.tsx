@@ -1,19 +1,15 @@
-// D2.3 M1: the reveal at /trip/[id] now paints the REAL map — the custom
-// journal render engine (src/lib/map/map-render-core.js) wired in via
-// RevealMap (client component, fixed-view v1: basemap painted once, overlay
-// re-draws on order changes). The torn-journal sidebar, drag-to-reorder, and
-// cloud transition remain T6/M2 tasks; until then PlanView keeps rendering
-// the schedule below the map (server-recompute pattern shared with
-// app/share/[id]/page.tsx — deterministic solver: recompute == what the
-// pipeline just produced).
+// D2.3 T6 — the reveal at /trip/[id]: server component fetches the trip
+// document + computes each day's plan (same resilience pattern as before: a
+// planTripDay failure degrades to a rejected-status plan for that day rather
+// than 500ing the whole page), then hands both to RevealClient, which owns
+// all reveal state (active day, drag-reorder, re-optimize, duplicate
+// removal) and renders the map beside the torn-journal sidebar.
 
 import { getTripStore } from "@/lib/config";
 import { planTripDay } from "@/lib/planService";
-import { PlanView } from "@/ui/PlanView";
-import { PaperCard } from "@/ui/journal/PaperCard";
 import { SketchDivider } from "@/ui/journal/SketchDivider";
 import { GracieScene } from "@/ui/journal/GracieScene";
-import { RevealMap } from "@/ui/reveal/RevealMap";
+import { RevealClient } from "@/ui/reveal/RevealClient";
 import type { DayPlan } from "@/lib/schedule/types";
 
 export const dynamic = "force-dynamic";
@@ -49,9 +45,10 @@ export default async function TripRevealPage({
   }
 
   // A plan failure (matrix/adapter error) must degrade legibly, never 500 the
-  // reveal: the day renders PlanView's rejected state and the map still
-  // paints the stored stop order. (Found by a live smoke: unknown-to-fixture
-  // stop ids made planTripDay throw and crash the whole page.)
+  // reveal: RevealClient/JournalSidebar render that day's rejected state (a
+  // red margin note) and the map still paints the stored stop order. (Found
+  // by a live smoke: unknown-to-fixture stop ids made planTripDay throw and
+  // crash the whole page.)
   const plans: DayPlan[] = await Promise.all(
     doc.days.map(async (_, i) => {
       try {
@@ -67,25 +64,12 @@ export default async function TripRevealPage({
     })
   );
 
-  // M1 map: first day that has stops. Visit order comes from the plan when it
-  // solved (includes manualOrder handling); otherwise the day's stored order.
-  const mapDayIdx = doc.days.findIndex((d) => d.stops.length > 0);
-  const mapDay = mapDayIdx >= 0 ? doc.days[mapDayIdx] : null;
-  const mapPlan = mapDayIdx >= 0 ? plans[mapDayIdx] : null;
-  const mapOrder =
-    mapPlan && mapPlan.status === "ok"
-      ? mapPlan.order
-      : mapDay
-        ? mapDay.stops.map((s) => s.id)
-        : [];
-  const mapBookedId = mapDay?.stops.find((s) => s.anchor)?.id ?? null;
-
   return (
     <main
       style={{ background: "var(--paper)", minHeight: "100dvh", padding: "48px 24px 96px" }}
       data-testid="trip-reveal"
     >
-      <div style={{ maxWidth: 720, margin: "0 auto" }}>
+      <div style={{ maxWidth: 1100, margin: "0 auto" }}>
         <div style={{ display: "flex", alignItems: "flex-end", gap: 16, marginBottom: 8 }}>
           <GracieScene name="soup-stir" size={96} paused data-testid="trip-reveal-gracie" />
           <div>
@@ -108,68 +92,16 @@ export default async function TripRevealPage({
                 margin: "4px 0 0",
               }}
             >
-              The map and sidebar are still being drawn up. Here&rsquo;s the plan Gracie
-              cooked up in the meantime.
+              Sidebar&rsquo;s on the right.
             </p>
           </div>
         </div>
 
         <SketchDivider />
 
-        {mapDay && mapOrder.length > 0 && (
-          <div style={{ marginBottom: 24 }}>
-            <RevealMap
-              stops={mapDay.stops.map((s) => ({
-                id: s.id,
-                name: s.name,
-                lat: s.location.lat,
-                lng: s.location.lng,
-              }))}
-              orderedIds={mapOrder}
-              bookedId={mapBookedId}
-            />
-            {doc.days.length > 1 && (
-              <p
-                style={{
-                  fontFamily: "var(--font-body)",
-                  color: "var(--ink-soft)",
-                  fontSize: 13,
-                  margin: "6px 2px 0",
-                }}
-              >
-                Day {mapDayIdx + 1} on the map — day tabs arrive with the sidebar.
-              </p>
-            )}
-          </div>
-        )}
-
-        {doc.days.map((day, i) => (
-          <div key={i} style={{ marginBottom: 16 }}>
-            <PaperCard data-testid={`trip-day-${i}`}>
-              <h2
-                style={{
-                  fontFamily: "var(--font-display)",
-                  fontWeight: 400,
-                  color: "var(--ink)",
-                  marginTop: 0,
-                }}
-              >
-                Day {i + 1} · {day.date}
-              </h2>
-              {day.stops.length === 0 ? (
-                <p style={{ fontFamily: "var(--font-body)", color: "var(--ink-soft)" }}>
-                  No stops.
-                </p>
-              ) : (
-                <PlanView
-                  plan={plans[i]}
-                  stopNames={Object.fromEntries(day.stops.map((s) => [s.id, s.name]))}
-                  readOnly
-                />
-              )}
-            </PaperCard>
-          </div>
-        ))}
+        <div style={{ marginTop: 20 }}>
+          <RevealClient initialDoc={doc} initialPlans={plans} />
+        </div>
       </div>
     </main>
   );

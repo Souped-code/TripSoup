@@ -95,19 +95,47 @@ textarea.journal-input {
   opacity: 1;
 }
 
-/* WashiTag -------------------------------------------------------------- */
+/* WashiTag --------------------------------------------------------------
+ * Base look only — the fill color comes from a tone modifier below (every
+ * instance always gets one; the component defaults tone="washi"). --ink
+ * text on every tone computes to 6.19–9.54:1 (design.md §3's contrast
+ * table) — comfortably clears 4.5:1 even at this small size, on any tone.
+ */
 .journal-washi-tag {
   display: inline-block;
   font-family: var(--font-body), system-ui, sans-serif;
   font-size: 0.85rem;
   font-weight: 700;
-  background: var(--washi);
-  /* --ink on --washi computes to ~9.5:1 — comfortably clears 4.5:1 even at
-     this small size. */
   color: var(--ink);
   padding: 2px 10px;
   border-radius: 2px;
   line-height: 1.5;
+}
+.journal-washi-tag--washi { background: var(--washi); }
+.journal-washi-tag--coral { background: var(--washi-coral); }
+.journal-washi-tag--sky { background: var(--washi-sky); }
+.journal-washi-tag--pink { background: var(--washi-pink); }
+.journal-washi-tag--leaf { background: var(--washi-leaf); }
+
+/* Interactive variant (D2.3 T6): WashiTag as="button", used as the reveal
+ * sidebar's drag handle — resets native button chrome, adds a grab cursor,
+ * and a visible focus ring in --action green (§3: focus states are one of
+ * the reserved uses of the functional accent).
+ */
+.journal-washi-tag--handle {
+  border: none;
+  cursor: grab;
+}
+.journal-washi-tag--handle:active {
+  cursor: grabbing;
+}
+.journal-washi-tag--handle:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.journal-washi-tag--handle:focus-visible {
+  outline: 2px solid var(--action);
+  outline-offset: 2px;
 }
 
 /* SketchDivider ----------------------------------------------------------

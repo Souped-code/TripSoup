@@ -118,6 +118,7 @@ export function RevealMap({
   const assetsRef = useRef<{ decoded: unknown; textures: unknown; config: Record<string, unknown> } | null>(null);
   const geomRef = useRef<{ sig: string; legs: LegLine[] } | null>(null);
   const animRef = useRef<{ stop: () => void } | null>(null);
+  const cloudAnimRef = useRef<{ stop: () => void } | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const gestureRef = useRef(false);
   const firstChoreoDoneRef = useRef(false);
@@ -236,6 +237,7 @@ export function RevealMap({
             });
           },
         });
+        cloudAnimRef.current = cloudAnim; // unmount cleanup can stop it (review O6)
         cloudAnim.finished.then(() => setCloudsGone(true)).catch(() => setCloudsGone(true));
       }
 
@@ -246,6 +248,15 @@ export function RevealMap({
         : [];
       const DUR = kind === "initial" ? 2.1 : 0.9;
       const DELAY = kind === "initial" ? 0.5 : 0; // let the clouds part first
+      // Pin pops are TIME-driven from the moment the tip passes each pin.
+      // Driving them off routeP froze the LAST pin at ~52% scale — routeP
+      // saturates at t=0.72 while a fraction-1.0 pin's window could only ever
+      // open 0.133 wide — and the finalize frame then snapped it to full
+      // (review finding B1). A pop now runs on t for a fixed window from its
+      // crossing moment, so the final pin (crossed exactly at t=0.72) still
+      // gets 0.28 of t to complete its 0.12-wide pop before the animation ends.
+      const POP_WINDOW = 0.12; // in t-space: 0.12 × 2.1s ≈ 0.25s per pop
+      const popStarts: Array<number | null> = fractions.map(() => null);
 
       paintFrame(overlay, 0, kind === "initial" ? orderedIds.map(() => 0) : null, kind === "initial" ? 0 : 1, false);
 
@@ -255,9 +266,14 @@ export function RevealMap({
         ease: "linear",
         onUpdate: (t) => {
           const routeP = easeInOutCubic(clamp01(kind === "initial" ? t / 0.72 : t));
-          const pinPop = kind === "initial"
-            ? fractions.map((f) => easeOutBack(clamp01((routeP - Math.min(f, 0.98)) / 0.15)))
-            : null;
+          let pinPop: number[] | null = null;
+          if (kind === "initial") {
+            pinPop = fractions.map((f, i) => {
+              if (popStarts[i] == null && routeP >= f) popStarts[i] = t;
+              const start = popStarts[i];
+              return start == null ? 0 : easeOutBack(clamp01((t - start) / POP_WINDOW));
+            });
+          }
           const settle = kind === "initial" ? easeInOutCubic(clamp01((t - 0.78) / 0.2)) : 1;
           paintFrame(overlay, routeP, pinPop, settle, false);
         },
@@ -330,6 +346,7 @@ export function RevealMap({
     return () => {
       alive = false;
       animRef.current?.stop();
+      cloudAnimRef.current?.stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- overlayFor/orderedIds only seed the FIRST paint; reorders go through the choreography effect
   }, [view, stops, retryToken]);
@@ -363,17 +380,22 @@ export function RevealMap({
         for (let i = 0; i < orderedIds.length - 1; i++) {
           const a = byId.get(orderedIds[i]);
           const b = byId.get(orderedIds[i + 1]);
-          if (!a || !b) return;
+          // unknown id → no geometry to ask for; settle on sketch instead of
+          // leaving data-geometry stuck at "pending" (review finding O8)
+          if (!a || !b) { setGeometryState("sketch"); return; }
           legs.push({ from: { lat: a.lat, lng: a.lng }, to: { lat: b.lat, lng: b.lng } });
         }
         if (!legs.length) { setGeometryState("sketch"); return; }
 
+        // Staleness is handled by `alive`: this effect re-runs (and its
+        // cleanup flips alive=false) whenever orderSig changes, so a response
+        // for an old order can never land here.
         const resp = await fetch("/api/route-geometry", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ legs }),
         });
-        if (!alive || sig !== orderSig) return;
+        if (!alive) return;
         if (!resp.ok) { setGeometryState("sketch"); return; }
         const data = (await resp.json()) as { legs?: LegLine[] };
         if (!alive) return;
@@ -384,15 +406,26 @@ export function RevealMap({
         if (!hasRoads) return;
 
         // rebuild the base once with geometry-aware label collision, then
-        // swap in the road-following pen (instant — the draw-on already ran)
+        // swap in the road-following pen. This may interrupt a draw-on still
+        // in flight — the superseded animation's finished-catch cedes the
+        // final frame to us, so the swap is clean either way.
         const assets = assetsRef.current;
         if (!assets) return;
         const overlay = overlayFor(orderedIds);
+        // assets.config still carries the INITIAL order's ROUTE_POINTS /
+        // WASHI_INDEX; mixing those with current-order leg geometry garbles
+        // the label-collision seed path (review finding M1) — rebuild with
+        // the CURRENT order.
+        const rebuildConfig = {
+          ...assets.config,
+          ROUTE_POINTS: overlay.routePoints,
+          WASHI_INDEX: overlay.washiIndex,
+        };
         const scene = await MapRenderCore.buildScene(
-          assets.config, assets.decoded, assets.textures,
+          rebuildConfig, assets.decoded, assets.textures,
           { legGeometries: lines }
         );
-        if (!alive || sig !== orderSig) return;
+        if (!alive) return;
         animRef.current?.stop();
         sceneRef.current = scene;
         paintFrame(overlay, 1, null, 1, true);
@@ -536,7 +569,6 @@ export function RevealMap({
             <button
               type="button"
               data-testid="reveal-sfx-toggle"
-              aria-pressed={!muted}
               onClick={toggleMuted}
               style={{
                 position: "absolute",

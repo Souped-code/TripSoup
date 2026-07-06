@@ -32,23 +32,27 @@ test.describe("greeting -> cook -> reveal", () => {
     await expect(page.getByTestId("trip-reveal")).toBeVisible();
     await expect(page.getByTestId("trip-reveal-heading")).toHaveText("Your route’s ready.");
 
-    // The plan rendered: all three stops present. The first line's same-line
-    // text becomes that stop's label verbatim (heuristicAdapter.ts pairs the
-    // whole line-minus-URL as the label, time hint included; pipeline.ts's
-    // label-overrides-display-name rule then uses it as the stop's name) —
-    // real, deterministic parse behavior, not a test artifact. The two bare
-    // links carry no label, so they resolve to their plain fixture names.
-    const names = await page.getByTestId("entry-name").allTextContents();
+    // The plan rendered on the torn-journal sidebar (D2.3 T6): all three
+    // stops present. The first line's same-line text becomes that stop's
+    // label verbatim (heuristicAdapter.ts pairs the whole line-minus-URL as
+    // the label, time hint included; pipeline.ts's label-overrides-display-
+    // name rule then uses it as the stop's name) — real, deterministic parse
+    // behavior, not a test artifact. The two bare links carry no label, so
+    // they resolve to their plain fixture names.
+    const names = await page.locator('[data-testid^="sidebar-name-"]').allTextContents();
     expect(names).toContain("Lunch at Clock Tower Square 1pm");
     expect(names).toContain("Guildhall Museum");
     expect(names).toContain("Riverside Cafe");
     expect(names.length).toBe(3);
 
     // Order coherent: each stop's start time is no earlier than the previous
-    // one's (entry-time renders "HH:MM–HH:MM"; compare the start of each).
-    const times = await page.getByTestId("entry-time").allTextContents();
+    // one's. sidebar-time-* renders "HH:MM–HH:MM" for a flexible stop, or
+    // "anchored HH:MM" for one the parser treated as booked (the "1pm" hint
+    // on the first line can do that, per the pipeline's anchorLikely+timeHint
+    // rule) — strip that prefix before parsing either shape.
+    const times = await page.locator('[data-testid^="sidebar-time-"]').allTextContents();
     const startMinutes = times.map((t) => {
-      const [h, m] = t.split("–")[0].split(":").map(Number);
+      const [h, m] = t.replace(/^anchored /, "").split("–")[0].split(":").map(Number);
       return h * 60 + m;
     });
     for (let i = 1; i < startMinutes.length; i++) {

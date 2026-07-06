@@ -49,7 +49,9 @@ describe("adapter import guard (§3)", () => {
   // test forgets to inject a stub fetcher. So this scans for that instead —
   // same mechanism (source scan over testFiles), different target.
   it("no test file sets a real AWS_LOCATION_API_KEY (route geometry must be exercised via injected deps only)", () => {
-    const assignPattern = /process\.env\.AWS_LOCATION_API_KEY\s*=/;
+    // dot AND bracket assignment forms; `(?!=)` keeps `===` comparisons legal
+    const assignPattern =
+      /process\.env(?:\.AWS_LOCATION_API_KEY|\[\s*["']AWS_LOCATION_API_KEY["']\s*\])\s*=(?!=)/;
     for (const file of testFiles) {
       const content = fs.readFileSync(file, "utf8");
       expect({ file, setsAwsLocationKey: assignPattern.test(content) }).toEqual({
