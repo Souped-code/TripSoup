@@ -136,10 +136,17 @@ export async function* runPipeline(
     // resolve queries — labels are display+context only. Do not "helpfully"
     // fall back to `item.label` or `item.raw` here for label-only items.
     // -------------------------------------------------------------------
-    const urls: string[] = [];
+    const allUrls: string[] = [];
     for (const item of parsed.items) {
-      if (item.kind === "link" && item.url) urls.push(item.url);
+      if (item.kind === "link" && item.url) allUrls.push(item.url);
     }
+    // Spend guard (T9 audit, finding M1): every URL can become a billed
+    // Places call and the pipeline is the public front door — same 40-input
+    // cap /api/trips/[id]/resolve has carried since the D0 audit. The
+    // overflow is REPORTED as failures below, never silently dropped.
+    const RESOLVE_CAP = 40;
+    const urls = allUrls.slice(0, RESOLVE_CAP);
+    const overflowUrls = allUrls.slice(RESOLVE_CAP);
 
     yield {
       stage: "resolve",
@@ -159,6 +166,13 @@ export async function* runPipeline(
     const provider = getMapsProvider();
     const resolveResult =
       urls.length > 0 ? await provider.resolvePlaces(urls) : { stops: [], failures: [] };
+    // capped-out links surface in the same failure panel as unresolvable ones
+    for (const url of overflowUrls) {
+      resolveResult.failures.push({
+        source: url,
+        reason: `That's a lot of links — Gracie cooks the first ${RESOLVE_CAP} per paste. Split the rest into another trip?`,
+      });
+    }
 
     const stopBySource = new Map<string, Stop>(resolveResult.stops.map((s) => [s.source, s]));
 

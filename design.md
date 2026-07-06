@@ -259,7 +259,11 @@ AI-watercolor textures + Rough.js hand-inked strokes + the hand-font label subsy
 real OpenFreeMap geometry — no per-trip AI, basemap painted once, trip overlay redraws on
 reorder). **Every art value lives in `src/lib/map/map-style-defaults.mjs` (M0.5-LOCKED by
 Chris 2026-07-06 via Map Studio Copy-CONFIG)** — tune there via the studio
-(`design/map-engine/map-studio.mjs`), never inline. Principles preserved from the original
+(`design/map-engine/map-studio.mjs`), never inline. That lock file is the sanctioned home
+of the map's supporting hues (coastline, water lettering, road tans) beyond the §3 tokens —
+they follow §3's descriptive intent (desaturated recessive water, ink-family roads) and
+were locked by Chris's own Copy-CONFIG passes; §3's "no hard-coded hex" rule governs
+COMPONENT code, not this delegated art file. Principles preserved from the original
 direction: land = warm paper, water desaturated and distinct from the pen, thin ink roads,
 POI labels minimal (route map, not a street atlas). The pen line is the vivid map-pen blue
 (see `--route-blue` note above) and will draw on with M2's motion pass, never a static

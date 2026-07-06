@@ -70,3 +70,33 @@ Request body shape + `duration` parsing were already confirmed 2026-07-03; the
   quotas for Places API (New) + Routes API sized to expected use (a 20-stop day ≈ 400
   matrix elements cold, then cached).
 - **Verified when:** the alert exists and a test notification reaches you.
+
+## 7. D2.3 post-merge live checks (added at T10, 2026-07-06)
+
+The d2.3-reveal merge makes the greeting the PRODUCTION front door and replaces the reveal.
+After the deploy finishes:
+
+- Open trip-soup.vercel.app → the paste-box greeting renders (not the old board; that's
+  behind DEBUG_BOARD=1 at /debug/trip).
+- Paste a real messy blob (Maps links + a "3pm" hint) → Gracie loading stages → the reveal:
+  journal map paints with the hand-sketch pen (no AWS key yet = expected), sidebar rows with
+  times, booked tape on the anchored stop.
+- Drag a row (or keyboard: focus handle → Space → Arrow → Space) → map re-sketches +
+  pencil sfx (after your first click; mute chip top-right) → Re-optimize appears → click it.
+- Toggle an eligible leg ("take the drive/walk") → downstream times shift, order unchanged.
+- Open the share link on a phone → same order/times, read-only.
+- **Verified when:** all of the above on the live site with a real key'd paste.
+- With ANTHROPIC_API_KEY set in Vercel, the paste parses via claude-haiku (better label/
+  time handling); without it the heuristic parser runs — both are fine, just note which.
+
+## 8. AWS Location key → road-following pen (optional, any time)
+
+- AWS console → Amazon Location → API keys → create key restricted to `geo-routes:*`
+  (resource `arn:aws:geo-routes:ap-southeast-1::provider/default`); note the Routes
+  pricing panel; set a billing alarm.
+- Vercel env: `AWS_LOCATION_API_KEY` (+ `AWS_LOCATION_REGION=ap-southeast-1` if not SG)
+  → redeploy → open any trip: the pen should trace roads (data-geometry="roads").
+- This ALSO verifies the LIVE-SHAPE NOTE in src/lib/maps/routeGeometry.ts (the AWS
+  response field parse is defensive but unverified against a live call — if the pen stays
+  a sketch WITH a key set, that parse is the first place to look).
+- **Verified when:** a real trip's pen follows the roads on the live site.

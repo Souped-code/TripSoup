@@ -1066,3 +1066,39 @@ keyboard drag one slot (manualOrder; map re-paths; Re-optimize appears) → §2 
 eligible leg (mode flips, "your pick", pinned order unchanged) → /share/<id> recomputes the SAME
 doc: exact pinned order, the leg pick honoured, zero editing affordances. **Playwright 26/26**
 (whole suite) · tsc clean. T8 DONE.
+
+## T9 — whole-branch fresh-context audit (2026-07-06): VERDICT MERGE-READY, 0 blocking
+
+Independent opus auditor read the full 1909c14..e1b6995 diff cold. **Zero blocking.** Both
+minors FIXED this session: (M1) the pipeline resolve step now carries the same 40-input spend
+cap the resolve route has had since D0 — overflow links surface in the failure panel with a
+journal-voice note, never silently dropped; (M2) app/layout.tsx's stale font-claims comment
+rewritten honestly. Observations dispositioned: (O1) design.md §8 now states explicitly that
+the M0.5 lock file is the sanctioned home of the map's supporting hues (Chris locked them via
+his own Copy-CONFIG passes; §3's no-hex rule governs component code) — no new approval needed,
+documented; (O2) FIXED — removing an original stop now clears duplicateOf on its surviving
+copies; (O3) unbilled create/PUT routes stay unlimited (KV-only, validated writes — accepted);
+(O4) greeting's discarded plan compute = one redundant cache-hit solve (accepted); (O5) ~56MB
+texture duplication repo-side only (bench copies deletable post-launch if size ever matters);
+(O6) leg-line copy stutter already flagged for Chris's eyeball. Auditor's verified-clean list:
+locked ports byte-untouched (solver/schedule/matrixSource zero diff), suffixed duplicate ids
+safe through the real matrix, no key material anywhere, all billed routes rate-limited +
+capped, both optional keys degrade cleanly (no-AWS → sketch; no-ANTHROPIC → heuristic), only
+extracted URLs reach Places, §2/§4/§5 law holds on every new surface, M2's B1/M1 fixes present
+and correct, CDN lib path dead in the app, debug surfaces gated, docs honest.
+**Post-fix gates:** tsc clean · jest 119/119 · Playwright 26/26.
+
+## T10 — done-check (2026-07-06)
+
+D2.3 done contract against the plan: greeting IS the front door wired to the real pipeline ✓ ·
+reveal = custom journal map engine (M0.5 art LOCKED by Chris; M1 wired; M2 road-pen behind an
+optional key + full choreography with reduced-motion) ✓ · torn-journal sidebar with dnd
+reorder → manualOrder → live re-path + re-optimize + duplicateOf flag UI (T6) ✓ · §2 LOCKED
+surfaces carried into the new UI (T7 leg toggles both-times + planner's notes pocket) ✓ ·
+duplicate ALLOW+FLAG end to end (T4b→T6) ✓ · old board env-gated at /debug (T2) ✓ · full-flow
+e2e (T8) ✓ · whole-branch audit clean (T9) ✓ · gates green at HEAD ✓ · LIVE-CHECKLIST §§7–8
+appended (post-merge live checks + the optional AWS key step) ✓.
+**Merge to main = production deploy of the new front door — awaiting Chris's explicit GO.**
+UNVERIFIED-by-design at merge time: AWS live response shape (checklist §8), live paste with
+ANTHROPIC key (checklist §7 / D2.4), Gracie art still provisional (Chris's own pass, D1
+proviso), sfx still placeholder foley.

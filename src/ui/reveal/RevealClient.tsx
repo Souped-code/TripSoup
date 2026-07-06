@@ -216,7 +216,19 @@ export function RevealClient({
           ...d,
           days: d.days.map((day, i) => {
             if (i !== activeDay) return day;
-            const next = { ...day, stops: day.stops.filter((s) => s.id !== stopId) };
+            const next = {
+              ...day,
+              stops: day.stops
+                .filter((s) => s.id !== stopId)
+                // T9 audit O2: if the REMOVED stop was the original, its
+                // surviving duplicate stops flagging itself as a copy of a
+                // stop that no longer exists
+                .map((s) => {
+                  if (s.duplicateOf !== stopId) return s;
+                  const { duplicateOf: _dropped, ...rest } = s;
+                  return rest;
+                }),
+            };
             if (next.manualOrder) next.manualOrder = next.manualOrder.filter((id) => id !== stopId);
             if (next.precedence) {
               next.precedence = next.precedence.filter((p) => p.beforeId !== stopId && p.afterId !== stopId);
