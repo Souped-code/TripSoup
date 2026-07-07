@@ -4,6 +4,7 @@
 // through her scenes IN STEP with real backend stages, and progress reads as a
 // soup pot filling — never a generic percentage bar or spinner. On failure she
 // freezes in her "this is fine" pose beside a legible error and a retry button.
+import { useEffect, useState } from "react";
 import type { PipelineStage } from "@/lib/pipeline/pipeline";
 import type { GracieSceneName } from "@/ui/journal/GracieScene";
 import { GracieScene } from "@/ui/journal/GracieScene";
@@ -26,6 +27,21 @@ export function LoadingView({
   state: PipelineState;
   onRetry: () => void;
 }) {
+  // Live cook timer (testing aid) — counts up from the moment the paste was
+  // submitted (usePipeline stamped ts-cook-t0), refreshing 10×/sec.
+  const [elapsed, setElapsed] = useState<number | null>(null);
+  useEffect(() => {
+    if (state.phase !== "running") return;
+    let t0 = Date.now();
+    try {
+      const s = Number(sessionStorage.getItem("ts-cook-t0"));
+      if (s) t0 = s;
+    } catch { /* storage off */ }
+    setElapsed((Date.now() - t0) / 1000);
+    const id = setInterval(() => setElapsed((Date.now() - t0) / 1000), 100);
+    return () => clearInterval(id);
+  }, [state.phase]);
+
   if (state.phase === "error") {
     return (
       <div className="pipeline-stage" data-testid="pipeline-error">
@@ -65,6 +81,12 @@ export function LoadingView({
       <p className="pipeline-detail" data-testid="pipeline-detail">
         {detail}
       </p>
+
+      {elapsed != null && (
+        <p className="pipeline-timer" data-testid="pipeline-timer">
+          cooking · {elapsed.toFixed(1)}s
+        </p>
+      )}
     </div>
   );
 }

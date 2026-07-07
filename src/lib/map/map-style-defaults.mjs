@@ -43,6 +43,9 @@ export const MAP_STYLE_DEFAULTS = {
     waterNameText: "#5E7F86",
     roadMajor: "#967240",
     roadSecondary: "#b2a483",
+    roadMinor: "#c9bda1", // 2026-07-07: the residential/minor grid — a lighter,
+    // recessive tan so the dense street network reads as texture under the pen
+    // (board-faithful density), never competing with the arterials or the route.
     routeLine: "#2e79ea", // LOCKED (Chris, pass 3, 2026-07-06): the MAP pen is this
     // vivid blue; the UI token --route-blue stays #3E6C8E (design.md §3 notes the split).
     pinFill: "#F6F1E7",
@@ -59,6 +62,7 @@ export const MAP_STYLE_DEFAULTS = {
     waterway: 1.2,
     roadMajor: 2,
     roadSecondary: 1.6,
+    roadMinor: 0.9, // thin residential ink
     washiStroke: 1.1, // width of the tear shading stroke on the tape's torn ends
   },
   ROUGHNESS: { coast: 1.4, road: 1.2, route: 1.6 },
@@ -138,6 +142,8 @@ export const MAP_STYLE_DEFAULTS = {
 
   ROAD_CLASSES_MAJOR: ["motorway", "trunk", "primary"],
   ROAD_CLASSES_SECONDARY: ["secondary", "tertiary"],
+  ROAD_CLASSES_MINOR: ["minor", "service"], // 2026-07-07: residential grid so the
+  // road-following pen sits on a drawn street network (Chris's "denser roads" call)
   PARK_LANDCOVER_CLASSES: ["wood", "grass", "meadow"],
   PLACE_CLASSES: ["city", "town"],
 };

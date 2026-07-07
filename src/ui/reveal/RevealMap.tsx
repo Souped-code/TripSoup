@@ -80,6 +80,20 @@ function computeView(stops: RevealStop[]) {
   const padY = (N - S) * 0.22; // extra vertical room: the washi tag hangs below its pin
   const VIEW_BBOX = { W: W - padX, E: E + padX, N: N + padY, S: S - padY };
 
+  // Aspect floor (2026-07-07): a compact trip crops letterbox-short, which
+  // reads as a tiny map beside a tall sidebar. Grow the N/S window until the
+  // crop is at least this tall relative to its width, so the map fills the
+  // board column (Chris's "scale not harmonious" note). Near the equator the
+  // lat/lon ratio ≈ the projected aspect, so we expand in plain degrees.
+  const TARGET_ASPECT = 0.72; // height / width
+  const lonW = VIEW_BBOX.E - VIEW_BBOX.W;
+  const latH = VIEW_BBOX.N - VIEW_BBOX.S;
+  if (latH / lonW < TARGET_ASPECT) {
+    const grow = (TARGET_ASPECT * lonW - latH) / 2;
+    VIEW_BBOX.N += grow;
+    VIEW_BBOX.S -= grow;
+  }
+
   const lonSpan = VIEW_BBOX.E - VIEW_BBOX.W;
   // cropWpx = lonSpan/360 * 2^Z * TILEPX → solve for Z near the 1150px target
   const Z = Math.max(9, Math.min(14, Math.round(Math.log2((1150 * 360) / (lonSpan * 1024)))));
@@ -133,6 +147,7 @@ export function RevealMap({
   const [cloudsGone, setCloudsGone] = useState(false);
   const [muted, setMuted] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
+  const [cookMs, setCookMs] = useState<number | null>(null); // testing timer: full paste→map total
 
   const view = useMemo(() => computeView(stops), [stops]);
   const aspect = view.aspect;
@@ -141,6 +156,23 @@ export function RevealMap({
   // Bound the module-level decode cache to this reveal's lifetime (review
   // finding: it otherwise accumulates per-view geometry across navigations).
   useEffect(() => () => MapRenderCore.clearDecodeCache(), []);
+
+  // Testing timer: on first ready, report the full paste→map total that
+  // usePipeline stamped at submit. Only shows when this reveal came from a
+  // fresh cook (a direct /trip/[id] load has no stamp → no badge).
+  useEffect(() => {
+    if (phase !== "ready" || cookMs !== null) return;
+    try {
+      const s = Number(sessionStorage.getItem("ts-cook-t0"));
+      if (s) {
+        const total = (Date.now() - s) / 1000;
+        setCookMs(total);
+        // eslint-disable-next-line no-console
+        console.log(`[tripsoup] paste → map ready in ${total.toFixed(2)}s`);
+        sessionStorage.removeItem("ts-cook-t0"); // a reload shouldn't reshow a stale number
+      }
+    } catch { /* storage off */ }
+  }, [phase, cookMs]);
 
   // §2.10 sound rules: default ON, persisted, never before the first gesture.
   useEffect(() => {
@@ -563,6 +595,26 @@ export function RevealMap({
               <div style={cloudPuff("-12%", "8%", "68%")} />
               <div style={cloudPuff("28%", "-14%", "76%")} />
               <div style={cloudPuff("58%", "16%", "70%")} />
+            </div>
+          )}
+          {phase === "ready" && cookMs != null && (
+            <div
+              data-testid="reveal-timer"
+              style={{
+                position: "absolute",
+                top: 10,
+                left: 10,
+                fontFamily: "var(--font-display)",
+                fontSize: 13,
+                color: "var(--ink-soft)",
+                background: "var(--paper)",
+                border: "1px solid var(--ink-soft)",
+                borderRadius: 4,
+                padding: "2px 8px",
+                opacity: 0.9,
+              }}
+            >
+              ready in {cookMs.toFixed(1)}s
             </div>
           )}
           {phase === "ready" && (

@@ -66,12 +66,16 @@ export default async function TripRevealPage({
 
   return (
     <main
-      style={{ background: "var(--paper)", minHeight: "100dvh", padding: "48px 24px 96px" }}
+      // maxWidth:"none" overrides globals.css's `main { max-width: 880px }`
+      // (a leftover from the narrow legacy pages) — the reveal is a wide board,
+      // and without this the inner 1360 frame was capped at 880 and the map
+      // rendered small (Chris's "scale not harmonious" note, 2026-07-07).
+      style={{ background: "var(--paper)", minHeight: "100dvh", padding: "24px 24px 36px", maxWidth: "none" }}
       data-testid="trip-reveal"
     >
-      <div style={{ maxWidth: 1100, margin: "0 auto" }}>
-        <div style={{ display: "flex", alignItems: "flex-end", gap: 16, marginBottom: 8 }}>
-          <GracieScene name="soup-stir" size={96} paused data-testid="trip-reveal-gracie" />
+      <div style={{ maxWidth: 1360, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 14, marginBottom: 6 }}>
+          <GracieScene name="soup-stir" size={64} paused data-testid="trip-reveal-gracie" />
           <div>
             <h1
               style={{
@@ -79,7 +83,7 @@ export default async function TripRevealPage({
                 fontWeight: 400,
                 color: "var(--ink)",
                 margin: 0,
-                fontSize: "2rem",
+                fontSize: "1.6rem",
               }}
               data-testid="trip-reveal-heading"
             >
@@ -99,7 +103,7 @@ export default async function TripRevealPage({
 
         <SketchDivider />
 
-        <div style={{ marginTop: 20 }}>
+        <div style={{ marginTop: 14 }}>
           <RevealClient initialDoc={doc} initialPlans={plans} />
         </div>
       </div>

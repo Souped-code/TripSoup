@@ -23,16 +23,22 @@
 .reveal-layout {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 24px;
-  align-items: start;
+  gap: 26px;
+  align-items: stretch; /* map + sidebar form one board of equal height */
+  width: 100%; /* make the grid width DEFINITE — without this the fr tracks
+   * resolve against the canvas's intrinsic pixel width and the whole board
+   * shrink-wraps to ~830px instead of filling the 1360 frame. */
 }
 @media (min-width: 900px) {
   .reveal-layout {
-    grid-template-columns: 62fr 38fr;
+    grid-template-columns: 65fr 35fr; /* map dominant, like the board */
   }
 }
 .reveal-layout__map {
-  min-width: 0; /* grid item shrink guard so the canvas can size down */
+  min-width: 0; /* grid item shrink guard: without this the canvas's intrinsic
+   * pixel width wins the grid track sizing and the map renders small. Keep it
+   * a plain block (NOT flex — a flex parent re-introduces the shrink-to-canvas
+   * bug) so the width:100% map fills its 65% column. */
 }
 
 /* JournalSidebar ---------------------------------------------------------
@@ -43,6 +49,8 @@
  */
 .reveal-sidebar {
   position: relative;
+  display: flex;
+  flex-direction: column;
   background: var(--paper-shade);
   box-shadow: var(--shadow-paper-lift);
   min-width: 0;
@@ -71,9 +79,16 @@
 }
 .reveal-sidebar__scroll {
   position: relative;
-  max-height: 80vh;
+  flex: 1 1 auto;
+  min-height: 0; /* let the inner list scroll instead of stretching the board */
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
   padding: 22px 20px 22px 28px;
+}
+/* push the Share button to the foot of the torn page (board composition) */
+.reveal-share {
+  margin-top: auto;
 }
 .reveal-sidebar__heading {
   font-family: var(--font-display);
@@ -100,9 +115,18 @@
 }
 .reveal-row__handle {
   flex: 0 0 auto;
+  align-self: center;
   min-width: 30px;
   text-align: center;
   white-space: nowrap;
+}
+/* Empty (non-booked) handles are portrait tape strips, like the board's
+ * row-tab tape; the booked handle keeps its "✓ Booked" content width. */
+.reveal-row__handle:empty {
+  min-width: 0;
+  width: 17px;
+  height: 40px;
+  padding: 0;
 }
 .reveal-row__body {
   flex: 1 1 auto;

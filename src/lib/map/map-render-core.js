@@ -234,6 +234,7 @@ function deriveSizes(C, K) {
     K,
     coast: s(C.WIDTHS.coast), waterway: s(C.WIDTHS.waterway),
     roadMajor: s(C.WIDTHS.roadMajor), roadSecondary: s(C.WIDTHS.roadSecondary),
+    roadMinor: s(C.WIDTHS.roadMinor != null ? C.WIDTHS.roadMinor : 0.9),
     washiEdge: s(C.WIDTHS.washiStroke != null ? C.WIDTHS.washiStroke : 1.1),
     routeWidth: s(C.ROUTE_WIDTH), routeBleed: s(C.ROUTE_WIDTH + C.ROUTE_BLEED_EXTRA),
     pinDiam: s(C.PIN.diameter), pinStroke: s(C.PIN.strokeWidth),
@@ -1173,22 +1174,30 @@ export async function buildScene(rawConfig, decoded, textures, opts = {}) {
   ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
   ctx.restore();
 
-  // 4. roads — sparse arterials only
+  // 4. roads — arterials + (optional) a lighter residential grid so the
+  //    road-following pen sits on a drawn street network. MINOR is painted
+  //    FIRST (underneath) so arterials and the route read on top of it.
   const MAJOR = new Set(config.ROAD_CLASSES_MAJOR);
   const SECONDARY = new Set(config.ROAD_CLASSES_SECONDARY);
-  for (const f of layers.transportation) {
-    const cls = f.props['class'];
-    const isMajor = MAJOR.has(cls), isSecondary = SECONDARY.has(cls);
-    if (!isMajor && !isSecondary) continue;
-    const opts = isMajor
-      ? { stroke: config.COLORS.roadMajor, strokeWidth: D.roadMajor, roughness: config.ROUGHNESS.road }
-      : { stroke: config.COLORS.roadSecondary, strokeWidth: D.roadSecondary, roughness: config.ROUGHNESS.road };
-    for (const ring of f.geom) {
-      if (ring.length < 2) continue;
-      const pts = ring.map((pt) => [px(grid, f.tx, pt.x, f.ext), py(grid, f.ty, pt.y, f.ext)]);
-      rc.linearPath(pts, { ...opts, seed: featureSeed(config, fIdx++) });
+  const MINOR = new Set(config.ROAD_CLASSES_MINOR || []);
+  const paintRoads = (classSet, opts) => {
+    for (const f of layers.transportation) {
+      if (!classSet.has(f.props['class'])) continue;
+      for (const ring of f.geom) {
+        if (ring.length < 2) continue;
+        const pts = ring.map((pt) => [px(grid, f.tx, pt.x, f.ext), py(grid, f.ty, pt.y, f.ext)]);
+        rc.linearPath(pts, { ...opts, seed: featureSeed(config, fIdx++) });
+      }
     }
+  };
+  if (MINOR.size) {
+    paintRoads(MINOR, {
+      stroke: config.COLORS.roadMinor || config.COLORS.roadSecondary,
+      strokeWidth: D.roadMinor, roughness: config.ROUGHNESS.road,
+    });
   }
+  paintRoads(SECONDARY, { stroke: config.COLORS.roadSecondary, strokeWidth: D.roadSecondary, roughness: config.ROUGHNESS.road });
+  paintRoads(MAJOR, { stroke: config.COLORS.roadMajor, strokeWidth: D.roadMajor, roughness: config.ROUGHNESS.road });
 
   // 5a. pre-compute route/pin/washi geometry so the label passes can treat
   //     pins + washi + the pen line as occupied regions. The overlay itself

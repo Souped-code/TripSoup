@@ -44,6 +44,10 @@ export function usePipeline(): {
   const run = useCallback(async (text: string) => {
     if (runningRef.current) return;
     runningRef.current = true;
+    // Testing timer: stamp the moment the cook starts so the loading view can
+    // count up live and the reveal can show the full paste→map total (it
+    // survives the client-side nav to /trip/[id] via sessionStorage).
+    try { sessionStorage.setItem("ts-cook-t0", String(Date.now())); } catch { /* SSR / storage off */ }
     setState({ phase: "running", stage: "parse", pct: 0, detail: "Reading your links…" });
 
     try {

@@ -1102,3 +1102,41 @@ appended (post-merge live checks + the optional AWS key step) ✓.
 UNVERIFIED-by-design at merge time: AWS live response shape (checklist §8), live paste with
 ANTHROPIC key (checklist §7 / D2.4), Gracie art still provisional (Chris's own pass, D1
 proviso), sfx still placeholder foley.
+
+---
+
+## Post-launch polish (2026-07-07, on main — Chris testing the live product)
+
+**AWS road pen VERIFIED LIVE.** Chris added AWS_LOCATION_API_KEY + ANTHROPIC_API_KEY +
+PARSE_PROVIDER=llm to Vercel. Full prod audit (homepage / pipeline / route-geometry /
+headless reveal): all healthy, zero client errors; `/api/route-geometry` returns real
+GrabMaps polylines and the reveal paints `data-geometry="roads"` → the routeGeometry.ts
+LIVE-SHAPE NOTE (Routes[0].Legs[].Geometry.LineString) is CONFIRMED correct against the real
+geo-routes v2 API. A "seems broken" scare after the key-add was not reproducible on any
+surface — most likely the Vercel redeploy window.
+
+**Testing timer** (committed): usePipeline stamps `ts-cook-t0` at submit; LoadingView counts
+up live ("cooking · 2.3s"); RevealMap shows "ready in X.Xs" + logs the full paste→map total.
+
+**Reveal art iteration** (Chris's three notes with real data in front of him, all directions
+his call via AskUserQuestion):
+1. **Route not on roads → denser roads.** GrabMaps' full network ≠ our sparse arterials, so
+   the pen floated. Added a residential/minor grid (`ROAD_CLASSES_MINOR: [minor, service]`,
+   light tan `#c9bda1`, thin 0.9, painted UNDER the arterials) so the road-following pen sits
+   on drawn streets — board-faithful density. Bench-verified.
+2. **Sidebar tape didn't look like tape → gingham.** journal.css WashiTag now reads as real
+   washi: gingham weave on the decorative tones, translucency, paper-lift, portrait tape-strip
+   shape for the empty drag handles; booked stays solid yellow.
+3. **Scale not harmonious → full-frame board + ROOT-CAUSE FIX.** The map rendered small in a
+   sea of empty space because **globals.css `main { max-width: 880px }` (a legacy narrow-page
+   rule) was capping the reveal main at 880px** — the inner 1360 frame never had room (this
+   also explains why prod looked small all along). Fixed with `maxWidth:"none"` on the reveal
+   main. Plus: grid 65/35 map-dominant with `width:100%` (fr tracks were shrink-wrapping to the
+   canvas's intrinsic width → 832px board), `align-items:stretch` so map+sidebar are one board,
+   aspect floor 0.72 so a compact trip's crop isn't letterbox-short, Share pinned to the foot,
+   compacted header. Desktop probe confirms layout 1360 / map 867.
+
+**Gates:** tsc clean · jest 119/119 · Playwright 26/26 · build clean · desktop visual vs board
+(`design/refs/d2.3-map-engine-vs-board.png` refreshed). **Deploy: awaiting Chris's `git push`**
+(direct prod push is gated). **Deferred doc:** fold the AWS "verified" status into the
+routeGeometry.ts comment + LIVE-CHECKLIST §8 on a later commit.

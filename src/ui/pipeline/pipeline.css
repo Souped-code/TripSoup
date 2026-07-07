@@ -54,3 +54,12 @@
 .pipeline-detail--error {
   color: var(--danger);
 }
+
+/* Testing timer — live cook elapsed under the progress detail. */
+.pipeline-timer {
+  margin-top: 6px;
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
