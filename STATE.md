@@ -1137,6 +1137,56 @@ his call via AskUserQuestion):
    compacted header. Desktop probe confirms layout 1360 / map 867.
 
 **Gates:** tsc clean · jest 119/119 · Playwright 26/26 · build clean · desktop visual vs board
-(`design/refs/d2.3-map-engine-vs-board.png` refreshed). **Deploy: awaiting Chris's `git push`**
-(direct prod push is gated). **Deferred doc:** fold the AWS "verified" status into the
-routeGeometry.ts comment + LIVE-CHECKLIST §8 on a later commit.
+(`design/refs/d2.3-map-engine-vs-board.png` refreshed). **SHIPPED 2026-07-08** — commit
+`ccfa6f3` pushed to `origin/main` (Chris authorized), production live at trip-soup.vercel.app.
+**Deferred doc:** fold the AWS "verified" status into the routeGeometry.ts comment +
+LIVE-CHECKLIST §8 on a later commit.
+
+---
+
+## SESSION HANDOFF (2026-07-08, Opus 4.8 1M) → fresh session
+
+**Where we are.** D2.3 (the real product reveal) shipped and merged to production
+(`4d9eb01`), then a post-launch polish pass — testing timer + reveal art iteration —
+shipped on top (`ccfa6f3`, live now). Working tree clean, `HEAD == origin/main == ccfa6f3`
+= exactly what's deployed. All gates green.
+
+**Environment (Vercel prod, set by Chris).** `ANTHROPIC_API_KEY` (claude-haiku-4-5 LLM
+parse), `AWS_LOCATION_API_KEY` (GrabMaps geo-routes v2 road pen), `PARSE_PROVIDER=llm`.
+`main` auto-deploys to trip-soup.vercel.app (~60s). Vercel KV (Upstash) backs trip/matrix/
+geometry caches. There is NO Gemini key — that was for the *separate* casual-labour-mgr
+project; TripSoup uses Anthropic only.
+
+**Verified live this session.** AWS road pen confirmed against the real geo-routes v2 API
+(`Routes[0].Legs[].Geometry.LineString` — the routeGeometry.ts LIVE-SHAPE NOTE is correct).
+Reveal board fills the 1360 frame (map 867). Timer reads out end-to-end.
+
+**What Chris is doing NOW.** Testing the live product. After this deploy he'll eyeball:
+(1) route hugs the roads (the denser-roads fix only shows its payoff LIVE — locally there's
+no AWS key so the pen falls back to a straight sketch stroke), (2) the testing timer reads
+out, (3) the board fills the width / composition feels harmonious. If any art note remains,
+iterate BEFORE starting the next phase.
+
+**NEXT PHASE — D3: Supabase auth + Stripe SGD 6.90 Trip Pass** (master plan
+`plans/i-want-you-to-starry-wave.md`, LOCKED decisions in memory `tripsoup-production.md`).
+Do NOT start D3 until Chris confirms the art pass is satisfactory.
+
+**Gotchas / don't re-break.**
+- `app/globals.css` `main { max-width: 880px }` is a legacy narrow-page rule that LEAKS onto
+  the reveal. The reveal main overrides it with inline `maxWidth:"none"`. Keep that override.
+- Reveal grid must stay `width:100%` + `min-width:0` on `.reveal-layout__map` (NOT flex) —
+  otherwise the fr tracks shrink-wrap to the canvas's intrinsic width and the board collapses
+  to ~832px. This bit us three times; the comments in reveal.css explain it.
+- Art source of truth is `src/lib/map/map-style-defaults.mjs` (M0.5-LOCKED, consumed by both
+  the app engine `map-render-core.js` and the bench `design/map-engine/render-engine.mjs`).
+  Any art change: edit the .mjs, bench-render, then verify in a real reveal.
+
+**Deferred (small).** Fold the AWS "verified live" status into the routeGeometry.ts comment +
+LIVE-CHECKLIST §8. Non-blocking; do it on the next natural commit.
+
+**Working style (Chris's standing protocol — memory `orchestration-working-style`).**
+Orchestrate: strongest model owns verification/git/taste; delegate implementation to
+`Agent(model: sonnet)`, mechanical to haiku; corroborate subagent claims against their diffs.
+Product/UX/pricing/art calls → AskUserQuestion, never decide solo. Per unattended-run-protocol:
+one commit per phase with STATE.md updated in the SAME commit; fresh-context review per phase;
+UNVERIFIED list for anything only a human/device can check.
