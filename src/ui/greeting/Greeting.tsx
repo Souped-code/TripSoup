@@ -5,10 +5,17 @@
 // Paste box -> the already-built D2.2 pipeline (usePipeline + LoadingView,
 // consumed as-is, not reinvented) -> on the terminal ok frame, hands off to
 // the interim reveal at /trip/[id].
+//
+// Phase B.2 (2026-07-08): the idle landing is a POST-IT paste field sitting
+// inside the notebook on a full-bleed desk background (Higgsfield bg-2). Chris
+// placed the post-it within a red-outlined space on the open journal spread —
+// centred on the notebook, so a viewport-centred note lands in it. Everything
+// (greeting, label, tip, CTA) lives on the note; the desk is pure background.
+// The running/handoff frames keep the plain --paper surface. Flow, testids,
+// and validation are unchanged.
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { GracieScene } from "@/ui/journal/GracieScene";
-import { PaperCard } from "@/ui/journal/PaperCard";
 import { JournalInput } from "@/ui/journal/JournalInput";
 import { InkButton } from "@/ui/journal/InkButton";
 import { LoadingView } from "@/ui/pipeline/LoadingView";
@@ -102,60 +109,45 @@ export function Greeting() {
   }
 
   return (
-    <main className="greeting-main" data-testid="greeting-idle">
-      <div className="greeting-desk">
-        <header className="greeting-header">
+    <main className="greeting-main greeting-hero" data-testid="greeting-idle">
+      <form className="greeting-form" onSubmit={handleSubmit} noValidate>
+        {/* The post-it IS the paste field — a warm sticky note in the notebook,
+            held by a strip of washi tape. Everything lives on the note. */}
+        <div className="greeting-postit" data-testid="greeting-card">
+          <span className="greeting-postit__tape" aria-hidden="true" />
           <h1 className="greeting-time" data-testid="greeting-time">
             {greeting}
           </h1>
-          {/* Paper desk scene: Gracie propped over her own journal — a
-              static pose (design.md §7/§8 allow this; the surface's one
-              signature transition is the textarea's focus wobble below,
-              not a perpetually-cycling mascot competing with it). */}
-          <GracieScene
-            name="journal"
-            size={168}
-            paused
-            className="greeting-gracie"
-            data-testid="greeting-gracie"
+          <label htmlFor="greeting-paste-input" className="greeting-label">
+            Paste your trip — links, notes, chaos welcome.
+          </label>
+          <JournalInput
+            as="textarea"
+            id="greeting-paste-input"
+            className="greeting-textarea"
+            rows={5}
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              if (formError) setFormError(null);
+            }}
+            data-testid="greeting-paste"
           />
-        </header>
-
-        <form className="greeting-form" onSubmit={handleSubmit} noValidate>
-          <PaperCard className="greeting-paper" data-testid="greeting-card">
-            <label htmlFor="greeting-paste-input" className="greeting-label">
-              Paste your trip — links, notes, chaos welcome.
-            </label>
-            <JournalInput
-              as="textarea"
-              id="greeting-paste-input"
-              className="greeting-textarea"
-              rows={10}
-              value={text}
-              onChange={(e) => {
-                setText(e.target.value);
-                if (formError) setFormError(null);
-              }}
-              data-testid="greeting-paste"
-            />
-            {formError && (
-              <p className="greeting-form-error" role="alert" data-testid="greeting-form-error">
-                {formError}
-              </p>
-            )}
-            <div className="greeting-actions">
-              <InkButton type="submit" variant="primary" data-testid="greeting-submit">
-                Cook my trip
-              </InkButton>
-            </div>
-          </PaperCard>
-        </form>
-
-        <p className="greeting-how" data-testid="greeting-how">
-          How it works: paste anything with your trip in it, Gracie untangles the order, you
-          get a plan to share.
-        </p>
-      </div>
+          {formError && (
+            <p className="greeting-form-error" role="alert" data-testid="greeting-form-error">
+              {formError}
+            </p>
+          )}
+          <div className="greeting-actions">
+            <p className="greeting-how" data-testid="greeting-how">
+              Paste anything with your trip in it — Gracie untangles the order, you get a plan to share.
+            </p>
+            <InkButton type="submit" variant="primary" data-testid="greeting-submit">
+              Let&rsquo;s cook!
+            </InkButton>
+          </div>
+        </div>
+      </form>
     </main>
   );
 }

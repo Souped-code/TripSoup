@@ -1299,3 +1299,41 @@ testid, and fixed it before reporting.
 **Verified (orchestrator-corroborated, fresh):** tsc clean · jest 119/119 · `next build` clean ·
 Playwright **26/26** (full suite) · share-page screenshot at desktop + mobile — the map + read-only
 journal timeline, the board's language, replacing the white card. **B.1 done.**
+
+### Phase B.2 — landing redesigned as a post-it on a notebook-desk (COMPLETE; Chris-approved)
+
+The sparse centred-column landing → a full-bleed **notebook-on-a-desk** scene (Higgsfield bg,
+`public/landing/desk.webp`, 153KB) with the paste field as a **post-it note** held by washi tape,
+sitting inside the notebook spread. Chris drove the composition live:
+- Full-bleed desk (killed the globals `main{max-width:880}` cap — no side margins).
+- Post-it sized to sit INSIDE the notebook (Chris's red-outlined space): `min(500px, 34vw)` desktop /
+  `88vw` mobile, centred — the bg is `background-position:center`, so the notebook centre = viewport
+  centre and a centred note lands in the outline.
+- Everything on the note: greeting (small), the LOCKED §8 label, textarea (transparent, note-blended,
+  --action focus ring), the "how it works" tip bottom-left beside the CTA.
+- **"Cook my trip" → "Let's cook!"**; Gracie removed from the landing; bg-2 chosen over bg-1.
+- Higgsfield candidates were compared via a temporary `?bg=1|2` toggle, now REMOVED (bg hardcoded in
+  greeting.css → `/landing/desk.webp`; page back to Static). Flow/testids unchanged
+  (greeting-paste/submit/card/how/time preserved; greeting-gracie no longer on the idle landing —
+  no e2e referenced it).
+
+**Verified:** tsc clean · jest 119/119 · `next build` clean (`/` Static, 105KB First Load) ·
+Playwright 26/26 · desktop + mobile screenshots (Chris approved). **B.2 done.**
+
+**⚠ DEFERRED (Chris, revisit after MVP):** Chris is NOT satisfied with the MOBILE landing — "good
+enough for now." Revisit the mobile composition post-MVP (the post-it/desk framing on phones).
+
+## NEXT — LLM interprets the WHOLE pasted itinerary (Chris feature request, 2026-07-08)
+
+The user should paste a whole itinerary — **with OR without links** — and have the LLM interpret the
+FULL thing into a structured itinerary. Requirements (Chris, from user feedback):
+- Interpret user INTENT: some stops are ordered a particular way for a reason (respect intended order).
+- Discern which items belong to which DATE and separate them; **never shuffle items across dates**.
+- If shifting an item BETWEEN dates would significantly smoothen the itinerary, **propose it to the
+  user for their final say** (never auto-apply cross-date moves).
+- **⚠ Touches the LOCKED §3 rule "only extracted URLs reach Places; label text NEVER a query."**
+  Text-only pastes (place names, no links) need names resolved to places → this relaxes that
+  cost-safety rule (it existed to stop unbounded billed Places calls on arbitrary text). MUST be
+  designed with a spend cap / confidence gate. Flag to Chris; DESIGN before building.
+- Status: brainstorm/design pending (not started). Phases C (map pins + sidebar) and D (route motion)
+  from the original UI/UX plan still open too — sequence to be reconfirmed with Chris.
