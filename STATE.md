@@ -1257,10 +1257,45 @@ double-invoke and no spurious sub-700px viewport flip). **Accepted tradeoff:** a
 load flips `narrow` false→true once → one extra OpenFreeMap fetch (FREE CDN, not billed) → the
 correct taller crop; no oscillation. Debug logs removed after diagnosis.
 
-**⚠ Independent fresh-context review PENDING:** the reviewer subagent was killed by the account
-session limit (resets 06:10 SGT), same as at M2. Orchestrator line-verified the diff (7 files,
-scoped, no locked-engine/solver/style-defaults touched). Phase A is committed for rollback safety
-but NOT declared closed until the independent review runs clean after the reset.
+**Independent fresh-context review (opus, cold diff):** the first attempt was killed by the
+account session limit; re-run after the 06:10 SGT reset. **VERDICT: 0 blocking — "Phase A is
+complete and correct" survived scrutiny.** Minors/observations only: the mask `#000` is an alpha
+STENCIL (not a §3 color-hex violation; no lint config exists anyway); no duplicate banner
+(greeting's own `<header>` is inside `<main>` → not a banner landmark); no React hydration
+mismatch (SSR + first client render both `narrow=false`, flip is post-mount); the 22px feather
+sits far inside computeView's 18%/22% crop padding so it never clips pins/washi; OpenFreeMap tiles
+are an unbilled free CDN so the one-time mobile refetch costs nothing. Deferrable non-blockers
+noted: a brief hard-edged `--paper-shade` "Sketching…" placeholder before the map dissolves in;
+`debug/trip` still shows the old "Itinerary Optimiser" h1 (debug-only, out of scope). **Phase A CLOSED.**
 
 **UNVERIFIED (device):** the responsive layout + feathered seam on Chris's real phone + desktop
 browser (local proves the mechanics; Chris's device eyeball is acceptance) — screenshots sent.
+
+## Phase B — the two off-brand surfaces
+
+### Phase B.1 — share page rebuilt into the journal world (COMPLETE)
+
+`/share/[id]` was the legacy P5 `PlanView` in generic white `.card`s with NO map — the artifact
+users send friends looked like a different, half-finished app. Rebuilt (sonnet subagent; diff
+line-verified by the orchestrator + gates re-run fresh + screenshot) into the SAME journal world
+as `/trip/[id]`:
+- **New `src/ui/reveal/ShareTimeline.tsx`** — a read-only journal timeline (server component, no
+  client/hooks). Mirrors JournalSidebar's VISUAL (torn `.reveal-sidebar` page, rows, booked washi
+  tag + AnchorGlyph, leg lines with BOTH times) with every mutation surface stripped: no drag, no
+  leg toggle, no re-optimize, no pocket, no share button. Reuses reveal.css + WashiTag; tokens only.
+- **`app/share/[id]/page.tsx`** rewritten: same board shape as the reveal (`maxWidth:"none"` +
+  1360 inner, `var(--paper)`, journal-voice "Your itinerary / A shared plan from TripSoup." header,
+  per-day `.reveal-layout` = `<RevealMap>` + `<ShareTimeline>`, per-day resilience try/catch). The
+  shared map gets the full engine (feathered seam, road pen where a key exists).
+- **`JournalSidebar.tsx`**: one-word change — `export function AnchorGlyph` (reused, not duplicated).
+- Duplicated (documented, to keep the LOCKED sidebar untouched): `validManualOrder`,
+  `tornEdgeClipPath`/`TORN_WOBBLE`, the tone/rotate cycles, `fmtDayDate`.
+
+**e2e/share.spec.ts unchanged** — the timeline preserves PlanView's `entry-name`/`entry-time`
+(`startMin–departMin`)/`leg-mode`/`entry-${id}` testids byte-identically. The subagent proactively
+ran `fullflow.spec.ts` (not on its list), caught its own first-draft missing `entry-${id}` container
+testid, and fixed it before reporting.
+
+**Verified (orchestrator-corroborated, fresh):** tsc clean · jest 119/119 · `next build` clean ·
+Playwright **26/26** (full suite) · share-page screenshot at desktop + mobile — the map + read-only
+journal timeline, the board's language, replacing the white card. **B.1 done.**

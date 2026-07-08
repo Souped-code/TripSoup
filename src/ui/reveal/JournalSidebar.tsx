@@ -81,7 +81,9 @@ function dupLabelFor(stop: TripStop, orderedIds: string[]): string {
 // Hand-drawn anchor glyph (design.md §2.6: no stock icon set — this is the
 // first real icon need in the product, so it's authored here as a wobbly-
 // stroke inline SVG rather than reached for from Heroicons/Lucide).
-function AnchorGlyph() {
+// Exported (Phase B.1) so the read-only share timeline can render the exact
+// same booked glyph without duplicating the SVG.
+export function AnchorGlyph() {
   return (
     <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true" style={{ flex: "0 0 auto" }}>
       <circle cx="8" cy="3.1" r="1.6" stroke="var(--ink-soft)" strokeWidth="1.5" />
