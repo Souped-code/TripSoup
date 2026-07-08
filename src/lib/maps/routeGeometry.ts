@@ -232,12 +232,12 @@ function legCacheKey(mode: string, from: GeoPoint, to: GeoPoint): string {
 // AWS geo-routes v2 call + defensive parsing.
 // ---------------------------------------------------------------------------
 
-// LIVE-SHAPE NOTE: the field names below (Routes[].Legs[].Geometry.LineString)
-// are our best reading of the geo-routes v2 request/response shape —
-// UNVERIFIED against a real call. Confirm at the CHRIS-STEP (AWS Location key
-// creation) and correct this function if the live shape differs. Until then,
-// every `.` access is guarded so a wrong guess degrades to "no geometry for
-// this leg" instead of a crash.
+// LIVE-SHAPE NOTE (CONFIRMED LIVE 2026-07-08): the field names below
+// (Routes[0].Legs[].Geometry.LineString) are the geo-routes v2 response shape,
+// verified against a real call on Vercel prod (Chris added AWS_LOCATION_API_KEY;
+// the pen traces GrabMaps roads, data-geometry="roads"). Every `.` access stays
+// guarded so any future shape drift degrades to "no geometry for this leg"
+// instead of a crash.
 function extractLineString(data: unknown): Array<[number, number]> | null {
   if (typeof data !== "object" || data === null) return null;
   const routes = (data as { Routes?: unknown }).Routes;

@@ -271,3 +271,11 @@
   border-radius: 3px;
   color: var(--ink);
 }
+
+/* Phase A (2026-07-08) — phone density: tighter stack gap + sidebar padding so
+ * the sidebar under the (now taller) mobile map doesn't feel cavernous. */
+@media (max-width: 640px) {
+  .reveal-layout { gap: 18px; }
+  .reveal-sidebar__scroll { padding: 18px 16px 18px 22px; }
+  .reveal-sidebar__heading { font-size: 1.6rem; }
+}

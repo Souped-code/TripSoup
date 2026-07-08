@@ -23,12 +23,26 @@ const nunitoSans = Nunito_Sans({
   display: "swap",
 });
 
-export const metadata = { title: "Itinerary Optimiser" };
+export const metadata = {
+  title: "TripSoup",
+  description:
+    "Paste your trip — links, notes, chaos welcome. TripSoup untangles the order into a plan you can share.",
+};
+
+export const viewport = { width: "device-width", initialScale: 1 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={`${gochiHand.variable} ${nunitoSans.variable}`}>
-      <body>{children}</body>
+      <body>
+        {/* Global chrome: the wordmark doubles as the home link (Phase A). */}
+        <header className="site-header">
+          <a href="/" className="site-wordmark" data-testid="home-link">
+            TripSoup
+          </a>
+        </header>
+        {children}
+      </body>
     </html>
   );
 }

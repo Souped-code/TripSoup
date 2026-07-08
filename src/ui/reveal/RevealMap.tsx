@@ -67,7 +67,7 @@ function mercY(lat: number) {
 // Fixed-view derivation: pad the stop bbox, then pick the zoom whose crop
 // lands near the reference width (~1150px at REF_TILEPX 1024 = the resolution
 // the art was tuned at, so K≈1 and proportions match the studio exactly).
-function computeView(stops: RevealStop[]) {
+function computeView(stops: RevealStop[], narrow: boolean) {
   let W = Infinity, E = -Infinity, S = Infinity, N = -Infinity;
   for (const s of stops) {
     W = Math.min(W, s.lng); E = Math.max(E, s.lng);
@@ -85,7 +85,9 @@ function computeView(stops: RevealStop[]) {
   // crop is at least this tall relative to its width, so the map fills the
   // board column (Chris's "scale not harmonious" note). Near the equator the
   // lat/lon ratio ≈ the projected aspect, so we expand in plain degrees.
-  const TARGET_ASPECT = 0.72; // height / width
+  // Portrait-taller on phones (a 0.72 wide-short crop reads as a tiny strip in
+  // the stacked mobile column); board-wide on desktop (Phase A responsive).
+  const TARGET_ASPECT = narrow ? 1.1 : 0.72; // height / width
   const lonW = VIEW_BBOX.E - VIEW_BBOX.W;
   const latH = VIEW_BBOX.N - VIEW_BBOX.S;
   if (latH / lonW < TARGET_ASPECT) {
@@ -148,8 +150,9 @@ export function RevealMap({
   const [muted, setMuted] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [cookMs, setCookMs] = useState<number | null>(null); // testing timer: full paste→map total
+  const [narrow, setNarrow] = useState(false); // phone-width → taller map crop
 
-  const view = useMemo(() => computeView(stops), [stops]);
+  const view = useMemo(() => computeView(stops, narrow), [stops, narrow]);
   const aspect = view.aspect;
   const orderSig = orderedIds.join("|");
 
@@ -178,10 +181,15 @@ export function RevealMap({
   useEffect(() => {
     setMuted(localStorage.getItem(SFX_MUTE_KEY) === "1");
     setReducedMotion(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    const nq = window.matchMedia("(max-width: 700px)");
+    setNarrow(nq.matches);
+    const onNarrow = (e: MediaQueryListEvent) => setNarrow(e.matches);
+    nq.addEventListener("change", onNarrow);
     const mark = () => { gestureRef.current = true; };
     window.addEventListener("pointerdown", mark, { once: true, capture: true });
     window.addEventListener("keydown", mark, { once: true, capture: true });
     return () => {
+      nq.removeEventListener("change", onNarrow);
       window.removeEventListener("pointerdown", mark, { capture: true } as EventListenerOptions);
       window.removeEventListener("keydown", mark, { capture: true } as EventListenerOptions);
     };
@@ -561,7 +569,6 @@ export function RevealMap({
                 fontFamily: "var(--font-display)",
                 color: "var(--ink-soft)",
                 background: "var(--paper-shade)",
-                borderRadius: 4,
               }}
             >
               Sketching your map…
@@ -575,8 +582,18 @@ export function RevealMap({
               display: phase === "ready" ? "block" : "none",
               width: "100%",
               height: "auto",
-              borderRadius: 4,
-              boxShadow: "0 1px 2px rgba(43,38,32,.12), 0 4px 12px rgba(43,38,32,.06)",
+              // Phase A seam fix (2026-07-08): no radius/shadow frame, and a soft
+              // edge-feather so the painted map dissolves into var(--paper) with
+              // no rectangular boundary — it reads as a hand-drawn map on the page,
+              // not a framed tile (Chris's "background doesn't match art → jarring
+              // outline" note). Two axis gradients intersected = a 22px feather on
+              // all four edges; content stays clear of it (computeView pads the crop).
+              maskImage:
+                "linear-gradient(to right, transparent, #000 22px, #000 calc(100% - 22px), transparent), linear-gradient(to bottom, transparent, #000 22px, #000 calc(100% - 22px), transparent)",
+              maskComposite: "intersect",
+              WebkitMaskImage:
+                "linear-gradient(to right, transparent, #000 22px, #000 calc(100% - 22px), transparent), linear-gradient(to bottom, transparent, #000 22px, #000 calc(100% - 22px), transparent)",
+              WebkitMaskComposite: "source-in",
             }}
           />
           {phase === "ready" && !reducedMotion && !cloudsGone && (
@@ -589,7 +606,6 @@ export function RevealMap({
                 inset: 0,
                 overflow: "hidden",
                 pointerEvents: "none",
-                borderRadius: 4,
               }}
             >
               <div style={cloudPuff("-12%", "8%", "68%")} />

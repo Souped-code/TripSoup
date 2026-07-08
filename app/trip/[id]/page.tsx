@@ -70,7 +70,7 @@ export default async function TripRevealPage({
       // (a leftover from the narrow legacy pages) — the reveal is a wide board,
       // and without this the inner 1360 frame was capped at 880 and the map
       // rendered small (Chris's "scale not harmonious" note, 2026-07-07).
-      style={{ background: "var(--paper)", minHeight: "100dvh", padding: "24px 24px 36px", maxWidth: "none" }}
+      style={{ background: "var(--paper)", minHeight: "100dvh", padding: "clamp(14px, 3.5vw, 24px) clamp(12px, 3.5vw, 24px) 40px", maxWidth: "none" }}
       data-testid="trip-reveal"
     >
       <div style={{ maxWidth: 1360, margin: "0 auto" }}>
@@ -83,7 +83,7 @@ export default async function TripRevealPage({
                 fontWeight: 400,
                 color: "var(--ink)",
                 margin: 0,
-                fontSize: "1.6rem",
+                fontSize: "clamp(1.5rem, 4.5vw, 2rem)",
               }}
               data-testid="trip-reveal-heading"
             >
@@ -96,7 +96,7 @@ export default async function TripRevealPage({
                 margin: "4px 0 0",
               }}
             >
-              Sidebar&rsquo;s on the right.
+              Reorder any stop and Gracie re-times the day.
             </p>
           </div>
         </div>

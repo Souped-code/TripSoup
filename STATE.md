@@ -1190,3 +1190,77 @@ Orchestrate: strongest model owns verification/git/taste; delegate implementatio
 Product/UX/pricing/art calls → AskUserQuestion, never decide solo. Per unattended-run-protocol:
 one commit per phase with STATE.md updated in the SAME commit; fresh-context review per phase;
 UNVERIFIED list for anything only a human/device can check.
+
+---
+
+# POST-LAUNCH UI/UX POLISH PASS (2026-07-08, Opus 4.8 1M) — branch `uiux-polish`
+
+Chris eyeballed the live product and called it "still a disaster." Ran a full mobile+desktop
+UI/UX + aesthetic audit (design-audit skill; real screenshots at 390/768/1440 + two read-only
+code-mapping subagents), producing a 4-phase plan Chris approved via AskUserQuestion. His 8-item
+verdict mapped to phases:
+- **A (structure):** responsive (mobile must ≠ desktop), background seam, no-way-home.
+- **B (broken surfaces):** `/share` shows NO map (still the legacy P5 PlanView, off-brand);
+  landing isn't a landing (paste field not front-and-centre).
+- **C (map identity):** tiny invisible pins; empty ruled sidebar expanse.
+- **D (motion):** route draws a fuzzy straight line then hard-snaps to roads; wants a slow,
+  smooth draw-on.
+
+**Branch discipline (D2.3 precedent):** `main` auto-deploys to prod, so this multi-phase work
+lives on **`uiux-polish`** (off `main` @ d340728). Merge → main = deploy = gets Chris's explicit
+GO at the end; do NOT push half-built phases to main.
+
+## Chris's LOCKED decisions this session (AskUserQuestion)
+- **Landing:** paste field = a **post-it note**, on a **notebook-on-a-desk background scene**;
+  the background is to be generated via **Higgsfield MCP**. (Phase B.)
+- **Map pins:** **mock BOTH** on the real map — colour-coded push-pin tacks (number on the tack
+  head) vs a washi-tape scrap with a circled number — Chris picks from renders. (Phase C.)
+- **Sequence:** full plan A→B→C→D; one commit + Chris review per phase.
+
+## Phase A — responsive foundation + seam + home nav (COMPLETE; independent review PENDING)
+
+**Built (this commit):**
+- **Home nav + brand:** a global sticky `<header class="site-header">` (app/layout.tsx) carrying
+  the **TripSoup wordmark** as `<a href="/" data-testid="home-link">` — the way back home after
+  processing (there was none) AND the product's first visible name. Wordmark is `--ink` (an
+  orange "Soup" span was tried and REMOVED: `--soup` on `--paper` is 3.05:1, which FAILED the
+  axe color-contrast gate — a compliant orange flourish is deferred to the Phase B landing hero).
+  metadata title "Itinerary Optimiser"→"TripSoup" + description + a `viewport` export.
+- **Background seam FIX (Chris's "jarring outline"):** body `#f5f4f0` → `var(--paper)` (it was a
+  THIRD cream, differing from `--paper` #F6F1E7 AND the land texture); the RevealMap canvas lost
+  its `borderRadius`+`boxShadow` frame and gained a **22px edge-feather mask** (two intersected
+  linear-gradients, `-webkit-` fallback) so the painted map DISSOLVES into the paper on all four
+  edges — no rectangle, no outline. Placeholder + clouds-overlay radius removed too.
+- **Responsive:** RevealMap `computeView` now takes `narrow` (matchMedia `max-width:700px`) →
+  `TARGET_ASPECT = narrow ? 1.1 : 0.72`, so phones get a TALL portrait map instead of a wide-short
+  strip; desktop keeps the board-wide crop. Fluid `clamp()` on global h1/h2 + `main` padding, the
+  reveal heading (1.6rem→clamp) + reveal main padding; a `max-width:640px` reveal block (tighter
+  gap/padding/heading). Subtitle "Sidebar's on the right." → "Reorder any stop and Gracie re-times
+  the day." (old copy was wrong on mobile, where the sidebar is BELOW the map).
+- **Deferred doc task folded in:** routeGeometry.ts LIVE-SHAPE NOTE + LIVE-CHECKLIST §8 marked
+  **CONFIRMED LIVE 2026-07-08** (AWS geo-routes v2 `Routes[0].Legs[].Geometry.LineString`).
+
+**Deviations:** none from LOCKED. The orange-wordmark→ink change logged above (axe gate).
+
+**Verified (fresh, orchestrator-run this session):** tsc clean · jest 119/119 (19 suites) ·
+`next build` clean · Playwright 26/26 (incl. the reveal + debug-design axe scans, 0 violations
+after the wordmark fix). Visual: real-tile screenshots at 390 + 1440 — seam gone (map feathers
+into paper), TripSoup home link present, mobile map is a tall board, copy fixed.
+
+**Investigated + RESOLVED a screenshot-harness red herring (systematic-debugging):** desktop
+reveal appeared "stuck sketching." Isolated by `git stash` (HEAD builds the scene ONCE, 16 tiles;
+my change built it 3× / 48 tiles and reverted to sketching). Root cause: Playwright `fullPage:true`
+momentarily perturbs the viewport <700px → my matchMedia listener flips `narrow` → thrashes the
+scene rebuild. With a NON-fullPage capture, `narrow` stays false and phase stays `ready` for 8s
+straight — so it is a TEST-HARNESS artifact, not a product bug (prod has no StrictMode
+double-invoke and no spurious sub-700px viewport flip). **Accepted tradeoff:** a genuine mobile
+load flips `narrow` false→true once → one extra OpenFreeMap fetch (FREE CDN, not billed) → the
+correct taller crop; no oscillation. Debug logs removed after diagnosis.
+
+**⚠ Independent fresh-context review PENDING:** the reviewer subagent was killed by the account
+session limit (resets 06:10 SGT), same as at M2. Orchestrator line-verified the diff (7 files,
+scoped, no locked-engine/solver/style-defaults touched). Phase A is committed for rollback safety
+but NOT declared closed until the independent review runs clean after the reset.
+
+**UNVERIFIED (device):** the responsive layout + feathered seam on Chris's real phone + desktop
+browser (local proves the mechanics; Chris's device eyeball is acceptance) — screenshots sent.

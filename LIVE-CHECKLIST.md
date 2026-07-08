@@ -89,14 +89,15 @@ After the deploy finishes:
 - With ANTHROPIC_API_KEY set in Vercel, the paste parses via claude-haiku (better label/
   time handling); without it the heuristic parser runs — both are fine, just note which.
 
-## 8. AWS Location key → road-following pen (optional, any time)
+## 8. ✅ DONE 2026-07-08 — AWS Location key → road-following pen
 
 - AWS console → Amazon Location → API keys → create key restricted to `geo-routes:*`
   (resource `arn:aws:geo-routes:ap-southeast-1::provider/default`); note the Routes
   pricing panel; set a billing alarm.
 - Vercel env: `AWS_LOCATION_API_KEY` (+ `AWS_LOCATION_REGION=ap-southeast-1` if not SG)
   → redeploy → open any trip: the pen should trace roads (data-geometry="roads").
-- This ALSO verifies the LIVE-SHAPE NOTE in src/lib/maps/routeGeometry.ts (the AWS
-  response field parse is defensive but unverified against a live call — if the pen stays
-  a sketch WITH a key set, that parse is the first place to look).
-- **Verified when:** a real trip's pen follows the roads on the live site.
+- This ALSO verified the LIVE-SHAPE NOTE in src/lib/maps/routeGeometry.ts: the AWS
+  response field parse (Routes[0].Legs[].Geometry.LineString) is CONFIRMED correct against
+  the real geo-routes v2 API.
+- **Verified:** ✅ 2026-07-08 — Chris added AWS_LOCATION_API_KEY to Vercel prod; a real
+  trip's pen follows the roads on the live site (`data-geometry="roads"`, GrabMaps polylines).

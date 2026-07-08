@@ -2,13 +2,16 @@
 body {
   margin: 0;
   font-family: system-ui, -apple-system, sans-serif;
-  background: #f5f4f0;
+  /* Phase A (2026-07-08): unify the page surface to the paper token so the map
+     canvas sits on the SAME cream as its land texture — no seam. Was #f5f4f0,
+     a third cream that differed from --paper and the baked texture tone. */
+  background: var(--paper);
   color: #1d1d1b;
   line-height: 1.45;
 }
-main { max-width: 880px; margin: 0 auto; padding: 24px 16px 80px; }
-h1 { font-size: 1.4rem; }
-h2 { font-size: 1.1rem; margin: 8px 0; }
+main { max-width: 880px; margin: 0 auto; padding: clamp(16px, 4vw, 24px) clamp(12px, 4vw, 16px) 72px; }
+h1 { font-size: clamp(1.25rem, 3.5vw, 1.5rem); }
+h2 { font-size: clamp(1rem, 3vw, 1.15rem); margin: 8px 0; }
 button {
   font: inherit;
   padding: 6px 12px;
@@ -91,3 +94,26 @@ textarea { width: 100%; }
   --danger: #C0392B;
   --shadow-paper-lift: 0 1px 2px rgba(43,38,32,.12), 0 4px 12px rgba(43,38,32,.06);
 }
+
+/* --- Phase A (2026-07-08): global chrome (home nav + brand) + responsive base ---
+   A slim sticky header on every page carrying the TripSoup wordmark, which is
+   the way back home after processing (Chris: "no way back to main home screen").
+   Paper background so content scrolls under it invisibly. */
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  padding: 10px clamp(14px, 4vw, 28px);
+  background: var(--paper);
+  border-bottom: 1px dashed color-mix(in srgb, var(--ink) 28%, transparent);
+}
+.site-wordmark {
+  font-family: var(--font-display, 'Gochi Hand'), cursive;
+  font-size: clamp(1.2rem, 3.5vw, 1.45rem);
+  color: var(--ink);
+  text-decoration: none;
+  line-height: 1;
+}
+.site-wordmark:hover { opacity: 0.85; }
