@@ -1323,6 +1323,43 @@ Playwright 26/26 · desktop + mobile screenshots (Chris approved). **B.2 done.**
 **⚠ DEFERRED (Chris, revisit after MVP):** Chris is NOT satisfied with the MOBILE landing — "good
 enough for now." Revisit the mobile composition post-MVP (the post-it/desk framing on phones).
 
+## Phase C — map pins (push-pin tacks) + sidebar trim (COMPLETE; review pending)
+
+Chris's audit items: the numbered stop pins were near-invisible fine ink rings, and the reveal/share
+sidebar stretched to the tall map's height leaving a sea of empty ruled lines.
+
+**Built (3 files: map-render-core.js, map-style-defaults.mjs, reveal.css):**
+- **Pin styles:** new `config.PIN.style` ('ring' | 'tack' | 'washi') + a per-stop `palette`
+  (design.md §3 washi tones, colour-coded) + `tackDiameter` (34 vs the 21px ring). `drawTackPin`
+  (colour-coded head + ink outline + domed sheen + ground shadow + short "stab" point + number on
+  the head) and `drawWashiPin` (small torn washi scrap + circled number) implemented — both scale
+  by the `pop` scalar (M2 pop-in choreography preserved) and are seeded (byte-identical repaints).
+  Pin loop branches on style; the displaced-pin ink leader draws for all styles; the 'ring' path is
+  byte-identical to before. **Chris picked TACK** from a real-map mock (tack vs washi vs the old
+  ring) → `style: "tack"` locked. The `?pin=` mock override was added to RevealMap for the
+  comparison then removed (RevealMap nets to zero this phase).
+- **Sidebar trim:** `.reveal-layout { align-items: stretch → start }` — the torn journal page is now
+  a content-height note card beside the map (reveal AND share) instead of stretching to the map's
+  height with empty ruled lines below the Share button.
+
+**Collision geometry made marker-aware (fix applied post-review):** the tacks render at
+`tackDiameter` (34) but the declutter (`resolvePinPositions`), label-avoidance, and washi-"Booked"-tag
+placement assumed the 21px ring — so clustered stops' tacks would overlap ~9px (clustered city stops
+are TripSoup's common case). Added `D.markerDiam` (= tackDiameter for tack/washi, else pinDiam) in
+`deriveSizes` and routed the 7 collision/declutter/label/washi-placement sites through it; the ring's
+own draw stays on `pinDiam` so 'ring' is byte-unchanged. Low-risk (only increases clearances).
+
+**Independent fresh-context review (opus): 0 blocking.** Renderers solid (balanced ctx state, honour
+`pop`, deterministic seeds, no seed collision, palette matches design.md §3 tones at ≥6.19:1 ink
+contrast); ring path byte-identical; `align-items:start` confirmed vertical-only (doesn't touch the
+board-shrink guard). Two minors: (a) the declutter/washi size mismatch — **FIXED above (markerDiam)**;
+(b) a content-height sidebar means a very long trip page-scrolls instead of scrolling inside the
+sidebar — **accepted** (arguably better than a nested scroll; the empty-expanse fix is the point).
+**Verified:** tsc clean · jest 119/119 · `next build` clean · Playwright 26/26 · reveal + share
+screenshots (tacks visible + colour-coded; sidebar content-height, no empty expanse).
+
+**Remaining in the UI/UX polish:** Phase D (route-draw motion: slow/smooth draw-on, no fuzzy-then-snap).
+
 ## NEXT — LLM interprets the WHOLE pasted itinerary (Chris feature request, 2026-07-08)
 
 The user should paste a whole itinerary — **with OR without links** — and have the LLM interpret the
@@ -1335,5 +1372,7 @@ FULL thing into a structured itinerary. Requirements (Chris, from user feedback)
   Text-only pastes (place names, no links) need names resolved to places → this relaxes that
   cost-safety rule (it existed to stop unbounded billed Places calls on arbitrary text). MUST be
   designed with a spend cap / confidence gate. Flag to Chris; DESIGN before building.
-- Status: brainstorm/design pending (not started). Phases C (map pins + sidebar) and D (route motion)
-  from the original UI/UX plan still open too — sequence to be reconfirmed with Chris.
+- Status: design SPEC written + Fable-audited (docs/superpowers/specs/2026-07-09-itinerary-
+  interpretation-design.md), pending Chris's review → implementation plan. Phase C (map pins +
+  sidebar) is DONE (above); only Phase D (route motion) remains in the UI/UX polish. Sequence
+  (interpretation feature vs Phase D) to be reconfirmed with Chris.

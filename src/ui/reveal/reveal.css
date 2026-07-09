@@ -24,7 +24,11 @@
   display: grid;
   grid-template-columns: 1fr;
   gap: 26px;
-  align-items: stretch; /* map + sidebar form one board of equal height */
+  /* Phase C: the sidebar is content-height (was `stretch`, which grew the torn
+     page to the tall map's height and left a sea of empty ruled lines below the
+     Share button — Chris's "empty ruled sidebar" note). Now it's a note card
+     sized to its content, beside the map. */
+  align-items: start;
   width: 100%; /* make the grid width DEFINITE — without this the fr tracks
    * resolve against the canvas's intrinsic pixel width and the whole board
    * shrink-wraps to ~830px instead of filling the 1360 frame. */

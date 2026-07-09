@@ -239,6 +239,16 @@ function deriveSizes(C, K) {
     routeWidth: s(C.ROUTE_WIDTH), routeBleed: s(C.ROUTE_WIDTH + C.ROUTE_BLEED_EXTRA),
     pinDiam: s(C.PIN.diameter), pinStroke: s(C.PIN.strokeWidth),
     pinNum: s(C.PIN.numFontSize), pinGap: s(C.PIN.declutterGap), leaderDot: s(C.PIN.leaderDot),
+    tackDiam: s(C.PIN.tackDiameter != null ? C.PIN.tackDiameter : 34),
+    // effective marker footprint for collision/declutter/label-avoidance/washi placement:
+    // tacks & washi scraps render bigger than the fine ring, so those passes must size to
+    // the ACTUAL marker (Phase C review — else clustered tacks overlap the declutter gap and
+    // the 'Booked' tag grazes a tack). Ring style keeps pinDiam, so 'ring' is byte-unchanged.
+    markerDiam: s(
+      C.PIN.style === 'tack' || C.PIN.style === 'washi'
+        ? (C.PIN.tackDiameter != null ? C.PIN.tackDiameter : 34)
+        : C.PIN.diameter
+    ),
     washiH: s(C.WASHI.h), washiPadX: s(C.WASHI.padX),
     washiMinW: s(C.WASHI.minW), washiMaxW: s(C.WASHI.maxW),
     washiFont: s(C.WASHI.fontSize), washiTearAmp: s(C.WASHI.tearAmp),
@@ -492,7 +502,7 @@ function planWashiTag(ctx, C, D, pinPos, allPinDiscs, cropInset, numText, wordTe
   const h = D.washiH;
   const angle = (C.WASHI.angleDeg * Math.PI) / 180;
 
-  const dist = h * D.washiOffset + D.pinDiam / 2;
+  const dist = h * D.washiOffset + D.markerDiam / 2;
   const candidates = [
     { dx: 0, dy: dist + h / 2 },            // below the pin (board's choice)
     { dx: 0, dy: -(dist + h / 2) },         // above
@@ -612,6 +622,98 @@ function drawWashiTag(ctx, rc, C, D, plan) {
   ctx.font = fontStr('', D.washiFont, C.FONT_FAMILY_HAND);
   fillTextOptical(ctx, plan.wordText, startX + plan.circleR * 2 + plan.gap, 0);
   ctx.restore();
+}
+
+// Phase C pin styles (config.PIN.style). Both centre the marker on (p.x,p.y) so
+// the existing declutter/leader + washi-placement geometry (all keyed off a disc
+// at p with radius ~pinDiam/2) stays valid, and both scale by `pop` so the M2
+// pop-in choreography still works. `color` is the per-stop palette colour.
+
+// 'tack' — a colour-coded push-pin: a domed head with the number, a soft ground
+// shadow + a short ink point below for the "stabbed into the map" read.
+function drawTackPin(ctx, rc, C, D, p, i, pop, color) {
+  const R = (D.tackDiam / 2) * pop;
+  // ground shadow (offset down-right) — lifts the tack off the paper
+  ctx.save();
+  ctx.globalAlpha = 0.16;
+  ctx.fillStyle = C.COLORS.pinStroke;
+  ctx.beginPath();
+  ctx.ellipse(p.x + R * 0.22, p.y + R * 0.5, R * 0.98, R * 0.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+  // short ink point poking out the bottom (the stab)
+  ctx.save();
+  ctx.strokeStyle = C.COLORS.pinStroke;
+  ctx.lineWidth = Math.max(1.5, D.pinStroke * 1.3);
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(p.x, p.y + R * 0.6);
+  ctx.lineTo(p.x + R * 0.14, p.y + R * 1.2);
+  ctx.stroke();
+  ctx.restore();
+  // domed head — hand-drawn colour disc with an ink outline
+  rc.circle(p.x, p.y, R * 2, {
+    stroke: C.COLORS.pinStroke, strokeWidth: D.pinStroke, fill: color, fillStyle: 'solid',
+    roughness: 0.7, seed: featureSeed(C, 5000 + i),
+  });
+  // soft top-left sheen for the domed look
+  ctx.save();
+  ctx.globalAlpha = 0.4 * clamp(pop, 0, 1);
+  ctx.fillStyle = '#FFFFFF';
+  ctx.beginPath();
+  ctx.ellipse(p.x - R * 0.34, p.y - R * 0.36, R * 0.42, R * 0.28, -0.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+  // number on the head
+  if (pop > 0.6) {
+    ctx.save();
+    ctx.globalAlpha = clamp((pop - 0.6) / 0.35, 0, 1);
+    ctx.font = fontStr('', D.tackDiam * 0.42, C.FONT_FAMILY_HAND);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = C.COLORS.pinStroke;
+    fillTextOptical(ctx, String(i + 1), p.x, p.y, true);
+    ctx.restore();
+  }
+}
+
+// 'washi' — a small torn washi-tape scrap (colour-coded, slight tilt) with a
+// circled number, reusing the tape-outline primitives.
+function drawWashiPin(ctx, rc, C, D, p, i, pop, color) {
+  const w = D.tackDiam * 1.18 * pop;
+  const h = D.tackDiam * 0.92 * pop;
+  const angle = ((i % 2 === 0 ? -6 : 5) * Math.PI) / 180;
+  const rng = makeRng((C.WASHI.seed || 1) + 7000 + i);
+  const pts = tapeOutline(w, h, C, D, rng);
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  ctx.rotate(angle);
+  const path = new Path2D();
+  path.moveTo(pts[0].x, pts[0].y);
+  for (let k = 1; k < pts.length; k++) path.lineTo(pts[k].x, pts[k].y);
+  path.closePath();
+  ctx.globalAlpha = C.WASHI.alpha;
+  ctx.fillStyle = color;
+  ctx.fill(path);
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = D.washiEdge;
+  ctx.strokeStyle = C.COLORS.washiShade;
+  ctx.stroke(path);
+  ctx.restore();
+  // circled number, upright, ink
+  if (pop > 0.6) {
+    ctx.save();
+    ctx.globalAlpha = clamp((pop - 0.6) / 0.35, 0, 1);
+    const cr = D.tackDiam * 0.33 * pop;
+    rc.circle(p.x, p.y, cr * 2, {
+      stroke: C.COLORS.pinStroke, strokeWidth: Math.max(1, D.pinStroke * 0.75),
+      roughness: 0.6, disableMultiStroke: true, seed: featureSeed(C, 8000 + i),
+    });
+    ctx.font = fontStr('', D.tackDiam * 0.4, C.FONT_FAMILY_HAND);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = C.COLORS.pinStroke;
+    fillTextOptical(ctx, String(i + 1), p.x, p.y, true);
+    ctx.restore();
+  }
 }
 
 // ============================================================================
@@ -964,7 +1066,7 @@ function layoutPointLabels(ctx, opts) {
 // ---------------------------------------------------------------------------
 function resolvePinPositions(truePts, D, declutter) {
   if (!declutter) return truePts.map((p) => ({ ...p, moved: false }));
-  const minDist = D.pinDiam + D.pinGap;
+  const minDist = D.markerDiam + D.pinGap;
   const placed = [];
   for (const p of truePts) {
     const pos = { x: p.x, y: p.y };
@@ -985,7 +1087,7 @@ function resolvePinPositions(truePts, D, declutter) {
   }
   return truePts.map((p, i) => ({
     x: placed[i].x, y: placed[i].y,
-    moved: Math.hypot(placed[i].x - p.x, placed[i].y - p.y) > D.pinDiam * 0.35,
+    moved: Math.hypot(placed[i].x - p.x, placed[i].y - p.y) > D.markerDiam * 0.35,
     trueX: p.x, trueY: p.y,
   }));
 }
@@ -995,7 +1097,7 @@ function resolvePinPositions(truePts, D, declutter) {
 function routeOccupiedBoxes(pts, D) {
   const boxes = [];
   const half = D.routeBleed / 2 + D.plRoutePad;
-  const step = Math.max(12, D.pinDiam * 0.9);
+  const step = Math.max(12, D.markerDiam * 0.9);
   for (let i = 0; i < pts.length - 1; i++) {
     const a = pts[i], b = pts[i + 1];
     const len = Math.hypot(b.x - a.x, b.y - a.y);
@@ -1206,7 +1308,7 @@ export async function buildScene(rawConfig, decoded, textures, opts = {}) {
   const routeTruePts = config.ROUTE_POINTS.map(([lon, lat]) => lonLatToCanvas(config, grid, lon, lat));
   const pinPos = resolvePinPositions(routeTruePts, D, config.PIN.declutter);
 
-  const pinR = D.pinDiam / 2 + D.pinStroke + D.plPinPad; // pin disc + stroke + clearance
+  const pinR = D.markerDiam / 2 + D.pinStroke + D.plPinPad; // pin disc + stroke + clearance
   const pinBoxes = pinPos.map((p) => ({ x0: p.x - pinR, y0: p.y - pinR, x1: p.x + pinR, y1: p.y + pinR }));
   const pinDiscs = pinPos.map((p) => ({ x: p.x, y: p.y, r: pinR }));
 
@@ -1232,7 +1334,7 @@ export async function buildScene(rawConfig, decoded, textures, opts = {}) {
   // generous pinPad above (that would blank out most of a channel label when
   // several pins sit near the centerline).
   const waterLabelBlockers = {
-    pins: pinPos.map((p) => ({ x: p.x, y: p.y, r: D.pinDiam / 2 + D.pinStroke + D.wlGlyphMargin })),
+    pins: pinPos.map((p) => ({ x: p.x, y: p.y, r: D.markerDiam / 2 + D.pinStroke + D.wlGlyphMargin })),
     washi: washiPlan ? {
       x0: washiPlan.aabb.x0 - D.wlGlyphMargin, y0: washiPlan.aabb.y0 - D.wlGlyphMargin,
       x1: washiPlan.aabb.x1 + D.wlGlyphMargin, y1: washiPlan.aabb.y1 + D.wlGlyphMargin,
@@ -1324,6 +1426,8 @@ export function paintOverlay(scene, overlay) {
   const penPath = buildRoutePath(routeTruePts, legGeometries, config, grid, 2.5 * D.K);
   drawMarkerRoute(ctx, trimPathByProgress(penPath, routeProgress), config, D);
 
+  const pinStyle = (config.PIN && config.PIN.style) || 'ring';
+  const pinPalette = config.PIN && config.PIN.palette && config.PIN.palette.length ? config.PIN.palette : null;
   pinPos.forEach((p, i) => {
     const pop = pinPop ? clamp(pinPop[i] != null ? pinPop[i] : 1, 0, 1.15) : 1;
     if (pop <= 0.02) return;
@@ -1336,6 +1440,10 @@ export function paintOverlay(scene, overlay) {
       ctx.beginPath(); ctx.arc(p.trueX, p.trueY, D.leaderDot, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
     }
+    const pinColor = pinPalette ? pinPalette[i % pinPalette.length] : config.COLORS.pinFill;
+    if (pinStyle === 'tack') { drawTackPin(ctx, rc, config, D, p, i, pop, pinColor); return; }
+    if (pinStyle === 'washi') { drawWashiPin(ctx, rc, config, D, p, i, pop, pinColor); return; }
+    // default 'ring'
     rc.circle(p.x, p.y, D.pinDiam * pop, {
       stroke: config.COLORS.pinStroke, strokeWidth: D.pinStroke, fill: config.COLORS.pinFill, fillStyle: 'solid',
       roughness: 0.9, seed: featureSeed(config, 5000 + i),
@@ -1354,7 +1462,7 @@ export function paintOverlay(scene, overlay) {
   let washiPlaced = false;
   if (washiSettle > 0.02 &&
       Number.isInteger(washiIndex) && washiIndex >= 0 && washiIndex < pinPos.length) {
-    const pinDiscs = pinPos.map((p) => ({ x: p.x, y: p.y, r: D.pinDiam / 2 + D.pinStroke + D.plPinPad }));
+    const pinDiscs = pinPos.map((p) => ({ x: p.x, y: p.y, r: D.markerDiam / 2 + D.pinStroke + D.plPinPad }));
     const plan = planWashiTag(ctx, config, D, pinPos[washiIndex], pinDiscs, scene.cropInset,
       String(washiIndex + 1), 'Booked');
     if (washiSettle < 1) {

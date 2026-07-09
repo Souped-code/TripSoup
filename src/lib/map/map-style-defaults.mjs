@@ -75,12 +75,19 @@ export const MAP_STYLE_DEFAULTS = {
   ROUTE_BLEED_ALPHA: 0.37,
 
   PIN: {
-    diameter: 21, // Chris pass 2 (was 26) — even finer rings
+    // Phase C: pin marker style. 'ring' (fine ink ring) |
+    // 'tack' (colour-coded push-pin, number on the head) |
+    // 'washi' (small torn washi scrap, circled number).
+    style: "tack", // LOCKED (Chris, Phase C): colour-coded push-pins
+    diameter: 21, // Chris pass 2 (was 26) — even finer rings ('ring' style)
     strokeWidth: 1.2, // Chris pass 2 (was 1.7)
     numFontSize: 18, // Chris pass 2 (was 13) — bold digits in fine rings
     declutter: true, // overlapping pins push apart (ink leader + dot at the true spot)
     declutterGap: 4,
     leaderDot: 2.4,
+    tackDiameter: 34, // head/scrap size for 'tack'/'washi' (Chris: the fine rings were too small to see)
+    // colour-coded per stop, cycling the washi tones from design.md §3 (--washi-coral/sky/pink/leaf/--washi)
+    palette: ["#F0907A", "#7FB8D8", "#E88BA5", "#A3C48B", "#F4C95D"],
   },
 
   WASHI: {
