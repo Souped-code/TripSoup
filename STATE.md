@@ -1417,7 +1417,36 @@ the happy path). Both are code-review-verified, not live-tested. **CHRIS-STEP:**
 itinerary that triggered Bug 2 on prod after deploy to confirm; reload the reveal on a real mobile
 connection to confirm Bug 1.
 
-**Independent fresh-context review:** running (opus) → commit after it clears.
+**Independent fresh-context review (opus): SHIP, 0 blocking.** One MINOR fixed before commit: the
+timeout path detached handlers but never aborted the stalled `img` download (`img.src=''` added),
+so a retry no longer competes with the still-running failed attempt for bandwidth. Everything else
+confirmed clean: race-free settle/timer handling, WebP swap has exactly one code reference (grepped
+whole repo), bench-tool `design/map-engine/tex-*.png` copies confirmed byte-identical-source but
+path-distinct (correctly untouched), `next.config.mjs` headers() shape correct for Next 15,
+streaming `finalMessage()` returns the same `Message` shape `extractText()` expects, the fail-fast
+throw correctly bypasses the retry loop (verified: outside the try/catch), minified-JSON prompt
+rule doesn't interact with the fence-stripping regex, solver/schedule/planService/resolvePlaces/
+matrixSource/map-style-defaults.mjs all zero-diff. Committed `d3a96a9`.
+
+### Texture quality follow-up: q85 → q50 (2026-07-10, same session)
+
+Chris asked whether WebP had more headroom. Tested the full curve on the same source art
+(`design/map-engine/tex-*.png`, confirmed byte-identical to the deleted production PNGs):
+
+| Quality | Total | vs q85 |
+|---|---|---|
+| q50 | 884 KB | **3.0x smaller** |
+| q60 | 1,081 KB | 2.4x smaller |
+| q70–q80 | 1.3–1.9 MB | 1.3–2.0x smaller |
+| q85 (first-shipped) | 2,622 KB | — |
+
+Visually verified at zoom (tiled-pattern seam risk + general artifacting) at **both q60 and q50**
+— clean at every level tested, no visible tile seams or blocking even at the most aggressive q50.
+Rationale: the textures are soft, low-frequency painterly washes with no fine detail baked in (the
+coastlines/roads/labels are separate Rough.js vector strokes drawn ON TOP), so they compress
+unusually well. Orchestrator recommended q60 (margin above the tested edge); **Chris chose q50**
+(884KB total — **31x smaller than the original uncompressed PNGs**, 3x smaller than first-shipped
+q85). Gates re-verified fresh at q50: tsc clean · jest 119/119 · Playwright 26/26.
 
 ## NEXT — LLM interprets the WHOLE pasted itinerary (Chris feature request, 2026-07-08)
 
