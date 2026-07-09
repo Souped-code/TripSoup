@@ -117,13 +117,56 @@ export function preloadLibs() {
   return _libsPromise;
 }
 
-export function loadImage(src) {
+// One attempt at loading an image, with a timeout — a stalled connection (slow
+// mobile network) otherwise never resolves or rejects, hanging the reveal's
+// Promise.all forever instead of surfacing the error state.
+function loadImageOnce(src, timeoutMs) {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error('image failed to load: ' + src));
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      img.onload = img.onerror = null;
+      img.src = ''; // abort the stalled download — a retry shouldn't compete with it for bandwidth
+      reject(new Error('image load timed out: ' + src));
+    }, timeoutMs);
+    img.onload = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(img);
+    };
+    img.onerror = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(new Error('image failed to load: ' + src));
+    };
     img.src = src;
   });
+}
+
+// Retries a couple of times with backoff before giving up — a single dropped
+// packet or transient blip on a mobile connection otherwise kills the whole
+// map (Promise.all rejects on the first failed texture). Each attempt is a
+// FRESH Image element (a reused element can wedge in a broken state after an
+// error) with its own timeout.
+const LOAD_IMAGE_RETRY_DELAYS_MS = [500, 1500]; // 3 attempts total
+const LOAD_IMAGE_TIMEOUT_MS = 12000;
+
+export async function loadImage(src) {
+  let lastErr;
+  for (let attempt = 0; attempt <= LOAD_IMAGE_RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      return await loadImageOnce(src, LOAD_IMAGE_TIMEOUT_MS);
+    } catch (e) {
+      lastErr = e;
+      const delay = LOAD_IMAGE_RETRY_DELAYS_MS[attempt];
+      if (delay != null) await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastErr;
 }
 
 // ============================================================================

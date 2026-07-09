@@ -367,7 +367,7 @@ export function RevealMap({
         const [decoded, textures] = await Promise.all([
           MapRenderCore.fetchAndDecode(config),
           Promise.all(
-            TEXTURE_NAMES.map((t) => MapRenderCore.loadImage(`/map/assets/tex/${t}.png`))
+            TEXTURE_NAMES.map((t) => MapRenderCore.loadImage(`/map/assets/tex/${t}.webp`))
           ).then(([land, water, park, weathering]) => ({ land, water, park, weathering })),
         ]);
         if (!alive) return;

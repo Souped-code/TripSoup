@@ -1360,6 +1360,65 @@ screenshots (tacks visible + colour-coded; sidebar content-height, no empty expa
 
 **Remaining in the UI/UX polish:** Phase D (route-draw motion: slow/smooth draw-on, no fuzzy-then-snap).
 
+## HOTFIX (2026-07-10) — two live prod bugs, reported via real-device screenshots
+
+Chris hit two failures on trip-soup.vercel.app on his phone (real mobile 4G). Diagnosed live +
+sanity-checked with a quick Fable-5 advisor pass (per Chris's explicit ask) before implementing.
+
+### Bug 1 — map texture image-load failure ("image failed to load: land.png")
+
+**Root cause:** the 4 map watercolor textures (`public/map/assets/tex/*.png`) were 5.7–8.1MB each
+(~28MB total), uncompressed since the original M0 engine build, fetched via `MapRenderCore.
+loadImage()` — a bare `new Image()` with **no timeout, no retry** — inside a `Promise.all` (one
+failed texture kills the whole map). Desktop broadband never showed the failure; a real mobile 4G
+connection downloading 5.7–8MB with zero resilience is exactly the failure mode. Confirmed
+pre-existing on `main` (not introduced by this session's A/B/C work).
+
+**Fixed:**
+- **Textures converted PNG→WebP** (quality 85): 27.3MB → 2.58MB, **~10.5x smaller**. Visually
+  verified at zoom — no tile-seam artifacts (these are `ctx.createPattern(img,'repeat')` tiled
+  textures, a real risk at aggressive compression; q85 was clean). Old PNGs deleted from
+  `public/`; `RevealMap.tsx`'s one reference updated `.png`→`.webp`. The bench-tool copies at
+  `design/map-engine/tex-*.png` are a SEPARATE set of files (confirmed by grep) — intentionally
+  untouched, out of scope (dev-only, never deployed).
+- **`loadImage()` resilience** (`map-render-core.js`): a 12s per-attempt timeout + 2 retries
+  (500ms/1500ms backoff), fresh `Image()` element per attempt (avoids a wedged-element risk on
+  retry). A single dropped packet no longer kills the whole reveal.
+- **`next.config.mjs`** (new — none existed before): `Cache-Control: public, max-age=31536000,
+  immutable` on `/map/assets/tex/*` (Vercel's default for `public/` is `max-age=0,
+  must-revalidate` — the browser was re-validating every visit). Noted tradeoff: any future
+  texture re-export must ship under a new filename, not overwrite in place, or cached clients
+  keep the stale asset for up to a year.
+
+### Bug 2 — LLM parse truncation on a large real itinerary
+
+**Root cause:** `src/lib/parse/llmAdapter.ts` called `claude-haiku-4-5` non-streaming with
+`max_tokens: 4096` — far too low for a large itinerary's JSON output. The response truncated
+mid-document ("Expected double-quoted property name... position 9023, line 322"). Because
+temperature=0 and the retry loop resends the SAME input, all 3 attempts truncated at the same
+point — the retry loop could never succeed, it just burned 3 attempts to fail identically.
+
+**Fixed:**
+- Switched `client.messages.create` → `client.messages.stream(...)` + `await stream.
+  finalMessage()` (avoids the SDK's non-streaming HTTP-timeout ceiling at high `max_tokens`).
+- Raised `max_tokens` **4096 → 32000** (Haiku 4.5's real ceiling is 64K; 32K leaves headroom).
+- **Fail-fast on truncation:** `message.stop_reason === "max_tokens"` now throws a clear,
+  actionable error immediately ("try splitting it into two pastes") instead of retrying a
+  guaranteed-identical failure 3 times.
+- Added a system-prompt rule: minified JSON output (no whitespace) — stretches the token budget
+  further for genuinely large pastes, on top of the raised cap.
+
+**Verified:** tsc clean · jest 119/119 · `next build` clean (validates next.config.mjs) ·
+Playwright 26/26 (incl. real reveal renders on the new webp textures + the retry-wrapped
+loadImage's happy path). **UNVERIFIED (by design — llmAdapter.ts is guarded from tests, same
+philosophy as realAdapter.ts):** the streaming/truncation-fix path itself has no automated
+coverage; the retry/timeout path on an actual network failure is also untested (e2e only exercises
+the happy path). Both are code-review-verified, not live-tested. **CHRIS-STEP:** re-paste the
+itinerary that triggered Bug 2 on prod after deploy to confirm; reload the reveal on a real mobile
+connection to confirm Bug 1.
+
+**Independent fresh-context review:** running (opus) → commit after it clears.
+
 ## NEXT — LLM interprets the WHOLE pasted itinerary (Chris feature request, 2026-07-08)
 
 The user should paste a whole itinerary — **with OR without links** — and have the LLM interpret the

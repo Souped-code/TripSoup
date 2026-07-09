@@ -42,7 +42,8 @@ Rules (do not deviate):
 4. Reasoning like "drop bags at the hotel first" implies a sequencing constraint: set "orderConstraint" on that item with a human-readable "reason" and, when clear from context, list the raw text of the item(s) that must come after it in "before".
 5. Lines like "Group A" / "Group B" / "Team X" mark a named subgroup: subsequent items until the next such marker get that "groupHint", and each named group gets an entry in "splitGroups" listing which item indices belong to it.
 6. Lines like "Day 1" / "Saturday" / a date mark a new day: subsequent items until the next such marker belong to that day; add an entry in "days" with the matching itemRefs.
-7. Output ONLY the JSON object. No prose, no markdown fences, no commentary.`;
+7. Output ONLY the JSON object. No prose, no markdown fences, no commentary.
+8. Output MINIFIED JSON — no indentation, no line breaks, no extra whitespace between tokens. This is machine-parsed, not read by a human.`;
 
 export class ParseValidationError extends Error {
   constructor(message: string) {
@@ -87,13 +88,28 @@ export function createLlmAdapter(): ParseProvider {
           ? `The previous response failed schema validation with this error:\n${feedback}\n\nRe-emit corrected JSON only, for this input:\n${text}`
           : text;
 
-        const message = await client.messages.create({
+        // Streamed (not .create()) so a large itinerary's output can safely use
+        // a high max_tokens without risking an SDK HTTP timeout on the
+        // non-streaming path (a real paste truncated at the old 4096 cap —
+        // hotfix 2026-07-10, see LIVE-CHECKLIST/STATE.md).
+        const stream = client.messages.stream({
           model: MODEL,
-          max_tokens: 4096,
+          max_tokens: 32000,
           temperature: 0,
           system: SYSTEM_PROMPT,
           messages: [{ role: "user", content: userMessage }],
         });
+        const message = await stream.finalMessage();
+
+        // Truncated output is never valid JSON and, at temperature 0 with the
+        // same input, every retry truncates at the same point — burning the
+        // remaining attempts on a guaranteed-identical failure. Fail fast with
+        // an actionable message instead of surfacing a raw JSON parse error.
+        if (message.stop_reason === "max_tokens") {
+          throw new ParseValidationError(
+            "That itinerary is too large to interpret in one go — try splitting it into two pastes."
+          );
+        }
 
         const raw = extractText(message);
 
