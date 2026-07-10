@@ -138,6 +138,24 @@ export function RevealMap({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const gestureRef = useRef(false);
   const firstChoreoDoneRef = useRef(false);
+  // Monotonic guard: bumped whenever a new draw supersedes an in-flight one.
+  // motion v12's `controls.finished` is resolve-ONLY (never rejects, even on
+  // .stop()), so the old try/catch guard was a no-op and a superseded sketch
+  // animation's trailing final-frame clobbered the road repaint after a reorder
+  // (Chris's "stuck fuzzy after reorder", 2026-07-11). Every finalize paint now
+  // checks its generation is still current before committing.
+  const choreoGen = useRef(0);
+  // The initial reveal re-reads geometry after the clouds part and draws the
+  // road line itself; until it commits to what it's drawing, a roads-arrival
+  // must NOT also draw (double-draw / lost pin-pops). Flips true once the
+  // initial draw has committed; thereafter roads-arrivals animate their own
+  // draw-on. Reset on a fresh scene build.
+  const initialCommittedRef = useRef(false);
+  // The order sig whose ROAD line a choreography draw is currently rendering.
+  // A scene rebuild that completes while that draw is still in flight swaps the
+  // (road-aware) scene but must NOT restart the draw — the running animation
+  // adopts the new scene on its next frame. Reset on a fresh scene build.
+  const roadsRenderedSig = useRef<string | null>(null);
 
   const [phase, setPhase] = useState<Phase>("sketching");
   const [errMsg, setErrMsg] = useState("");
@@ -247,14 +265,16 @@ export function RevealMap({
   // passes → tape settles. "resketch": a short redraw of the pen only.
   const runChoreo = useCallback(
     async (kind: "initial" | "resketch") => {
-      const scene = sceneRef.current;
-      if (!scene || !canvasRef.current) return;
+      if (!sceneRef.current || !canvasRef.current) return;
+      const myGen = ++choreoGen.current; // supersede any in-flight draw
       animRef.current?.stop();
-      const overlay = overlayFor(orderedIds);
 
       if (reducedMotion) {
+        if (kind === "initial") initialCommittedRef.current = true;
         if (!cloudsGone) setCloudsGone(true);
-        paintFrame(overlay, 1, null, 1, true);
+        const rmOverlay = overlayFor(orderedIds);
+        if (rmOverlay.legGeometries) roadsRenderedSig.current = orderSig;
+        paintFrame(rmOverlay, 1, null, 1, true);
         setAnimState("done");
         return;
       }
@@ -283,26 +303,53 @@ export function RevealMap({
 
       if (kind === "resketch") playScribble();
 
+      // Paint the base immediately (route at 0) so the map is present as the
+      // clouds clear; the pen itself draws after the pause below.
+      paintFrame(overlayFor(orderedIds), 0, kind === "initial" ? orderedIds.map(() => 0) : null, kind === "initial" ? 0 : 1, false);
+
+      // Initial only: wait for the clouds to part before the pen starts. Road
+      // geometry (~300-500ms) reliably lands inside this window, so after it we
+      // re-read geomRef and draw the ROAD line on from the very start — no fuzzy
+      // sketch first, no later snap (Chris's "no fuzzy-then-snap" + "much
+      // slower", 2026-07-11). If roads are late (rare), we draw the sketch and
+      // the geometry effect animates the road draw-on once initialCommitted.
+      if (kind === "initial") {
+        await new Promise((r) => setTimeout(r, 900));
+        // Flip BEFORE the supersede guard: if a reorder / async bookedId lands
+        // during the pause, this initial aborts below, but pen ownership has
+        // now passed to the geometry effect (via the superseding resketch).
+        // Leaving this false would permanently wedge the geometry effect's
+        // `if (!initialCommittedRef.current) return` and strand the map on the
+        // fuzzy sketch forever (fresh-context review 2026-07-11, finding 1).
+        initialCommittedRef.current = true;
+        if (choreoGen.current !== myGen) return; // superseded during the pause
+      }
+
+      const scene = sceneRef.current;
+      if (!scene) return;
+      const overlay = overlayFor(orderedIds); // picks up roads if they arrived during the pause
+      // Record that THIS order's road line is being drawn by the choreography,
+      // so a late-completing scene rebuild doesn't interrupt it (finding 2): the
+      // geometry effect swaps sceneRef and, seeing roads already owned here,
+      // lets this in-flight draw adopt the road-aware scene on its next frame
+      // (paintFrame reads sceneRef fresh) instead of restarting + losing pops.
+      if (overlay.legGeometries) roadsRenderedSig.current = orderSig;
       const fractions: number[] = kind === "initial"
         ? MapRenderCore.computePinArcFractions(scene, overlay)
         : [];
-      const DUR = kind === "initial" ? 2.1 : 0.9;
-      const DELAY = kind === "initial" ? 0.5 : 0; // let the clouds part first
-      // Pin pops are TIME-driven from the moment the tip passes each pin.
-      // Driving them off routeP froze the LAST pin at ~52% scale — routeP
-      // saturates at t=0.72 while a fraction-1.0 pin's window could only ever
-      // open 0.133 wide — and the finalize frame then snapped it to full
-      // (review finding B1). A pop now runs on t for a fixed window from its
-      // crossing moment, so the final pin (crossed exactly at t=0.72) still
-      // gets 0.28 of t to complete its 0.12-wide pop before the animation ends.
-      const POP_WINDOW = 0.12; // in t-space: 0.12 × 2.1s ≈ 0.25s per pop
+      // Slowed way down (was 2.1 / 0.9): the pen now draws on over ~2.9s on the
+      // reveal and ~2.2s on a re-sketch, so the line is followable rather than a
+      // blink (Chris: "still way way too fast").
+      const DUR = kind === "initial" ? 4.0 : 2.2;
+      // Pin pops are TIME-driven from the moment the tip passes each pin (review
+      // finding B1: driving them off routeP froze the last pin mid-pop).
+      const POP_WINDOW = 0.12;
       const popStarts: Array<number | null> = fractions.map(() => null);
 
       paintFrame(overlay, 0, kind === "initial" ? orderedIds.map(() => 0) : null, kind === "initial" ? 0 : 1, false);
 
       const controls = animate(0, 1, {
         duration: DUR,
-        delay: DELAY,
         ease: "linear",
         onUpdate: (t) => {
           const routeP = easeInOutCubic(clamp01(kind === "initial" ? t / 0.72 : t));
@@ -319,11 +366,8 @@ export function RevealMap({
         },
       });
       animRef.current = controls;
-      try {
-        await controls.finished;
-      } catch {
-        return; // superseded by a newer animation — it owns the final frame
-      }
+      await controls.finished; // resolve-only in motion v12 — guard below, not catch
+      if (choreoGen.current !== myGen) return; // superseded — the newer draw owns the final frame
       paintFrame(overlay, 1, null, 1, true);
       setAnimState("done");
     },
@@ -341,6 +385,8 @@ export function RevealMap({
         setAnimState("idle");
         setCloudsGone(false);
         firstChoreoDoneRef.current = false;
+        initialCommittedRef.current = false;
+        roadsRenderedSig.current = null;
         geomRef.current = null;
 
         const [pbfMod, vtMod, roughMod] = await Promise.all([
@@ -446,9 +492,9 @@ export function RevealMap({
         if (!hasRoads) return;
 
         // rebuild the base once with geometry-aware label collision, then
-        // swap in the road-following pen. This may interrupt a draw-on still
-        // in flight — the superseded animation's finished-catch cedes the
-        // final frame to us, so the swap is clean either way.
+        // swap in the road-following pen. A superseded draw is neutralised by
+        // the choreoGen guard (motion v12's finished is resolve-only, so its
+        // trailing final-frame is a guarded no-op — never a clobber).
         const assets = assetsRef.current;
         if (!assets) return;
         const overlay = overlayFor(orderedIds);
@@ -466,8 +512,43 @@ export function RevealMap({
           { legGeometries: lines }
         );
         if (!alive) return;
-        animRef.current?.stop();
         sceneRef.current = scene;
+
+        // If the initial reveal hasn't committed to what it's drawing yet, it
+        // will re-read this geometry after the clouds part and draw the road
+        // line itself (with pin pops) — don't double-draw over it.
+        if (!initialCommittedRef.current) return;
+
+        // If a choreography is already drawing THIS order's road line, the
+        // sceneRef swap above is all that's needed — the running animation
+        // reads sceneRef fresh each frame and adopts the road-aware scene on its
+        // next tick. Re-animating here would restart the pen and drop the
+        // pin-pops (fresh-context review 2026-07-11, finding 2).
+        if (roadsRenderedSig.current === sig) return;
+
+        // Otherwise (a reorder, or roads that arrived after the reveal drew the
+        // sketch): draw the road line ON smoothly rather than hard-snapping to
+        // it — and bump the generation so any superseded sketch draw's
+        // resolve-only finished continuation can't clobber this (the "stuck
+        // fuzzy after reorder" bug).
+        const myGen = ++choreoGen.current;
+        roadsRenderedSig.current = sig;
+        animRef.current?.stop();
+        if (reducedMotion) {
+          paintFrame(overlay, 1, null, 1, true);
+          setAnimState("done");
+          return;
+        }
+        setAnimState("running");
+        paintFrame(overlay, 0, null, 1, false);
+        const controls = animate(0, 1, {
+          duration: 1.5,
+          ease: "linear",
+          onUpdate: (t) => paintFrame(overlay, easeInOutCubic(clamp01(t)), null, 1, false),
+        });
+        animRef.current = controls;
+        await controls.finished; // resolve-only in motion v12 — guard below
+        if (!alive || choreoGen.current !== myGen) return;
         paintFrame(overlay, 1, null, 1, true);
         setAnimState("done");
       } catch {

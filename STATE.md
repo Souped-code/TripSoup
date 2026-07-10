@@ -1448,6 +1448,87 @@ unusually well. Orchestrator recommended q60 (margin above the tested edge); **C
 (884KB total — **31x smaller than the original uncompressed PNGs**, 3x smaller than first-shipped
 q85). Gates re-verified fresh at q50: tsc clean · jest 119/119 · Playwright 26/26.
 
+## Phase D — reveal route-draw motion (2026-07-11)
+
+Chris, from live prod on his phone: "the route line is still way way too fast", "after moving the
+positions of items on the list, the route is now stuck in the fuzzy mode and not following the roads
+neatly", and (Phase D's original framing) "no fuzzy-then-snap". Two bugs + the timing. All in
+`src/ui/reveal/RevealMap.tsx` (the choreography). Advisor note: **Fable was rate-limited** mid-task
+(session limit, resets ~6:50am SGT) — but it delivered the load-bearing finding first, then Opus
+took over (Opus fresh-context review in place of Fable).
+
+**Bug — "stuck fuzzy after reorder" (the real regression).** Root cause, Fable-confirmed: `motion`
+v12's `controls.finished` is **resolve-ONLY — it never rejects, even on `.stop()`**. So the old
+`try { await controls.finished } catch { return }` guard in runChoreo was a **no-op**. On reorder,
+the resketch sketch animation and the geometry effect both fire; when roads arrive the geometry
+effect stops the sketch animation and paints roads — but the stopped sketch animation's trailing
+`await` still resolves and runs its final `paintFrame(SKETCH,…)`, **clobbering the roads**. Only
+bit after a reorder (first load has no prior competing choreography), exactly as reported.
+**Fix:** a monotonic `choreoGen` ref — bumped whenever a new draw supersedes an in-flight one;
+every finalize paint checks `if (choreoGen.current !== myGen) return` before committing, so a
+superseded draw's trailing paint is a guaranteed no-op regardless of motion's stop()/finished
+semantics.
+
+**Bug — "way too fast" + "fuzzy-then-snap".** Draw slowed (DUR 2.1→4.0 initial, 0.9→2.2 resketch;
+route now draws over ~2.9s, not ~1.5s). The initial reveal now **waits ~900ms (clouds parting) then
+re-reads geometry and draws the ROAD line on from the start** — no fast fuzzy sketch that then
+hard-snaps to roads. Road geometry (~300-500ms) reliably lands inside the cloud pause, so the pen
+draws roads directly. New `initialCommittedRef` coordinates this: while the initial draw hasn't
+committed (still in the pause), the geometry effect defers (`if (!initialCommittedRef.current)
+return`) so it doesn't double-draw / stomp the pin-pops; once committed (or on any reorder) the
+geometry effect animates a smooth 1.5s road **draw-on** instead of the old instant hard-snap. Both
+refs reset on a fresh scene build.
+
+**Verified:** tsc clean · jest 119/119 · Playwright 26/26 (existing reveal suite — note it runs
+under reduced-motion, so it exercises the new reducedMotion early-return but NOT the animation
+race). Added a temp real-motion visual check (mock roads = L-shaped dog-legs, distinct from the
+near-straight sketch; deleted after): **confirmed** the initial draws the road dog-legs slowly from
+the start (partial road line mid-draw, square corners) and an in-session re-optimize reorder lands
+on the road dog-legs, NOT the fuzzy sketch.
+
+**Opus fresh-context review: found a BLOCKING bug + a MINOR — both FIXED before commit:**
+- **Finding 1 [BLOCKING]:** if the initial reveal was superseded DURING its 900ms pause (async
+  bookedId, or a fast reorder), it aborted at the gen-guard BEFORE setting `initialCommittedRef`,
+  which then stayed false forever → the geometry effect's `if (!initialCommittedRef.current)
+  return` wedged permanently → roads never render → the SAME stuck-fuzzy symptom, made permanent.
+  Fixed by flipping `initialCommittedRef=true` BEFORE the supersede guard (ownership passes to the
+  geometry effect via the superseding resketch). **Verified** with a temp real-motion test that
+  clicks re-optimize inside the pause window → roads still render (dog-legs, not fuzzy).
+- **Finding 2 [MINOR]:** a slow `buildScene` (>900ms, large trips / cold cache) on the initial
+  load made the geometry effect interrupt the in-flight pen draw → restart + lost pin-pops on the
+  money shot. Fixed with a `roadsRenderedSig` ref: the choreo records the order sig whose road
+  line it's drawing; the geometry effect swaps `sceneRef` (the running draw adopts the road-aware
+  scene on its next frame, since `paintFrame` reads `sceneRef` fresh) and returns WITHOUT
+  re-animating when that sig matches — no interrupt, no lost pops.
+- Review also confirmed clean: the removed try/catch is safe (motion v12 `finished` is verified
+  resolve-only from source), rapid-reorder chains settle to "done" (latest wins), no stuck-running,
+  `reducedMotion` stale-closure doesn't bite (no reduced-motion change listener exists — pre-existing,
+  not introduced here), unmount setState benign. Residual (flagged, ultra-rare): `buildScene` > the
+  full 4.0s initial draw would leave labels non-road-aware until the next interaction — cosmetic only.
+Re-verified after the fixes: tsc clean · jest 119/119 · Playwright 26/26.
+**CHRIS-VERIFY (device):** the exact feel/speed of the slow draw + the reorder transition on a real
+phone. **Known tunable, flagged:** on a REORDER the resketch still shows a brief (~400ms) sketch
+flash before the roads draw-on kicks in (the resketch draws immediately, no pause; only the INITIAL
+reveal waits for roads). Can be smoothed with a short pre-fetch pause on resketch too if Chris finds
+it distracting — deferred (ideally revisit with Fable for the timing feel).
+
+## NEXT-NEXT — "split" = interleaved parallel groups (Chris, 2026-07-11) — DESIGN FIRST
+
+Chris clarified the "missing split function": **parallel groups A & B, interleaved with together-
+time** — the party is together for some activities, splits into A/B for separate activities, and can
+**reconverge** (e.g. back together for dinner). NOT a whole-day split — a braided per-day timeline
+(shared segment → {A branch, B branch} → shared segment → …). Currently unbuilt end-to-end: the
+heuristic parser already emits `splitGroups` from "Group A"/"Team X" lines, but assembleTripDoc
+drops them and the reveal only has day tabs. This is a substantial feature (data model: group
+segments within a day; solver: plan each branch independently, shared segments once, anchors as
+convergence points; map: forked/coloured routes that diverge + merge; sidebar: A/B lanes).
+**MUST brainstorm → spec → plan before building** (per superpowers:brainstorming + Chris's design-
+before-build protocol). This is the next focus after the Phase D fixes land.
+
+Test prompt delivered to Chris (works with the LIVE heuristic parser — Maps links required since
+name-only items don't resolve to places yet): a 2-day Singapore itinerary, `?q=` Maps links, spread
+stops + anchored times, built to exercise the slow draw + roads-after-reorder + day tabs.
+
 ## NEXT — LLM interprets the WHOLE pasted itinerary (Chris feature request, 2026-07-08)
 
 The user should paste a whole itinerary — **with OR without links** — and have the LLM interpret the
