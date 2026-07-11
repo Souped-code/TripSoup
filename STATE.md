@@ -1545,3 +1545,38 @@ FULL thing into a structured itinerary. Requirements (Chris, from user feedback)
   interpretation-design.md), pending Chris's review → implementation plan. Phase C (map pins +
   sidebar) is DONE (above); only Phase D (route motion) remains in the UI/UX polish. Sequence
   (interpretation feature vs Phase D) to be reconfirmed with Chris.
+
+## P0 — pen speed halved (slower) + resketch pen-lift (2026-07-11, Fable session)
+
+Chris (remote): "the slow route draw speed needs to be halved, sketch flash needs to be smoothed."
+Direction confirmed via AskUserQuestion: HALVE THE SPEED = slower, ~8s draw (not faster). Changes,
+all in `src/ui/reveal/RevealMap.tsx`:
+- DUR 4.0→**8.0** (initial; route completes ~5.8s at routeP t=0.72), 2.2→**4.4** (resketch);
+  geometry-effect road draw-on 1.5→**3.0** to match.
+- **NEW resketch "pen-lift":** before drawing, a resketch polls (60ms steps, ≤700ms, gen-guarded
+  every step) for `geomRef.current?.sig === orderSig`, so a reorder draws the ROAD line from the
+  first stroke instead of ~400ms fuzzy-sketch-then-snap. Scribble sfx plays over the lift (reads
+  as the pen being picked up). Fail-open no-key path returns 200 with null legs → geomRef IS set →
+  lift exits promptly (no 700ms tax in local dev / no-road routes); only a genuine fetch failure
+  pays the bounded 700ms.
+- Opus fresh-context review: **COMMIT-READY, 2 MINOR.** (1) unmount/rebuild during the lift
+  orphaned an un-cancellable post-unmount animation → FIXED: scene-build effect cleanup bumps
+  `choreoGen` (every awaited continuation checks it). (2) booked-only change when roads genuinely
+  failed pays the 700ms erased-route pause → accepted (bounded, rare). Review checked clean:
+  supersede-during-lift always ends with the latest reorder painting; both orderings of the
+  resketch↔geometry-effect race yield exactly one animation; pin-pop/settle windows are
+  t-normalized (DUR-independent — no repeat of the frozen-pin bug).
+- Gates: tsc clean · jest 119/119 · Playwright 26/26.
+- **CHRIS-VERIFY (device):** the ~8s pace feel + reorder smoothness.
+
+## Docket decisions (2026-07-11, Chris via AskUserQuestion)
+
+- **New D3 brief SUPERSEDES master-plan D3** — saved verbatim + amendments at
+  `docs/briefs/d3-payments-auth-brief.md`. Share stays FREE; monetization = freemium
+  capacity/features (free: 8 stops + watermark; pass: 40 stops + text input + export);
+  bundles SGD 15.90/3, 24.90/5 with a credit balance; trips stay in KV; sign-in only at
+  purchase. Old pay-to-share/claim-token/share-slug design retired (D4 will need its own
+  channel-key design later).
+- **Auth = email OTP**, not the brief's magic link (locked mobile rationale stands).
+- **Sequence: B1 interpretation FIRST, then D3**, so the interpretNames gate is real at launch.
+  Then B2 split / D4 live / D5 multi-day (order TBC with Chris at D3 close).

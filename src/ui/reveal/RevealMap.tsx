@@ -325,6 +325,25 @@ export function RevealMap({
         if (choreoGen.current !== myGen) return; // superseded during the pause
       }
 
+      // Resketch: a brief pen-lift while the road geometry for the new order
+      // arrives (fetch is ~300-500ms), so the redraw follows roads from the
+      // first stroke instead of flashing ~400ms of fuzzy sketch and then
+      // snapping (Chris, 2026-07-11). Bounded: if roads are late or the fetch
+      // failed we draw the sketch as before and the geometry effect animates
+      // the road draw-on when (if) they land. The scribble sfx plays over the
+      // lift, so the pause reads as the pen being picked up.
+      if (kind === "resketch") {
+        const liftStart = performance.now();
+        while (
+          geomRef.current?.sig !== orderSig &&
+          performance.now() - liftStart < 700
+        ) {
+          await new Promise((r) => setTimeout(r, 60));
+          if (choreoGen.current !== myGen) return; // superseded during the lift
+        }
+        if (choreoGen.current !== myGen) return;
+      }
+
       const scene = sceneRef.current;
       if (!scene) return;
       const overlay = overlayFor(orderedIds); // picks up roads if they arrived during the pause
@@ -337,10 +356,11 @@ export function RevealMap({
       const fractions: number[] = kind === "initial"
         ? MapRenderCore.computePinArcFractions(scene, overlay)
         : [];
-      // Slowed way down (was 2.1 / 0.9): the pen now draws on over ~2.9s on the
-      // reveal and ~2.2s on a re-sketch, so the line is followable rather than a
-      // blink (Chris: "still way way too fast").
-      const DUR = kind === "initial" ? 4.0 : 2.2;
+      // Pen speed halved again (was 4.0 / 2.2; before that 2.1 / 0.9): the pen
+      // draws the route over ~5.8s on the reveal and ~4.4s on a re-sketch — a
+      // leisurely journal-pen pace (Chris, 2026-07-11: "speed needs to be
+      // halved").
+      const DUR = kind === "initial" ? 8.0 : 4.4;
       // Pin pops are TIME-driven from the moment the tip passes each pin (review
       // finding B1: driving them off routeP froze the last pin mid-pop).
       const POP_WINDOW = 0.12;
@@ -431,6 +451,11 @@ export function RevealMap({
     })();
     return () => {
       alive = false;
+      // Abort any choreography still inside an awaited pause/pen-lift (it has
+      // no animation for stop() to cancel yet): every continuation checks this
+      // generation, so bumping it here prevents an orphaned post-unmount /
+      // post-rebuild animation (fresh-context review 2026-07-11, minor 1).
+      choreoGen.current++;
       animRef.current?.stop();
       cloudAnimRef.current?.stop();
     };
@@ -542,7 +567,7 @@ export function RevealMap({
         setAnimState("running");
         paintFrame(overlay, 0, null, 1, false);
         const controls = animate(0, 1, {
-          duration: 1.5,
+          duration: 3.0, // matches the halved pen speed of the main choreography
           ease: "linear",
           onUpdate: (t) => paintFrame(overlay, easeInOutCubic(clamp01(t)), null, 1, false),
         });
