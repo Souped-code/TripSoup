@@ -1580,3 +1580,31 @@ all in `src/ui/reveal/RevealMap.tsx`:
 - **Auth = email OTP**, not the brief's magic link (locked mobile rationale stands).
 - **Sequence: B1 interpretation FIRST, then D3**, so the interpretNames gate is real at launch.
   Then B2 split / D4 live / D5 multi-day (order TBC with Chris at D3 close).
+
+## PLAN-V1.md authored + audited (2026-07-12, Fable session — idea-forge framework)
+
+Chris: "full speed ahead" — full path to public v1, payments built-in but non-live until paid
+features verified. Decisions (AskUserQuestion): **free tier enforced from M3 deploy** (tester
+allowlist gets purchase access — no take-away at flip); **D4 = v1.1** (planned as M8, not in the
+v1 gate); B1c = research first (report: `docs/research/social-extraction-2026-07.md` — captions
+FREE on all 3 platforms right now: TikTok oEmbed, IG tokenless oEmbed restored Jun-2026, YT Data
+API; scrapers ~$1-2/1k for comments/MP4; frames via soupai VPS worker, never Vercel); sequence
+locked M1 B1a→M2 B1b→M3 D3-soft→M4 B1c→M5 B2→M6 D5→M7 flip.
+
+**PLAN-V1.md** (repo root) = the binding plan: goal/non-goals, orchestration protocol (Opus
+orchestrates, Fable advisor+auditor, sonnet/haiku routing with effort tags), LOCKED facts incl.
+PAYWALL_MODE off|soft|live (fail-closed soft), annotated file tree, M0–M8 task DAGs with <2min
+acceptance checks, 27 edge cases mapped to tasks, risk register, safety invariants, quality bar.
+Supersedes the master plan from here; old plan's D0–D2 history + design law remain ground truth.
+
+**Fresh-context Opus audit: APPROVE-WITH-FIXES → all 9 findings fixed:** BLOCKING entitlements
+shape reconciled (M1.1 now locks `{tier, has(cap), maxStops, watermark}` + runPipeline signature;
+M3.5 swaps source not shape); MAJOR bogus "M2∥M3" parallel claim struck (RevealClient.tsx
+collision); minors: PAYWALL_MODE off=explicit-only + unset→soft fail-closed clarified, gift
+`redemption_codes` stub added to M3.1 DDL, file tree completed (9 e2e specs, backend-design,
+scripts/), M5.3 planService/schedule lock-scope note (never Chris-engine-locked; §2 behavior
+contract intact), allowlist=may-purchase (entitlement only via trip_entitlements row),
+grandfather rule stated (pre-soft docs display fully, new runs gate), carried-over items homed
+(sfx foley→M6.2, LIVE-CHECKLIST §3/§4 + mobile-landing review→M7.2, Gracie provisional→M7.5).
+
+NEXT SESSION: M0 preflight (Opus orchestrator). Chris GO on PLAN-V1.md pending.
