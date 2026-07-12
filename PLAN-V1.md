@@ -49,9 +49,38 @@ in-UI; swapping the Google matrix provider (post-launch cost lever).
    main` or a settings allowlist rule.
 6. Remote-control rule: essential explanations go INSIDE AskUserQuestion text, and every
    clarifying question ships with a recommendation.
-7. Skills in force: `unattended-run-protocol` at run start, `superpowers:brainstorming` before
-   M5, `done-means-verified` + `verification-before-completion` at every exit, `land-the-change`
-   for anything applied outside the working tree (Supabase dashboard, Stripe dashboard, Vercel env).
+7. **§0 STANDING SKILL INVOKE-ORDER (re-invoke, don't rely on memory of them):**
+   `unattended-run-protocol` at run start; **`model-effort-routing` at EVERY phase boundary —
+   before the phase's first delegation AND before its gate adjudication**;
+   `superpowers:brainstorming` before M5.1; `done-means-verified` +
+   `verification-before-completion` at every exit; `land-the-change` for anything applied
+   outside the working tree (Supabase dashboard, Stripe dashboard, Vercel env).
+8. **Model/effort enforcement (per `model-effort-routing`):** every gate adjudication
+   transcript MUST contain the statement "I am currently running as [model · effort]" — a gate
+   without it is not closed, and auditors flag it. If the session is on the wrong
+   model/effort for a gate: HALT, write sentinel file `HALT-MODEL-MISMATCH` in the repo root,
+   and instruct Chris to switch — never adjudicate a gate on the wrong configuration. Effort
+   precedence if a setting seems ignored: `CLAUDE_CODE_EFFORT_LEVEL` env > `--effort` flag >
+   subagent/skill frontmatter > `/effort` in chat; unset everywhere defaults to xhigh.
+
+**EFFORT ROUTING (companion to the [Tier · effort] tags in every task table):**
+- **Defaults:** Haiku = low (never above — promote to Sonnet instead). Sonnet = medium.
+  Orchestrator (Opus session) = **medium on coordination turns** (delegating written tasks,
+  corroborating diffs against acceptance criteria, sequencing, summaries), **xhigh on
+  gate/audit turns**. Fresh-context audit agents = Fable · high (Chris's standing
+  configuration) with **Opus · xhigh** as the substitute when Fable is rate-limited — audits
+  run at this depth regardless of what effort built the phase.
+- **Named exceptions (all justified inline at the task):** Sonnet · high on M1.4 (the single
+  money-spend checkpoint), M2.2 (geometry/threshold judgment), M3.5 (the gate matrix IS the
+  money logic), M3.7 (payment path), M4.1/M4.3 (adversarial external APIs), M5.3–M5.5
+  (constraint orchestration + choreography-adjacent UI).
+- **Never skip, regardless of token budget:** the M3 gates (auth/RLS/money) and M7.4–M7.5
+  (charging real people) run at full audit depth — cut coordination cost, never these.
+- **Chris-directive exception to the framework:** `model-effort-routing` advises against a
+  standing premium advisor; Chris explicitly mandates the Fable advisor + independent Fable
+  auditor constellation (proven on this project). User directive wins — recorded here so no
+  session "optimises" the advisor away. Orchestrator model floor stays Fable/Opus per the
+  standing HARD GATE (never Sonnet/Haiku).
 
 ---
 
@@ -253,7 +282,7 @@ consulted (all-on until M3).
 
 | id | Task | Files | Model·Effort | Acceptance |
 |----|------|-------|--------------|------------|
-| M3.1 | Binding backend design: full DDL (brief's 3 tables **+ `stripe_events` replay guard + a `redemption_codes` stub table** — gift phase-2 concept stubbed per brief, no logic), RLS SQL, `fulfil_purchase()` + `spend_credit()` transactional semantics (buy-from-paywall grants N credits AND atomically spends 1 on that trip; refund decrements floor-0 but never un-entitles already-spent trips — document), PAYWALL_MODE/allowlist matrix, failure-mode table (replay, junk sig, pay-close-tab, RLS bypass, OTP rate-limit). **Independent design audit before any build.** | `design/backend-design.md` | Fable·high (advisor) + Opus·high (audit) | Doc complete; audit 0 blocking; Chris layman walkthrough done |
+| M3.1 | Binding backend design: full DDL (brief's 3 tables **+ `stripe_events` replay guard + a `redemption_codes` stub table** — gift phase-2 concept stubbed per brief, no logic), RLS SQL, `fulfil_purchase()` + `spend_credit()` transactional semantics (buy-from-paywall grants N credits AND atomically spends 1 on that trip; refund decrements floor-0 but never un-entitles already-spent trips — document), PAYWALL_MODE/allowlist matrix, failure-mode table (replay, junk sig, pay-close-tab, RLS bypass, OTP rate-limit). **Independent design audit before any build.** | `design/backend-design.md` | Fable·high (advisor) + Opus·xhigh (audit — security boundary, never-skip class) | Doc complete; audit 0 blocking; Chris layman walkthrough done |
 | M3.2 | CHRIS-STEP: Supabase project (enable Email OTP; **no captcha until frontend sends tokens**), Stripe test products/prices, all env → Vercel + `.env.local` | — | Chris | Keys present; `supabase status` reachable |
 | M3.3 | Supabase clients + migration 001 (tables, RLS, functions) applied via CLI to the project | `src/lib/supabase/{server,client,admin}.ts`, `supabase/migrations/001_payments.sql` | Sonnet·medium | Migration applies clean; RLS smoke: anon key SELECT on others' rows → 0 |
 | M3.4 | OTP auth: same-tab email→code sheet + AuthButton ("Sign in" ⇄ "N trips remaining") | `src/ui/auth/OtpSheet.tsx`, `src/ui/auth/AuthButton.tsx`, `app/api/auth/otp/route.ts`, `app/layout.tsx`, `app/page.tsx` | Sonnet·medium | Sign in on prod-preview with a real email; session survives refresh |
@@ -313,7 +342,7 @@ M3 matrix; split itself ships pass-included per locked pricing).
 |----|------|-------|--------------|------------|
 | M6.1 | Page-turn transition between day tabs (one signature moment; reduced-motion = crossfade; sfx behind existing mute) | `src/ui/reveal/RevealClient.tsx`, `src/ui/reveal/reveal.css` | Sonnet·medium | Day switch animates; `prefers-reduced-motion` static; axe 0 |
 | M6.2 | Swap placeholder ffmpeg-synthesized sfx for real CC0 foley (page-turn, scribble, pot-bubble) — carried over from D1 | `public/sfx/*` (new filenames — immutable cache) | Haiku·low | Sounds play; mute toggle still silences all |
-| M6.3 | Gates + mini-audit (Opus fresh-context suffices — low-risk milestone) | — | Opus·high | 0 blocking |
+| M6.3 | Gates + mini-audit (Opus fresh-context suffices — low-risk milestone) | — | Opus·xhigh (audit turn — depth is per-audit, not per-milestone-risk) | 0 blocking |
 
 **Exit (CHRIS-VERIFY):** flipping days on his phone feels like a journal page turn.
 
@@ -324,8 +353,8 @@ M3 matrix; split itself ships pass-included per locked pricing).
 | M7.1 | Full sweep: entire e2e suite, Lighthouse ≥90 perf/a11y on landing+share, bundle-secret grep, `next build`, Sentry noise review | — | Sonnet·medium + Haiku·low (Lighthouse run) | All green; scores recorded in STATE.md |
 | M7.2 | **Paid-feature verification script for Chris** — every pass promise exercised as a paying customer in soft mode: >8 stops, text-only paste, cross-date proposal, social link, split, export, watermark-off, credits math across single+bundle, refund. PLUS carried-over open items: LIVE-CHECKLIST §3 (real group-trip day sanity) + §4 (dropped-pin/coords-only share edge), the Phase-D draw-pace device verify if still unticked, mobile-landing composition review ("revisit post-MVP" — v1 IS the MVP) | `LIVE-CHECKLIST.md` §9 | Sonnet·medium (writes script), Chris (runs it) | Every line ticked by Chris personally |
 | M7.3 | CHRIS-STEP: Stripe live keys + live webhook endpoint, custom SMTP for OTP (default quota is LOW — required before live), domain decision (tripsoup.com vs subdomain), statement descriptor "TRIPSOUP", Google+Anthropic+Supabase spend caps confirmed | — | Chris | Env live-ready; caps screenshot in STATE.md |
-| M7.4 | FLIP `PAYWALL_MODE=live` → live smoke: ONE real SGD 6.90 purchase (Chris's card) → fulfil → refund via dashboard → revoke verified | — | Opus·high orchestrates, Chris executes | Real money round-trip clean |
-| M7.5 | Final whole-product fresh-context audit + STATE.md v1 declaration. Gate includes Chris's standing art call: Gracie scene art is still PROVISIONAL (his own polish item via Higgsfield web) — at M7 he either ships it or swaps sprites (drop-in format is FINAL, `<GracieScene>` unchanged) | — | Fable·high | Verdict: v1 SHIP; Chris announces |
+| M7.4 | FLIP `PAYWALL_MODE=live` → live smoke: ONE real SGD 6.90 purchase (Chris's card) → fulfil → refund via dashboard → revoke verified | — | Opus·xhigh orchestrates (irreversible money gate, never-skip class), Chris executes | Real money round-trip clean |
+| M7.5 | Final whole-product fresh-context audit + STATE.md v1 declaration. Gate includes Chris's standing art call: Gracie scene art is still PROVISIONAL (his own polish item via Higgsfield web) — at M7 he either ships it or swaps sprites (drop-in format is FINAL, `<GracieScene>` unchanged) | — | Fable·high (Opus·xhigh substitute; never-skip class) | Verdict: v1 SHIP; Chris announces |
 
 **Exit:** v1 public, payments live. *(M7 has no parallelism — it's a checklist, in order.)*
 
