@@ -1608,3 +1608,75 @@ grandfather rule stated (pre-soft docs display fully, new runs gate), carried-ov
 (sfx foley→M6.2, LIVE-CHECKLIST §3/§4 + mobile-landing review→M7.2, Gracie provisional→M7.5).
 
 NEXT SESSION: M0 preflight (Opus orchestrator). Chris GO on PLAN-V1.md pending.
+
+## M0 — PREFLIGHT COMPLETE (2026-07-14, Opus orchestrator session)
+
+Chris GO on PLAN-V1.md given ("execute PLAN-V1.md, start M0"). Ran on branch `m0-preflight`
+(not main — merges to main are Chris-gated per protocol §5). Orchestrator = Opus; M0.1 done
+directly (Opus·high); M0.2 delegated to Haiku·low, M0.3 to Sonnet·medium (parallel, disjoint
+files). Orchestrator owned all verification + git; subagents did not commit.
+
+**M0.1 — backend-design.md §0 skeleton (`design/backend-design.md`):** PAYWALL_MODE semantics
+(`off|soft|live`, fail-closed to `soft` on unset/typo — only literal `"off"`/`"live"` accepted),
+`TESTER_EMAILS` allowlist (soft-mode testers may PURCHASE in test mode; entitlement still ONLY via
+a `trip_entitlements` row), entitlement×mode matrix skeleton, grandfather rule, soft-mode UX copy
+skeleton (journal voice, placeholders for M3.8). §1+ is a table-of-contents reservation only
+(zero DDL/RLS/SQL — full contract binds at M3.1 under Fable advisor + Opus·xhigh security audit).
+
+**M0.2 — CI (`.github/workflows/ci.yml`):** single job on ubuntu/Node20 — npm ci → typecheck →
+jest → next build → playwright(chromium, fixture) → secret-grep. Secret-grep fails the job if
+`SUPABASE_SERVICE_ROLE|STRIPE_SECRET|ANTHROPIC_API_KEY` appear in `.next/static`. Verified locally:
+probe file in `.next/static` → grep exit 1 (caught); real build → exit 0 (clean).
+
+**M0.3 — Sentry (`@sentry/nextjs@10.65.0`):** `instrumentation.ts` (server/edge dispatch +
+`onRequestError`), `instrumentation-client.ts`, `sentry.server.config.ts`, `sentry.edge.config.ts`,
+`src/lib/observability/sentryScrub.ts` (+ 9 unit tests), `app/api/debug/sentry-test/route.ts`,
+`next.config.mjs` wrapped with `withSentryConfig` (texture cache-header hotfix preserved verbatim).
+PII scrub (`beforeSend` + `beforeSendTransaction`, shared): deletes `request.data`, redacts
+`extra`/`contexts`/`tags` keys matching `/paste|itinerary|text|body|raw|input|prompt|caption/i`,
+strips breadcrumb `.data`; fail-closed (drops event if scrub throws). DSN from env
+(`SENTRY_DSN||NEXT_PUBLIC_SENTRY_DSN`); `enabled: Boolean(dsn)` + `sendDefaultPii:false` → safe
+no-op when unset (local/CI/tests never send). Debug route gated: inert in prod (404) unless
+`DEBUG_BOARD` set.
+
+**Gates (orchestrator-run, re-derived fresh — not transcribed):** `tsc --noEmit` exit 0 · `jest`
+128/128 (20 suites, incl. new sentryScrub) · `next build` exit 0 (secretless) · secret-grep clean
+on real build · YAML valid. Independent fresh-context audit (Fable·high, cold context): **verdict
+MERGE-READY, 0 blocking** — re-ran tsc 0 / jest 128 / build clean / **playwright 26/26 green**
+(proves M0.2 "PR→green" acceptance) / secret-grep semantics correct; confirmed no LOCKED files
+touched (solver/map-core/map-defaults/resolvePlaces — no diff), cache hotfix preserved.
+
+**Deviations from plan (numbered, per protocol):**
+1. **M0.3 filenames** — used `instrumentation.ts`/`instrumentation-client.ts` +
+   `sentry.server.config.ts` + `sentry.edge.config.ts` instead of the plan's
+   `sentry.client.config.ts`/`sentry.server.config.ts`. Reason: official `@sentry/nextjs` v10 +
+   Next 15.5.20 convention (`instrumentation-client.ts` auto-loaded by Next; no manual wiring).
+   Non-blocking, audited. Same PII-scrub contract regardless of filename.
+2. **M0.2 hardening beyond literal spec** — added a `concurrency` group (cancel superseded runs;
+   halves the pull_request+push double-run) and a `test -d .next/static` guard before the grep
+   (a missing build dir now fails loud, not green). Auditor-suggested; verified YAML valid.
+3. **§1 TOC add** — reserved a `soft_mode_signups` table (email capture from §0.4 soft-mode CTA)
+   in the M3.1 table-of-contents. Flagged for M3.1.
+
+**Carry-forward for M3.1 (audit notes #1–#3 — no live leak today, but M3 adds Stripe/webhook
+paths):** the Sentry scrub does NOT cover `event.message` / `event.exception.values[].value` /
+breadcrumb `.message`. Grep confirmed no current `throw` interpolates raw paste text, and the
+pipeline route catches its own errors before Sentry — so no live leak path exists today. M3.1 §4
+(failure-mode table) MUST add a value-side sweep OR a codified "never interpolate user text into
+Error messages" rule. Also: some solver/schedule error messages carry stop IDs derived from parsed
+place names (itinerary-adjacent) — note in the M3 failure-mode table.
+
+**UNVERIFIED — needs Chris / live env (do NOT claim these work):**
+- **M0.2 CI green on a real PR:** push `m0-preflight` + open a PR → watch all Actions steps green.
+  Then locally drop a fake `STRIPE_SECRET=...` into a client component, build, confirm the grep
+  job would fail. (Logic proven locally; the GitHub-side run is unobserved.)
+- **M0.3 Sentry live capture:** set `NEXT_PUBLIC_SENTRY_DSN`/`SENTRY_DSN`, deploy (or run with
+  DSN), arm `DEBUG_BOARD=1`, hit `/api/debug/sentry-test`, confirm the event appears in Sentry
+  with `request.data` absent and any sensitive-named key shown as `[redacted]`.
+
+**CHRIS-STEP checklist issued (M0.1 deliverable):** delivered in chat this session — Supabase
+project slot (verify Critter Collect pause freed one), Stripe SG test products/prices + account
+standing, Vercel env list (incl. `PAYWALL_MODE`, `TESTER_EMAILS`, Sentry DSN), Sentry project.
+
+NEXT SESSION: Chris does the CHRIS-STEP account setup + the two live verifications above; on his
+GO, merge `m0-preflight` → main (auto-deploys), then M1 (B1a whole-paste interpretation).

@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+
+# One in-flight run per ref; a new push cancels the superseded run (halves the
+# duplicate pull_request + push jobs on a PR branch, and saves CI minutes).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Jest
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Playwright E2E tests
+        run: npm run test:e2e
+        env:
+          CI: true
+
+      - name: Check for secrets in client bundle
+        run: |
+          # Fail loud if the build output is missing, so this guard can never
+          # pass green just because there was nothing to grep.
+          test -d .next/static || { echo "❌ .next/static missing — did the build run?"; exit 1; }
+          if grep -rEl 'SUPABASE_SERVICE_ROLE|STRIPE_SECRET|ANTHROPIC_API_KEY' .next/static; then
+            echo "❌ secret leaked into client bundle"
+            exit 1
+          else
+            echo "✅ no secrets in client bundle"
+          fi
