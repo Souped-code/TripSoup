@@ -64,7 +64,42 @@ export function scrubSentryEvent<T extends Event>(event: T): T {
     });
   }
 
+  // 6. STACKTRACE FRAMES — the vector a live send-test caught (M0.3 verify).
+  // Sentry's default integrations attach, per frame:
+  //   - `vars`: LOCAL VARIABLE VALUES (LocalVariables integration). If any code
+  //     throws while the pasted itinerary is in local scope (e.g. `text` inside
+  //     the pipeline), the paste ships verbatim. This is an AUTOMATIC leak — no
+  //     developer mistake required — so it must be scrubbed at the chokepoint.
+  //   - `context_line`/`pre_context`/`post_context`: SOURCE lines around the
+  //     frame (ContextLines). Our source is static and never contains user data,
+  //     but we strip it too: on a privacy-first product, guaranteeing that
+  //     NOTHING from a stack frame leaves is worth losing source context in the
+  //     Sentry UI. (The error type, message, file, and line still ship.)
+  // Applies to both exception and thread stacktraces.
+  scrubStacktraceValues(event.exception?.values);
+  scrubStacktraceValues(
+    (event as { threads?: { values?: unknown } }).threads?.values
+  );
+
   return event;
+}
+
+/** Strip runtime values + source context from every frame of every stacktrace. */
+function scrubStacktraceValues(values: unknown): void {
+  if (!Array.isArray(values)) return;
+  for (const entry of values) {
+    const frames = (entry as { stacktrace?: { frames?: unknown } } | null)
+      ?.stacktrace?.frames;
+    if (!Array.isArray(frames)) continue;
+    for (const frame of frames) {
+      if (!frame || typeof frame !== "object") continue;
+      const f = frame as Record<string, unknown>;
+      delete f.vars;
+      delete f.context_line;
+      delete f.pre_context;
+      delete f.post_context;
+    }
+  }
 }
 
 /** beforeSend / beforeSendTransaction — shared by every Sentry.init() call site. */

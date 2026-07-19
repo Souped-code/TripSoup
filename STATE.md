@@ -1680,3 +1680,28 @@ standing, Vercel env list (incl. `PAYWALL_MODE`, `TESTER_EMAILS`, Sentry DSN), S
 
 NEXT SESSION: Chris does the CHRIS-STEP account setup + the two live verifications above; on his
 GO, merge `m0-preflight` → main (auto-deploys), then M1 (B1a whole-paste interpretation).
+
+### M0.3 UPDATE — live send-test found (and fixed) a real PII leak (2026-07-20)
+
+Chris provided the Sentry DSN. Before closing M0.3 I ran a real send-test against the DSN (not just
+unit tests) — done-means-verified "confirm arrival, not just send". It caught pasted-itinerary text
+LEAVING the process via a vector the original scrub missed, so the earlier entry's "no live leak
+today" was WRONG: Sentry's default `LocalVariables` integration attaches each stack frame's local
+variable VALUES (the pasted `text` if in scope at throw time — an automatic leak, no dev mistake
+needed), and `ContextLines` attaches source lines. `beforeSend` only covered
+request.data/extra/contexts/tags/breadcrumbs.
+
+**Fix (commit 9eb07e7):** `scrubSentryEvent` now also deletes `vars`/`context_line`/`pre_context`/
+`post_context` from every exception AND thread stacktrace frame (frame filename/lineno/function
+still ship). Re-verified END-TO-END through Sentry's real beforeSend+transport: paste placed in
+`extra`, in source context, and in frame `vars` (the local-variable vector) — outbound events
+contain NONE of it. +2 unit tests (scrub suite 9→11; full suite 128→130 green). tsc 0.
+
+This resolves audit note #1 for the automatic vectors. STILL open for M3.1 §4: `exception.value`
+(error MESSAGE text) is not scrubbed — only leaks if code interpolates user text into an Error, so
+the standing rule "never interpolate pasted text into Error messages" + an M3 value-side sweep
+remain required as Stripe/webhook paths are added.
+
+**Sentry DSN wired** into `.env.local` (`NEXT_PUBLIC_SENTRY_DSN`, gitignored). Remaining human check:
+Chris confirms the test event actually appears in his Sentry dashboard (`/api/debug/sentry-test` with
+`DEBUG_BOARD=1`) — the transport was exercised locally; dashboard arrival is his to eyeball.

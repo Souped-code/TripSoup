@@ -70,6 +70,71 @@ describe("scrubSentryEvent", () => {
     expect(out.breadcrumbs?.[1]).toEqual({ category: "ui.click", message: "clicked submit" });
   });
 
+  it("strips local-variable values AND source context from exception stacktrace frames", () => {
+    // The vector a live send-test caught: Sentry's LocalVariables integration
+    // attaches `vars` (runtime values — the pasted itinerary if it's in scope),
+    // and ContextLines attaches source lines. Both must be gone.
+    const event = {
+      exception: {
+        values: [
+          {
+            type: "Error",
+            value: "parse failed",
+            stacktrace: {
+              frames: [
+                {
+                  filename: "pipeline.ts",
+                  lineno: 42,
+                  function: "runPipeline",
+                  vars: { text: "PRIVATE: Day 1 Marina Bay Sands", i: 3 },
+                  context_line: '  const text = "PRIVATE: Day 1 Marina Bay Sands"',
+                  pre_context: ["line before"],
+                  post_context: ["line after"],
+                },
+              ],
+            },
+          },
+        ],
+      },
+    } as unknown as Event;
+
+    const out = scrubSentryEvent(event);
+    const frame = out.exception?.values?.[0].stacktrace?.frames?.[0] as Record<string, unknown>;
+
+    expect(frame.vars).toBeUndefined();
+    expect(frame.context_line).toBeUndefined();
+    expect(frame.pre_context).toBeUndefined();
+    expect(frame.post_context).toBeUndefined();
+    // Non-sensitive frame metadata survives (still useful for debugging).
+    expect(frame.filename).toBe("pipeline.ts");
+    expect(frame.lineno).toBe(42);
+    expect(frame.function).toBe("runPipeline");
+    // And nothing paste-shaped remains anywhere in the event.
+    expect(JSON.stringify(out)).not.toContain("Marina Bay Sands");
+  });
+
+  it("also strips thread stacktrace frames (not just exception frames)", () => {
+    const event = {
+      threads: {
+        values: [
+          {
+            stacktrace: {
+              frames: [{ filename: "a.ts", vars: { paste: "secret itinerary" } }],
+            },
+          },
+        ],
+      },
+    } as unknown as Event;
+
+    const out = scrubSentryEvent(event);
+    const frame = (out as unknown as { threads: { values: { stacktrace: { frames: Record<string, unknown>[] } }[] } })
+      .threads.values[0].stacktrace.frames[0];
+
+    expect(frame.vars).toBeUndefined();
+    expect(frame.filename).toBe("a.ts");
+    expect(JSON.stringify(out)).not.toContain("secret itinerary");
+  });
+
   it("is a no-op on a bare/empty event and never throws", () => {
     expect(() => scrubSentryEvent({} as Event)).not.toThrow();
     expect(scrubSentryEvent({} as Event)).toEqual({});
