@@ -1705,3 +1705,39 @@ remain required as Stripe/webhook paths are added.
 **Sentry DSN wired** into `.env.local` (`NEXT_PUBLIC_SENTRY_DSN`, gitignored). Remaining human check:
 Chris confirms the test event actually appears in his Sentry dashboard (`/api/debug/sentry-test` with
 `DEBUG_BOARD=1`) — the transport was exercised locally; dashboard arrival is his to eyeball.
+
+### M0 CI — canvas e2e non-blocking (first CI run went red; root-caused) (2026-07-20)
+
+First-ever CI run on PR #1 came back RED. Investigated per systematic-debugging (no fixes before
+root cause).
+
+**Symptom:** the `checks` gates (tsc, jest 130, `next build`, secret-grep) ALL passed. Only the
+Playwright step failed — and only the ~11 heavy tests that PAINT the animated journal map
+(`fullflow`, `reveal.spec` ×4, `sidebar` ×7). The map hit `data-phase="error"` / `data-paints="0"`
+within ~2s and never painted.
+
+**Root cause (category, evidence-backed):** a headless-Linux-CI rendering artifact in the map
+render, NOT a code bug and NOT caused by M0:
+- Passes locally — re-ran `reveal.spec` cold: 4/4 green (auditor got 26/26). Fails only on GitHub's
+  headless-Linux runner.
+- NOT tiles: e2e mock `**/tiles.openfreemap.org/**` (stub TileJSON + 404 tiles, handled gracefully),
+  identical local vs CI.
+- NOT Sentry: the client SDK is DISABLED in CI (no `NEXT_PUBLIC_SENTRY_DSN` baked at build), and the
+  throwing path is in LOCKED, unchanged `map-render-core.js`.
+- NOT a user bug: the map renders in each visitor's OWN browser, never on a headless Linux box —
+  prod (Vercel) is unaffected. Strong suspect for the throw: `await document.fonts.load(...)` at
+  `src/lib/map/map-render-core.js:1251-1253` (font/GPU stack differs in headless Chromium).
+- Could not reproduce locally to capture the exact throw (no Docker/WSL on this Win11 machine).
+
+**Decision (Chris, AskUserQuestion → "Option A"):** split CI into two jobs —
+- `checks` (BLOCKING): tsc · jest · build · secret-grep. These are the deterministic regression gate.
+- `e2e` (NON-BLOCKING, `continue-on-error: true`): still runs + reports the browser suite, and on
+  failure uploads the Playwright report/traces as an artifact so the exact headless error can be
+  diagnosed later — without a dedicated diagnostic push.
+Rationale: the failing check doesn't affect users, the real safety checks stay enforced, and the
+non-blocking job still captures B's diagnostics for free.
+
+**FOLLOW-UP (tracked, not done):** make the map e2e hermetic in headless CI — pull the exact error
+from the uploaded trace, then fix in the TEST harness / a non-locked wrapper (map core stays LOCKED;
+unlock needs Chris's written OK). Until then the map render is CI-validated only via local runs.
+When Chris configures branch protection, require the `checks` job (not `e2e`).
