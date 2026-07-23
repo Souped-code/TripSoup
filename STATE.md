@@ -1608,3 +1608,158 @@ grandfather rule stated (pre-soft docs display fully, new runs gate), carried-ov
 (sfx foley→M6.2, LIVE-CHECKLIST §3/§4 + mobile-landing review→M7.2, Gracie provisional→M7.5).
 
 NEXT SESSION: M0 preflight (Opus orchestrator). Chris GO on PLAN-V1.md pending.
+
+## M0 — PREFLIGHT COMPLETE (2026-07-14, Opus orchestrator session)
+
+Chris GO on PLAN-V1.md given ("execute PLAN-V1.md, start M0"). Ran on branch `m0-preflight`
+(not main — merges to main are Chris-gated per protocol §5). Orchestrator = Opus; M0.1 done
+directly (Opus·high); M0.2 delegated to Haiku·low, M0.3 to Sonnet·medium (parallel, disjoint
+files). Orchestrator owned all verification + git; subagents did not commit.
+
+**M0.1 — backend-design.md §0 skeleton (`design/backend-design.md`):** PAYWALL_MODE semantics
+(`off|soft|live`, fail-closed to `soft` on unset/typo — only literal `"off"`/`"live"` accepted),
+`TESTER_EMAILS` allowlist (soft-mode testers may PURCHASE in test mode; entitlement still ONLY via
+a `trip_entitlements` row), entitlement×mode matrix skeleton, grandfather rule, soft-mode UX copy
+skeleton (journal voice, placeholders for M3.8). §1+ is a table-of-contents reservation only
+(zero DDL/RLS/SQL — full contract binds at M3.1 under Fable advisor + Opus·xhigh security audit).
+
+**M0.2 — CI (`.github/workflows/ci.yml`):** single job on ubuntu/Node20 — npm ci → typecheck →
+jest → next build → playwright(chromium, fixture) → secret-grep. Secret-grep fails the job if
+`SUPABASE_SERVICE_ROLE|STRIPE_SECRET|ANTHROPIC_API_KEY` appear in `.next/static`. Verified locally:
+probe file in `.next/static` → grep exit 1 (caught); real build → exit 0 (clean).
+
+**M0.3 — Sentry (`@sentry/nextjs@10.65.0`):** `instrumentation.ts` (server/edge dispatch +
+`onRequestError`), `instrumentation-client.ts`, `sentry.server.config.ts`, `sentry.edge.config.ts`,
+`src/lib/observability/sentryScrub.ts` (+ 9 unit tests), `app/api/debug/sentry-test/route.ts`,
+`next.config.mjs` wrapped with `withSentryConfig` (texture cache-header hotfix preserved verbatim).
+PII scrub (`beforeSend` + `beforeSendTransaction`, shared): deletes `request.data`, redacts
+`extra`/`contexts`/`tags` keys matching `/paste|itinerary|text|body|raw|input|prompt|caption/i`,
+strips breadcrumb `.data`; fail-closed (drops event if scrub throws). DSN from env
+(`SENTRY_DSN||NEXT_PUBLIC_SENTRY_DSN`); `enabled: Boolean(dsn)` + `sendDefaultPii:false` → safe
+no-op when unset (local/CI/tests never send). Debug route gated: inert in prod (404) unless
+`DEBUG_BOARD` set.
+
+**Gates (orchestrator-run, re-derived fresh — not transcribed):** `tsc --noEmit` exit 0 · `jest`
+128/128 (20 suites, incl. new sentryScrub) · `next build` exit 0 (secretless) · secret-grep clean
+on real build · YAML valid. Independent fresh-context audit (Fable·high, cold context): **verdict
+MERGE-READY, 0 blocking** — re-ran tsc 0 / jest 128 / build clean / **playwright 26/26 green**
+(proves M0.2 "PR→green" acceptance) / secret-grep semantics correct; confirmed no LOCKED files
+touched (solver/map-core/map-defaults/resolvePlaces — no diff), cache hotfix preserved.
+
+**Deviations from plan (numbered, per protocol):**
+1. **M0.3 filenames** — used `instrumentation.ts`/`instrumentation-client.ts` +
+   `sentry.server.config.ts` + `sentry.edge.config.ts` instead of the plan's
+   `sentry.client.config.ts`/`sentry.server.config.ts`. Reason: official `@sentry/nextjs` v10 +
+   Next 15.5.20 convention (`instrumentation-client.ts` auto-loaded by Next; no manual wiring).
+   Non-blocking, audited. Same PII-scrub contract regardless of filename.
+2. **M0.2 hardening beyond literal spec** — added a `concurrency` group (cancel superseded runs;
+   halves the pull_request+push double-run) and a `test -d .next/static` guard before the grep
+   (a missing build dir now fails loud, not green). Auditor-suggested; verified YAML valid.
+3. **§1 TOC add** — reserved a `soft_mode_signups` table (email capture from §0.4 soft-mode CTA)
+   in the M3.1 table-of-contents. Flagged for M3.1.
+
+**Carry-forward for M3.1 (audit notes #1–#3 — no live leak today, but M3 adds Stripe/webhook
+paths):** the Sentry scrub does NOT cover `event.message` / `event.exception.values[].value` /
+breadcrumb `.message`. Grep confirmed no current `throw` interpolates raw paste text, and the
+pipeline route catches its own errors before Sentry — so no live leak path exists today. M3.1 §4
+(failure-mode table) MUST add a value-side sweep OR a codified "never interpolate user text into
+Error messages" rule. Also: some solver/schedule error messages carry stop IDs derived from parsed
+place names (itinerary-adjacent) — note in the M3 failure-mode table.
+
+**UNVERIFIED — needs Chris / live env (do NOT claim these work):**
+- **M0.2 CI green on a real PR:** push `m0-preflight` + open a PR → watch all Actions steps green.
+  Then locally drop a fake `STRIPE_SECRET=...` into a client component, build, confirm the grep
+  job would fail. (Logic proven locally; the GitHub-side run is unobserved.)
+- **M0.3 Sentry live capture:** set `NEXT_PUBLIC_SENTRY_DSN`/`SENTRY_DSN`, deploy (or run with
+  DSN), arm `DEBUG_BOARD=1`, hit `/api/debug/sentry-test`, confirm the event appears in Sentry
+  with `request.data` absent and any sensitive-named key shown as `[redacted]`.
+
+**CHRIS-STEP checklist issued (M0.1 deliverable):** delivered in chat this session — Supabase
+project slot (verify Critter Collect pause freed one), Stripe SG test products/prices + account
+standing, Vercel env list (incl. `PAYWALL_MODE`, `TESTER_EMAILS`, Sentry DSN), Sentry project.
+
+NEXT SESSION: Chris does the CHRIS-STEP account setup + the two live verifications above; on his
+GO, merge `m0-preflight` → main (auto-deploys), then M1 (B1a whole-paste interpretation).
+
+### M0.3 UPDATE — live send-test found (and fixed) a real PII leak (2026-07-20)
+
+Chris provided the Sentry DSN. Before closing M0.3 I ran a real send-test against the DSN (not just
+unit tests) — done-means-verified "confirm arrival, not just send". It caught pasted-itinerary text
+LEAVING the process via a vector the original scrub missed, so the earlier entry's "no live leak
+today" was WRONG: Sentry's default `LocalVariables` integration attaches each stack frame's local
+variable VALUES (the pasted `text` if in scope at throw time — an automatic leak, no dev mistake
+needed), and `ContextLines` attaches source lines. `beforeSend` only covered
+request.data/extra/contexts/tags/breadcrumbs.
+
+**Fix (commit 9eb07e7):** `scrubSentryEvent` now also deletes `vars`/`context_line`/`pre_context`/
+`post_context` from every exception AND thread stacktrace frame (frame filename/lineno/function
+still ship). Re-verified END-TO-END through Sentry's real beforeSend+transport: paste placed in
+`extra`, in source context, and in frame `vars` (the local-variable vector) — outbound events
+contain NONE of it. +2 unit tests (scrub suite 9→11; full suite 128→130 green). tsc 0.
+
+This resolves audit note #1 for the automatic vectors. STILL open for M3.1 §4: `exception.value`
+(error MESSAGE text) is not scrubbed — only leaks if code interpolates user text into an Error, so
+the standing rule "never interpolate pasted text into Error messages" + an M3 value-side sweep
+remain required as Stripe/webhook paths are added.
+
+**Sentry DSN wired** into `.env.local` (`NEXT_PUBLIC_SENTRY_DSN`, gitignored). Remaining human check:
+Chris confirms the test event actually appears in his Sentry dashboard (`/api/debug/sentry-test` with
+`DEBUG_BOARD=1`) — the transport was exercised locally; dashboard arrival is his to eyeball.
+
+### M0 CI — canvas e2e non-blocking (first CI run went red; root-caused) (2026-07-20)
+
+First-ever CI run on PR #1 came back RED. Investigated per systematic-debugging (no fixes before
+root cause).
+
+**Symptom:** the `checks` gates (tsc, jest 130, `next build`, secret-grep) ALL passed. Only the
+Playwright step failed — and only the ~11 heavy tests that PAINT the animated journal map
+(`fullflow`, `reveal.spec` ×4, `sidebar` ×7). The map hit `data-phase="error"` / `data-paints="0"`
+within ~2s and never painted.
+
+**Root cause (category, evidence-backed):** a headless-Linux-CI rendering artifact in the map
+render, NOT a code bug and NOT caused by M0:
+- Passes locally — re-ran `reveal.spec` cold: 4/4 green (auditor got 26/26). Fails only on GitHub's
+  headless-Linux runner.
+- NOT tiles: e2e mock `**/tiles.openfreemap.org/**` (stub TileJSON + 404 tiles, handled gracefully),
+  identical local vs CI.
+- NOT Sentry: the client SDK is DISABLED in CI (no `NEXT_PUBLIC_SENTRY_DSN` baked at build), and the
+  throwing path is in LOCKED, unchanged `map-render-core.js`.
+- NOT a user bug: the map renders in each visitor's OWN browser, never on a headless Linux box —
+  prod (Vercel) is unaffected. Strong suspect for the throw: `await document.fonts.load(...)` at
+  `src/lib/map/map-render-core.js:1251-1253` (font/GPU stack differs in headless Chromium).
+- Could not reproduce locally to capture the exact throw (no Docker/WSL on this Win11 machine).
+
+**Decision (Chris, AskUserQuestion → "Option A"):** split CI into two jobs —
+- `checks` (BLOCKING): tsc · jest · build · secret-grep. These are the deterministic regression gate.
+- `e2e` (NON-BLOCKING, `continue-on-error: true`): still runs + reports the browser suite, and on
+  failure uploads the Playwright report/traces as an artifact so the exact headless error can be
+  diagnosed later — without a dedicated diagnostic push.
+Rationale: the failing check doesn't affect users, the real safety checks stay enforced, and the
+non-blocking job still captures B's diagnostics for free.
+
+**FOLLOW-UP (tracked, not done):** make the map e2e hermetic in headless CI — pull the exact error
+from the uploaded trace, then fix in the TEST harness / a non-locked wrapper (map core stays LOCKED;
+unlock needs Chris's written OK). Until then the map render is CI-validated only via local runs.
+When Chris configures branch protection, require the `checks` job (not `e2e`).
+
+### M0 CI — GREEN after the split; exact headless error captured (2026-07-20)
+
+Re-ran on PR #1 after pushing the split. **Overall run conclusion: SUCCESS (green).**
+- `checks` (blocking): ✓ green in 1m8s (tsc · jest 130 · build · secret-grep).
+- `e2e` (non-blocking): failed internally as expected; `continue-on-error` kept the run green; the
+  failure-only artifact upload succeeded.
+
+**M0 is CI-verified and mergeable.** Remaining human items: Chris eyeballs a scrubbed test error in
+the Sentry dashboard post-deploy; when configuring branch protection on `main`, require the
+**`checks`** status check (NOT `e2e`).
+
+**Exact headless error (from the uploaded Playwright trace — closes the root-cause loop I could not
+reproduce locally):** the reveal map's user-facing error rendered as *"The map didn't make it onto
+the page — A network error occurred."* i.e. a `fetch`/dynamic-import network failure inside the
+scene-build `try` (the block that sets `data-phase="error"`). Tiles are stubbed and handled, so the
+failing call is an UN-stubbed network dependency that headless-CI Chromium can't complete — prime
+suspect: the runtime jsdelivr CDN import in `map-render-core.js:105-107` (`preloadLibs`) being
+reached/failing in CI, or the local `import("pbf"|...)` interop shape differing so `provideLibs`
+falls through. FOLLOW-UP (unchanged owner: make map e2e hermetic): stub/guarantee the lib source in
+e2e (or block egress and assert the graceful path) so the scene build never depends on a live CDN;
+map core stays LOCKED (fix in the e2e harness / a non-locked wrapper, or unlock with Chris's OK).
