@@ -9,3 +9,6 @@ playwright-report/
 .trips/
 .trips-e2e/
 .cache/
+
+.vercel
+.env*

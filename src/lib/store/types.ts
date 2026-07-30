@@ -27,6 +27,13 @@ export type TripStop = {
 
 export type TripDay = {
   date: string;
+  // M1.5 — set when the paste gave no real calendar date ("Day 2", "Saturday",
+  // or nothing at all). When present, `date` is an INERT placeholder (the run's
+  // reference today) and day headings must render this label instead — never
+  // today's real date dressed up as the trip date. Absent means `date` is a
+  // genuine date the user supplied. Additive/optional: absent on existing docs.
+  // Schedule math never reads either field; it runs on dayStartMin/dayEndMin.
+  dayLabel?: string;
   dayStartMin: number;
   dayEndMin: number;
   stops: TripStop[];

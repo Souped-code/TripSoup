@@ -105,7 +105,10 @@ export function ShareTimeline({ day, plan, orderedIds }: ShareTimelineProps) {
   return (
     <aside className="reveal-sidebar" style={{ clipPath }} data-testid="share-timeline">
       <div className="reveal-sidebar__scroll">
-        <h2 className="reveal-sidebar__heading">{fmtDayDate(day.date)}</h2>
+        {/* M1.5: see JournalSidebar — dayLabel wins over a placeholder date. */}
+        <h2 className="reveal-sidebar__heading" data-testid="share-day-heading">
+          {day.dayLabel ?? fmtDayDate(day.date)}
+        </h2>
 
         {rows.length === 0 ? (
           <p className="reveal-row__wait">No stops on this day yet.</p>

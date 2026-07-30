@@ -48,7 +48,10 @@ export function usePipeline(): {
     // count up live and the reveal can show the full paste→map total (it
     // survives the client-side nav to /trip/[id] via sessionStorage).
     try { sessionStorage.setItem("ts-cook-t0", String(Date.now())); } catch { /* SSR / storage off */ }
-    setState({ phase: "running", stage: "parse", pct: 0, detail: "Reading your links…" });
+    // Optimistic first frame, shown until the server's first SSE event lands.
+    // Wording must match the pipeline's own parse-stage copy (M1: names are
+    // read too, not just links) so the text doesn't visibly change under the user.
+    setState({ phase: "running", stage: "parse", pct: 0, detail: "Reading your links and places…" });
 
     try {
       const res = await fetch("/api/pipeline", {

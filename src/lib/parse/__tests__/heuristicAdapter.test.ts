@@ -84,6 +84,45 @@ describe("heuristic adapter golden", () => {
     expect(result.days).toEqual([{ itemRefs: [0] }]);
   });
 
+  it("recognises written dates in BOTH orderings as day markers (M1.5)", async () => {
+    const adapter = createHeuristicAdapter();
+    const hints = async (line: string) => (await adapter.parse(`${line}\nSomewhere`)).days[0].dateHint;
+
+    // day-first — the shape most people actually write
+    expect(await hints("12 Jul")).toBe("12 Jul");
+    expect(await hints("15 March")).toBe("15 March");
+    expect(await hints("15 March 2026")).toBe("15 March 2026");
+    expect(await hints("1st Sept")).toBe("1st Sept");
+    // month-first — unchanged behaviour
+    expect(await hints("Jul 12")).toBe("Jul 12");
+    expect(await hints("March 15, 2026")).toBe("March 15, 2026");
+    // still-supported non-date markers
+    expect(await hints("Day 2")).toBe("Day 2");
+    expect(await hints("Saturday")).toBe("Saturday");
+  });
+
+  it("does not mistake ordinary content for a day marker", async () => {
+    const adapter = createHeuristicAdapter();
+    const isMarker = async (line: string) =>
+      (await adapter.parse(`${line}\nMarket Hall`)).days[0].dateHint !== undefined;
+
+    // A month NAME is a marker; a place name that merely STARTS with those
+    // letters is not. Novena and Marina Bay are real Singapore districts —
+    // eating these lines as day markers would silently drop them as stops.
+    expect(await isMarker("10 Novena")).toBe(false);
+    expect(await isMarker("2 Marina")).toBe(false);
+    expect(await isMarker("5 Augusta")).toBe(false);
+    expect(await isMarker("Marina 12")).toBe(false);
+    expect(await isMarker("maybe 3 hours here")).toBe(false);
+    expect(await isMarker("may 12 friends join us")).toBe(false);
+
+    // …while the genuine forms still are.
+    expect(await isMarker("10 Nov")).toBe(true);
+    expect(await isMarker("10 November")).toBe(true);
+    expect(await isMarker("2 Mar")).toBe(true);
+    expect(await isMarker("May 12")).toBe(true);
+  });
+
   it("returns empty structures for empty input", async () => {
     const adapter = createHeuristicAdapter();
     const result = await adapter.parse("");

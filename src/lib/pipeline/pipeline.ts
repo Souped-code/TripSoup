@@ -13,8 +13,8 @@
 
 import { randomBytes } from "crypto";
 import { parseItinerary } from "../parse/parseItinerary";
-import type { ParsedItem } from "../parse/types";
 import { getMapsProvider, getTripStore } from "../config";
+import { getEntitlements, type Entitlements } from "../entitlements/entitlements";
 import { planTripDay } from "../planService";
 import type { TripDoc, TripDay, TripStop } from "../store/types";
 import type { DayPlan } from "../schedule/types";
@@ -64,6 +64,116 @@ export function parseTimeHint(raw: string): number | null {
   return null;
 }
 
+const MONTHS: Record<string, number> = {
+  jan: 1, january: 1,
+  feb: 2, february: 2,
+  mar: 3, march: 3,
+  apr: 4, april: 4,
+  may: 5,
+  jun: 6, june: 6,
+  jul: 7, july: 7,
+  aug: 8, august: 8,
+  sep: 9, sept: 9, september: 9,
+  oct: 10, october: 10,
+  nov: 11, november: 11,
+  dec: 12, december: 12,
+};
+
+function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+function iso(year: number, month: number, day: number): string {
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+// "day 1:" -> "Day 1"; "  saturday " -> "Saturday". Display polish only — the
+// label is never parsed downstream, it is printed as the day heading.
+function cleanLabel(hint: string): string {
+  const trimmed = hint.trim().replace(/[:\-–—]\s*$/, "").replace(/\s+/g, " ").trim();
+  return trimmed ? trimmed.charAt(0).toUpperCase() + trimmed.slice(1) : trimmed;
+}
+
+/**
+ * M1.5 — turn a day's `dateHint` into either a REAL calendar date or a human
+ * label, and never anything in between. Pure and deterministic: `refToday`
+ * (ISO yyyy-mm-dd) is injected rather than read from a clock so this is unit
+ * testable and a pipeline run is reproducible.
+ *
+ * - An explicit day+month (± year) — "12 Jul", "15 March 2026", "Jul 12" —
+ *   becomes a real ISO `date` with NO label. Year, when unstated, is inferred:
+ *   this year if that month/day is still today-or-future, otherwise next year.
+ * - Anything else — "Day 2", a bare weekday, or no hint at all — sets `date` to
+ *   `refToday` as an INERT placeholder and returns a `dayLabel` instead.
+ *
+ * On the placeholder: nothing schedules on `date`. All schedule math runs in
+ * minutes-from-midnight (`dayStartMin`/`dayEndMin`), so `date` is display-only
+ * — and whenever it is a placeholder a `dayLabel` exists and the UI renders
+ * that instead. This is the fix for the old bug where every day was stamped
+ * with today's real date and shown as if it were the trip date.
+ *
+ * Deliberately does NOT parse ambiguous numeric forms ("12/7" — is that 12 July
+ * or 7 December?). Guessing wrong silently mis-dates a trip; falling back to a
+ * label is honest. Per the locked dates decision: never invent a calendar date.
+ *
+ * `ordinalLabel` is the caller-supplied fallback ("Day 1", "Day 2", …) used
+ * when the hint is absent entirely — the helper cannot know a day's position in
+ * the trip. (Additive third parameter vs. the spec's two-arg sketch.)
+ */
+export function resolveDayDate(
+  dateHint: string | undefined,
+  refToday: string,
+  ordinalLabel: string
+): { date: string; dayLabel?: string } {
+  const hint = dateHint?.trim();
+  if (!hint) return { date: refToday, dayLabel: ordinalLabel };
+
+  const s = hint.toLowerCase().replace(/[:,]/g, " ").replace(/\s+/g, " ").trim();
+
+  // "12 jul", "12 july 2026"
+  let day: number | null = null;
+  let month: number | null = null;
+  let explicitYear: number | null = null;
+
+  const dayFirst = s.match(/^(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]+)\.?(?:\s+(\d{4}))?$/);
+  const monthFirst = s.match(/^([a-z]+)\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s+(\d{4}))?$/);
+
+  if (dayFirst && MONTHS[dayFirst[2]] !== undefined) {
+    day = parseInt(dayFirst[1], 10);
+    month = MONTHS[dayFirst[2]];
+    explicitYear = dayFirst[3] ? parseInt(dayFirst[3], 10) : null;
+  } else if (monthFirst && MONTHS[monthFirst[1]] !== undefined) {
+    month = MONTHS[monthFirst[1]];
+    day = parseInt(monthFirst[2], 10);
+    explicitYear = monthFirst[3] ? parseInt(monthFirst[3], 10) : null;
+  }
+
+  if (day === null || month === null || day < 1) {
+    return { date: refToday, dayLabel: cleanLabel(hint) };
+  }
+
+  if (explicitYear !== null) {
+    if (day > daysInMonth(explicitYear, month)) {
+      return { date: refToday, dayLabel: cleanLabel(hint) };
+    }
+    return { date: iso(explicitYear, month, day) };
+  }
+
+  // Year inference: the soonest year in which this month/day is a real date
+  // that has not already passed. Normally that is this year or next; the wider
+  // window exists solely for "29 Feb", whose next occurrence can be up to four
+  // years out. The user gave an explicit day and month, so the honest answer is
+  // the next time that date actually happens — not a label, and never 1 March.
+  const refYear = parseInt(refToday.slice(0, 4), 10);
+  for (let year = refYear; year <= refYear + 4; year++) {
+    if (day > daysInMonth(year, month)) continue; // e.g. 29 Feb in a non-leap year
+    const candidate = iso(year, month, day);
+    if (candidate >= refToday) return { date: candidate }; // ISO strings compare lexicographically
+  }
+
+  return { date: refToday, dayLabel: cleanLabel(hint) };
+}
+
 // Flag same-place duplicates within a single day (D2.3 T4b — SUPERSEDES T4's
 // dedupDayStops, commit 5ea9719). Chris's product call overrides the earlier
 // dedup: two pasted links resolving to the SAME place within a day are now
@@ -111,15 +221,35 @@ function markDuplicateStops(stops: TripStop[]): void {
   }
 }
 
+export type PipelineOptions = {
+  /**
+   * Who is running this. Gates `interpret.names` (both the parse-adapter choice
+   * and the resolve checkpoint) and supplies the combined lookup cap via
+   * `maxStops`. Defaults to the process-wide stub; M3.5 makes the caller pass
+   * the signed-in user's real entitlements. Signature LOCKED at M1.1.
+   */
+  entitlements?: Entitlements;
+  /**
+   * Today's date as ISO yyyy-mm-dd, for `resolveDayDate`'s year inference.
+   * Injected so a pipeline run is deterministic and testable; defaults to the
+   * real clock.
+   */
+  refToday?: string;
+};
+
 export async function* runPipeline(
-  text: string
+  text: string,
+  opts: PipelineOptions = {}
 ): AsyncGenerator<PipelineProgress, PipelineResult> {
   let stage: PipelineStage = "parse";
+  const entitlements = opts.entitlements ?? getEntitlements();
 
   try {
     // ---------------------------------------------------------------- parse
-    yield { stage: "parse", pct: 0, detail: "Reading your links…" };
-    const parsed = await parseItinerary(text);
+    yield { stage: "parse", pct: 0, detail: "Reading your links and places…" };
+    // Gate 1 of 2 lives inside parseItinerary: without `interpret.names` it
+    // will not select the (billed) LLM adapter at all.
+    const parsed = await parseItinerary(text, { entitlements });
     yield {
       stage: "parse",
       pct: 15,
@@ -129,32 +259,80 @@ export async function* runPipeline(
     // -------------------------------------------------------------- resolve
     stage = "resolve";
 
-    // -------------------------------------------------------------------
-    // LOCKED RULE (mirrors src/lib/parse/parseItinerary.ts's comment): only
-    // URLs extracted verbatim from kind==="link" items' `.url` field are ever
-    // sent to resolvePlaces. label text / label-only items are NEVER used as
-    // resolve queries — labels are display+context only. Do not "helpfully"
-    // fall back to `item.label` or `item.raw` here for label-only items.
-    // -------------------------------------------------------------------
-    const allUrls: string[] = [];
-    for (const item of parsed.items) {
-      if (item.kind === "link" && item.url) allUrls.push(item.url);
+    // ===================================================================
+    // THE RESOLVE CHECKPOINT (M1.4) — the single place in the product where
+    // a decision is made to spend money on a Places lookup. Every guard that
+    // bounds Google spend lives in this block; nothing downstream can widen it.
+    //
+    // LOCKED RULE, as amended by M1 (mirrors parseItinerary.ts's comment —
+    // read that one for the full rationale). ONLY these may be queried:
+    //   (a) item.url        — a URL extracted VERBATIM from the paste. Always
+    //                         allowed: `resolve.links` is the free core promise.
+    //   (b) item.placeQuery — a deliberate, adapter-identified place search
+    //                         string, ONLY when the caller holds
+    //                         `interpret.names`.
+    // item.label and item.raw are STILL NEVER queries. Do not "helpfully" fall
+    // back to them for an item that produced neither (a) nor (b) — an item
+    // with no url and no placeQuery is a note, and notes are not places.
+    //
+    // Three guards, in order:
+    //   1. The capability gate — names contribute nothing without it.
+    //   2. Links-first ordering — a paste full of names can never crowd a
+    //      user's explicit links out of the cap.
+    //   3. Dedupe, then cap at entitlements.maxStops — the same cafe on Day 1
+    //      and Day 3 is ONE billed lookup and ONE cap slot, and the total is
+    //      bounded regardless of paste size.
+    // ===================================================================
+    const namesAllowed = entitlements.has("interpret.names");
+
+    const linkQueries: Array<{ source: string; itemIdx: number }> = [];
+    const nameQueries: Array<{ source: string; itemIdx: number }> = [];
+    parsed.items.forEach((item, idx) => {
+      if (item.kind === "link" && item.url) {
+        linkQueries.push({ source: item.url, itemIdx: idx });
+      } else if (namesAllowed && item.placeQuery) {
+        nameQueries.push({ source: item.placeQuery, itemIdx: idx });
+      }
+    });
+
+    // Guard 2 (links first), then guard 3 (dedupe by exact query string,
+    // preserving that order). itemsBySource fans one resolved stop back out to
+    // every item that asked for it.
+    const itemsBySource = new Map<string, number[]>();
+    const uniqueSources: string[] = [];
+    for (const q of [...linkQueries, ...nameQueries]) {
+      const seen = itemsBySource.get(q.source);
+      if (seen) {
+        seen.push(q.itemIdx);
+        continue;
+      }
+      itemsBySource.set(q.source, [q.itemIdx]);
+      uniqueSources.push(q.source);
     }
-    // Spend guard (T9 audit, finding M1): every URL can become a billed
-    // Places call and the pipeline is the public front door — same 40-input
-    // cap /api/trips/[id]/resolve has carried since the D0 audit. The
-    // overflow is REPORTED as failures below, never silently dropped.
-    const RESOLVE_CAP = 40;
-    const urls = allUrls.slice(0, RESOLVE_CAP);
-    const overflowUrls = allUrls.slice(RESOLVE_CAP);
+
+    // The cap is an ENTITLEMENT, not a constant: M3.5's free tier lowers it to
+    // 8 by returning a different maxStops, without touching this checkpoint.
+    // The overflow is REPORTED as failures below, never silently dropped.
+    const RESOLVE_CAP = entitlements.maxStops;
+    const sources = uniqueSources.slice(0, RESOLVE_CAP);
+    const overflowSources = uniqueSources.slice(RESOLVE_CAP);
+
+    // The single authority on what was queried on whose behalf. Assembly reads
+    // ONLY this map, so what gets resolved and what gets attached to an item
+    // are structurally incapable of diverging (e.g. assembly can never pick up
+    // a placeQuery that the gate above refused to send).
+    const sourceByItemIndex = new Map<number, string>();
+    for (const source of sources) {
+      for (const idx of itemsBySource.get(source)!) sourceByItemIndex.set(idx, source);
+    }
 
     yield {
       stage: "resolve",
       pct: 15,
       detail:
-        urls.length > 0
-          ? `Looking up ${urls.length} place${urls.length === 1 ? "" : "s"}…`
-          : "No links to look up.",
+        sources.length > 0
+          ? `Looking up ${sources.length} place${sources.length === 1 ? "" : "s"}…`
+          : "No places to look up.",
     };
 
     // resolvePlaces resolves the whole batch in one call (see maps/types.ts /
@@ -165,26 +343,26 @@ export async function* runPipeline(
     // after the call rather than during it.
     const provider = getMapsProvider();
     const resolveResult =
-      urls.length > 0 ? await provider.resolvePlaces(urls) : { stops: [], failures: [] };
-    // capped-out links surface in the same failure panel as unresolvable ones
-    for (const url of overflowUrls) {
+      sources.length > 0 ? await provider.resolvePlaces(sources) : { stops: [], failures: [] };
+    // capped-out sources surface in the same failure panel as unresolvable ones
+    for (const source of overflowSources) {
       resolveResult.failures.push({
-        source: url,
-        reason: `That's a lot of links — Gracie cooks the first ${RESOLVE_CAP} per paste. Split the rest into another trip?`,
+        source,
+        reason: `That's a lot of places — Gracie cooks the first ${RESOLVE_CAP} per paste. Split the rest into another trip?`,
       });
     }
 
     const stopBySource = new Map<string, Stop>(resolveResult.stops.map((s) => [s.source, s]));
 
-    if (urls.length > 0) {
-      for (let i = 0; i < urls.length; i++) {
-        const url = urls[i];
-        const pct = 15 + Math.round(((i + 1) / urls.length) * 40);
-        const stop = stopBySource.get(url);
+    if (sources.length > 0) {
+      for (let i = 0; i < sources.length; i++) {
+        const source = sources[i];
+        const pct = 15 + Math.round(((i + 1) / sources.length) * 40);
+        const stop = stopBySource.get(source);
         yield {
           stage: "resolve",
           pct,
-          detail: stop ? `Found ${stop.name}.` : "Couldn't find a match for one of your links.",
+          detail: stop ? `Found ${stop.name}.` : "Couldn't find a match for one of your places.",
         };
       }
     } else {
@@ -197,11 +375,17 @@ export async function* runPipeline(
 
     // Map each resolved parse item -> TripStop. label (display/context only,
     // per the LOCKED RULE above) overrides the resolved Stop's display name
-    // when present, but never affects which URL was queried.
+    // when present, but never affects which string was queried.
+    //
+    // Reads sourceByItemIndex — the checkpoint's record of what it actually
+    // sent — rather than re-deriving a source from the item. Two items sharing
+    // one deduped query each get their own TripStop object here (no shared
+    // references); markDuplicateStops then handles same-day repeats.
     const resolvedByItemIndex = new Map<number, TripStop>();
-    parsed.items.forEach((item: ParsedItem, idx: number) => {
-      if (item.kind !== "link" || !item.url) return;
-      const stop = stopBySource.get(item.url);
+    parsed.items.forEach((item, idx) => {
+      const source = sourceByItemIndex.get(idx);
+      if (!source) return; // a note, or gated/capped out — never resolved
+      const stop = stopBySource.get(source);
       if (!stop) return; // failed to resolve — dropped cleanly; already in resolveResult.failures
 
       const tripStop: TripStop = {
@@ -220,26 +404,37 @@ export async function* runPipeline(
       resolvedByItemIndex.set(idx, tripStop);
     });
 
-    const today = new Date().toISOString().slice(0, 10);
+    // M1.5 — real dates when the paste gives them, honest "Day N" labels
+    // otherwise. Days keep the parse order of parsed.days; nothing is ever
+    // moved between days here.
+    const refToday = opts.refToday ?? new Date().toISOString().slice(0, 10);
     let days: TripDay[];
     if (parsed.days.length === 0) {
+      // The implicit single day gets a label too — today's real calendar date
+      // must never be shown as if the user had said the trip is today.
+      const { date, dayLabel } = resolveDayDate(undefined, refToday, "Day 1");
       days = [
         {
-          date: today,
+          date,
+          ...(dayLabel ? { dayLabel } : {}),
           dayStartMin: DAY_START_MIN,
           dayEndMin: DAY_END_MIN,
           stops: [...resolvedByItemIndex.values()],
         },
       ];
     } else {
-      days = parsed.days.map((d) => ({
-        date: today,
-        dayStartMin: DAY_START_MIN,
-        dayEndMin: DAY_END_MIN,
-        stops: d.itemRefs
-          .map((ref) => resolvedByItemIndex.get(ref))
-          .filter((s): s is TripStop => s !== undefined),
-      }));
+      days = parsed.days.map((d, i) => {
+        const { date, dayLabel } = resolveDayDate(d.dateHint, refToday, `Day ${i + 1}`);
+        return {
+          date,
+          ...(dayLabel ? { dayLabel } : {}),
+          dayStartMin: DAY_START_MIN,
+          dayEndMin: DAY_END_MIN,
+          stops: d.itemRefs
+            .map((ref) => resolvedByItemIndex.get(ref))
+            .filter((s): s is TripStop => s !== undefined),
+        };
+      });
     }
 
     // D2.3 T4b: flag same-place duplicates WITHIN each day (supersedes T4's

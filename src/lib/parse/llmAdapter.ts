@@ -23,6 +23,7 @@ const SYSTEM_PROMPT = `You convert a raw pasted travel itinerary (plain text, po
       "raw": string,               // the original line/text this item came from, verbatim
       "url": string?,              // present only for kind "link" — copied VERBATIM, character for character
       "label": string?,            // human-readable description of the item
+      "placeQuery": string?,       // a disambiguated place SEARCH string — see rule 9
       "dateHint": string?,         // e.g. "Day 1", "Saturday", "12 July" if this item belongs to a specific day
       "timeHint": string?,         // e.g. "2pm" if a specific time is mentioned
       "anchorLikely": boolean,     // true if this item has a fixed/likely-fixed time (meal reservation, timed ticket, etc.)
@@ -43,7 +44,13 @@ Rules (do not deviate):
 5. Lines like "Group A" / "Group B" / "Team X" mark a named subgroup: subsequent items until the next such marker get that "groupHint", and each named group gets an entry in "splitGroups" listing which item indices belong to it.
 6. Lines like "Day 1" / "Saturday" / a date mark a new day: subsequent items until the next such marker belong to that day; add an entry in "days" with the matching itemRefs.
 7. Output ONLY the JSON object. No prose, no markdown fences, no commentary.
-8. Output MINIFIED JSON — no indentation, no line breaks, no extra whitespace between tokens. This is machine-parsed, not read by a human.`;
+8. Output MINIFIED JSON — no indentation, no line breaks, no extra whitespace between tokens. This is machine-parsed, not read by a human.
+9. "placeQuery": set this ONLY for items that name a real, searchable place (a venue, landmark, restaurant, station, neighbourhood you could look up on a map). Its value is a search string good enough to find that exact place: the place's name PLUS disambiguating city/region context drawn from elsewhere in the itinerary — e.g. "Maxwell Food Centre, Singapore", not "lunch spot" and not "Maxwell". Rules for it:
+   - Use the place's proper name, not the casual wording of the line. "grab laksa at Maxwell" -> "Maxwell Food Centre, Singapore".
+   - Take the city/region from anywhere in the paste (a heading, another line, a link). If the paste genuinely gives no location context, emit the bare place name rather than guessing a city.
+   - OMIT "placeQuery" entirely for anything that is not a lookupable place: notes, reminders, travel time, budgets, general activities ("swim", "pack bags"), and any line whose place is already given by a URL on that same item.
+   - "placeQuery" is a search query; "label" stays the human-readable display text. They are different fields and may differ. Never copy a whole sentence into "placeQuery".
+10. Order intent matters: when the itinerary implies items should happen in a particular sequence — "cable car first, then the beach", "check in before dinner", a numbered list — capture it with "orderConstraint" per rule 4. Honour the user's stated intent; do not reorder items yourself and do not invent constraints that the text does not imply.`;
 
 export class ParseValidationError extends Error {
   constructor(message: string) {

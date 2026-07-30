@@ -16,8 +16,32 @@ const URL_REGEX = /https?:\/\/\S+/;
 
 const TIME_REGEX = /\b\d{1,2}(:\d{2})?\s*(am|pm)\b/i;
 
-const DAY_LINE_REGEX =
-  /^(day\s+\d+|monday|tuesday|wednesday|thursday|friday|saturday|sunday|jan\w*\s+\d{1,2}|feb\w*\s+\d{1,2}|mar\w*\s+\d{1,2}|apr\w*\s+\d{1,2}|may\s+\d{1,2}|jun\w*\s+\d{1,2}|jul\w*\s+\d{1,2}|aug\w*\s+\d{1,2}|sep\w*\s+\d{1,2}|oct\w*\s+\d{1,2}|nov\w*\s+\d{1,2}|dec\w*\s+\d{1,2}|\d{1,2}[/-]\d{1,2}([/-]\d{2,4})?)\s*:?$/i;
+// A month word: the abbreviation or the full name, and NOTHING else. Spelled
+// out explicitly rather than as `jan\w*` etc. because a greedy prefix match
+// turns real place names into month names — "10 Novena", "2 Marina",
+// "5 Augusta" would all be eaten as day markers, silently costing those lines
+// their stop. Place names beginning with a month prefix are common enough
+// (Novena and Marina Bay are both Singapore districts) that the prefix form is
+// simply wrong here.
+const MONTH_WORD = String.raw`(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)`;
+
+// Whole-line day markers. Both orderings of a written date are accepted —
+// "Jul 12" AND "12 Jul" — with an optional year and ordinal suffix on either.
+// The day-first form matters: it is the shape most people write ("15 March",
+// the interpretation spec's own "12 Jul" example) and without it such a line
+// falls through as ordinary content, silently costing the day its real date.
+// pipeline.ts's resolveDayDate is what turns the matched text into an ISO date
+// (or, for "Day 2"/weekday/ambiguous-numeric forms, an honest label).
+const DAY_LINE_REGEX = new RegExp(
+  String.raw`^(?:` +
+    String.raw`day\s+\d+` +
+    String.raw`|monday|tuesday|wednesday|thursday|friday|saturday|sunday` +
+    String.raw`|${MONTH_WORD}\.?\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?` +
+    String.raw`|\d{1,2}(?:st|nd|rd|th)?\s+${MONTH_WORD}\.?(?:,?\s+\d{4})?` +
+    String.raw`|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?` +
+    String.raw`)\s*:?$`,
+  "i"
+);
 
 const GROUP_LINE_REGEX = /^(group\s+\S+|team\s+\S+)$/i;
 

@@ -1763,3 +1763,162 @@ reached/failing in CI, or the local `import("pbf"|...)` interop shape differing 
 falls through. FOLLOW-UP (unchanged owner: make map e2e hermetic): stub/guarantee the lib source in
 e2e (or block egress and assert the graceful path) so the scene build never depends on a live CDN;
 map core stays LOCKED (fix in the e2e harness / a non-locked wrapper, or unlock with Chris's OK).
+
+### M0 MERGED (2026-07-23) — and what is still NOT wired
+
+`m0-preflight` merged to `main` via PR #1 (`6b3e97f`), auto-deploying to
+**https://trip-soup.vercel.app** (verified up, HTTP 200, 2026-07-29).
+
+**Verified this session against the live project (`vercel env ls production`):** the M0 CHRIS-STEP
+env list is **NOT** done. Production has `GOOGLE_MAPS_API_KEY`, `ANTHROPIC_API_KEY`,
+`PARSE_PROVIDER`, `AWS_LOCATION_API_KEY` and the five KV vars — and **no `SENTRY_DSN` /
+`NEXT_PUBLIC_SENTRY_DSN`**, so **Sentry is NOT capturing on the deployed app** despite M0.3 being
+code-complete and the scrub being live-verified locally. Also absent: `PAYWALL_MODE`,
+`TESTER_EMAILS` (both M3 prerequisites, not M1 blockers). Supabase could not be self-verified from
+this machine (no CLI, no repo trace — nothing touches it before M3.1); Chris reports the project
+slot and Sentry project exist, and Stripe is outstanding pending a UI walkthrough.
+
+---
+
+# M1 — B1a: WHOLE-PASTE INTERPRETATION (branch `m1-interpretation`, 2026-07-29)
+
+Built per PLAN-V1 §M1 + the approved spec `docs/superpowers/specs/2026-07-09-itinerary-
+interpretation-design.md`. **UNCOMMITTED by Chris's instruction ("build first but don't commit
+yet") — branch `m1-interpretation` cut off `main`, working tree holds the change.**
+
+**Gates (run fresh this session, not transcribed):** `tsc --noEmit` exit 0 · `jest` **166/166
+across 24 suites** (was 130/20) · `playwright` **28/28** (was 26) · `next build` exit 0 ·
+CI secret-grep clean on the real build.
+
+## What shipped, by task
+
+- **M1.1 — `src/lib/entitlements/entitlements.ts` (+ 5 tests).** The LOCKED shape:
+  `{ tier: "free"|"pass", has(cap), maxStops, watermark }`. Capabilities `resolve.links`,
+  `interpret.names` + reserved `interpret.social` / `suggest.crossDate` / `export.hires`.
+  `createEntitlements()` is the single constructor (one `has()` implementation in the codebase);
+  it snapshots the capability list into a Set so a caller mutating its array mid-run cannot
+  re-grant. Pre-M3 stub is all-on / pass / 40 / no watermark, asserted over the exported
+  `ALL_CAPABILITIES` list so a newly-added capability can never silently ship "off".
+- **M1.2 — `placeQuery`** added to `ParsedItemSchema`, plus LLM prompt rules 9 (emit a
+  city-disambiguated search string ONLY for real lookupable places; omit for notes; never copy a
+  sentence; `label` stays display-only) and 10 (honour stated order intent, invent nothing).
+- **M1.3 — `src/lib/parse/fixtureParseAdapter.ts` (+ 7 tests).** Wraps the REAL heuristic adapter
+  (so day/time/order detection is the shipping logic, not a second implementation) and enriches
+  url-less items with `placeQuery` = `"<Fixture Place>, Casterbridge"` via a longest-name-first
+  normalized substring scan. This is what makes the headline feature testable at $0.
+- **M1.4 — the resolve checkpoint** (`pipeline.ts`). Three guards, in order: the `interpret.names`
+  gate; **links-first ordering** (a name-heavy paste can never crowd out a user's explicit links);
+  **dedupe by exact query string, then cap at `entitlements.maxStops`**. A `sourceByItemIndex` map
+  is now the single authority on what was queried on whose behalf — assembly reads only that, so
+  what gets resolved and what gets attached to an item are structurally incapable of diverging.
+  Copy reworded links→places throughout.
+- **M1.5 — `resolveDayDate()`** (exported, pure, `refToday` injected). Explicit day+month (± year,
+  either ordering) → real ISO date with year inferred forward; anything else → inert placeholder
+  date + `dayLabel`. `TripDay.dayLabel?` added (additive), PUT route validates it, both day
+  headings render `dayLabel ?? fmtDayDate(date)`. Fixes the old bug where every day was stamped
+  with today's real date and shown as if it were the trip date.
+- **M1.6 — the second gate.** `parseItinerary(text, { entitlements })` consults
+  `interpret.names` when CHOOSING the adapter, so a free-tier paste never triggers a paid
+  Anthropic parse whose output the checkpoint would then be required to discard.
+- **M1.7 — rate limit + paste cap.** `rateLimit.ts` gained per-route ceilings: `pipeline` = 10/hr
+  (it is the only route that can fan out to `maxStops` billed lookups AND a billed LLM parse);
+  `resolve`/`plan` stay at 20. 20KB paste cap on `/api/pipeline`, measured in BYTES, → 413 with a
+  journal-voice message (the client hook's existing `!res.ok` path surfaces it unchanged).
+- **M1.8 — `e2e/interpretation.spec.ts` (2 tests).** A link-free two-day paste on the real
+  greeting page → two labelled days, correct stops, "2pm" anchored, "first" honoured, and the
+  note line ("remember to book the ferry") correctly NOT resolved into a stop. Plus: an explicit
+  date renders as a date, not a "Day N" label.
+
+## Deviations from the plan/spec (numbered, per protocol)
+
+1. **`resolveDayDate` takes a third `ordinalLabel` argument** (spec sketched two). The helper
+   cannot know a day's position in the trip, and the spec requires an absent hint to yield
+   "Day N". Additive and pure.
+2. **Fixture parse adapter is tied to the fixture MAPS predicate**, not merely "no-key mode"
+   (plan M1.3's wording). Mirrors `config.ts`'s `getMapsProvider()` predicate exactly, so a
+   synthetic Casterbridge `placeQuery` can never be sent to the real, billed Places API. Strictly
+   tighter than specified; covered by a test.
+3. **`heuristicAdapter`'s `DAY_LINE_REGEX` extended to day-first written dates** ("15 March",
+   "12 Jul", optional ordinal + year) — NOT in the M1 task list. Found by the M1.8 e2e: the
+   regex only matched month-first forms, so the spec's own "12 Jul" example fell through as
+   ordinary content and silently cost that day its real date. `may` deliberately keeps no `\w*`
+   tail so it cannot swallow "maybe" (regression test added).
+4. **Rate limit implemented as a per-route map** rather than replacing the single constant, so
+   `resolve`/`plan` keep their audited 20/hr while `pipeline` tightens to 10.
+5. **Oversized paste returns 413**, not 400 — the condition is payload size, and 400 is already
+   this route's "malformed body" code.
+6. **Day headings gained `data-testid`** (`sidebar-day-heading`, `share-day-heading`) so the e2e
+   can assert the label. Display markup only.
+7. **`resolveDayDate`'s year inference searches `refYear..refYear+4`, not just `refYear+1`.**
+   The spec's rule is "this year if today-or-future, else next year", under which a bare "29 Feb"
+   would fall through to a label. The wider window resolves it to the next leap year instead
+   (2028 from a 2026 reference) — the user gave an explicit day and month, so the honest answer is
+   the next time that date actually occurs. Declared late: found by the M1.9 audit, not by me.
+
+## M1.9 fresh-context audit (Fable, cold context, 2026-07-30) — COMMIT-READY-WITH-FIXES
+
+Independent auditor re-ran every gate itself and reproduced them exactly (tsc 0 · jest 166/166 in
+24 suites · next build 0 · playwright 28/28 · secret-grep clean on a fresh build). It also ran its
+own scratch suite of ~30 adversarial inputs against the real `resolveDayDate`, heuristic adapter,
+and fixture parse adapter, and left the working tree byte-identical.
+
+**Verdict: 0 blocking, 3 minor, 3 observations.** The cost-safety core was traced path-by-path and
+confirmed by execution, not inspection: `label`/`raw` cannot reach `resolvePlaces` (only three
+production call sites of it exist, grep-verified); a stray `placeQuery` is refused at the checkpoint
+even when gate 1 is bypassed by mocking the parser; both `interpret.names` consults exist and share
+one snapshotted `Entitlements` object per run; the cap dedupes on unique queries, links-first holds
+under cap pressure, and assembly cannot attach a stop from a source the checkpoint never sent.
+LOCKED files confirmed untouched (14 files in the diff, none under `solver/`, `schedule/`, `map/`,
+nor `matrixSource.ts`/`planService.ts`/`realAdapter.ts`/root `resolvePlaces.ts`).
+
+**All three minors FIXED before commit:**
+1. `usePipeline.ts:51`'s optimistic first frame still said "Reading your links…", contradicting
+   STATE.md's "copy reworded links→places throughout" — reworded; the claim is now true.
+2. **A real bug the greedy month-prefix regex introduced:** `MONTH_WORD` used `jan\w*`-style
+   prefixes, so `"10 Novena"`, `"2 Marina"` and `"5 Augusta"` were all consumed as day markers,
+   silently costing those lines their stop (Novena and Marina Bay are Singapore districts — this
+   would have bitten a real paste). `"Marina 12"` was already a false positive on `main` in the
+   month-first branch. Replaced with explicit `jan(?:uary)?|…` alternations, which fixes the
+   pre-existing case too and makes the old `may`/`maybe` special-case unnecessary. Regression
+   tests added for all six false positives plus four true positives. (`resolveDayDate` had always
+   refused to date these, so no wrong date was ever produced — the cost was the dropped stop.)
+3. Deviation 7 above, previously undeclared.
+
+**Observations recorded, not fixed (none are M1 regressions):**
+- **CARRY-FORWARD to M3.5 (important):** `app/api/trips/[id]/resolve/route.ts` is pre-existing and
+  unchanged — it passes arbitrary client strings, including bare names, to `resolvePlaces` with NO
+  entitlements consult. Harmless today (the stub is all-on; the route is capped at 40 and
+  rate-limited), but when the free tier turns `interpret.names` off, **this route is a paywall
+  bypass for name resolution**. M3.5 must gate it. The pipeline checkpoint's "single place money is
+  spent" comment is true of the pipeline, not yet of the whole product.
+- The fixture parse adapter's substring scan emits a `placeQuery` for a note that merely *contains*
+  a fixture place name ("avoid market hall today, too crowded"). Test-path only, $0, unreachable in
+  production. The M1.8 e2e's "note is not a stop" assertion holds only because that note names no
+  fixture place — worth remembering if that test is ever extended.
+- `rateLimit.ts` has no unit tests and no-ops without KV env, so M1.7's "11th call → 429" and the
+  20KB/413 cap are verified by inspection only. Both remain CHRIS-VERIFY items on prod.
+
+**Auditor could not verify (honest limits):** live LLM prompt-rule quality (no key, by design — the
+CHRIS-STEP eyeball is the only check); the rate limiter against real KV; the real maps adapter's
+handling of `placeQuery` (never constructed); and the "was 130/26" baselines, which would have
+required checking out `main`.
+
+## One implementation note worth keeping
+
+The old D2.2 "no stop-id dedup" gap is now partly closed at a different layer: two items whose
+query string is IDENTICAL are billed once and fanned back to both. Two DIFFERENT queries that
+resolve to the same place are still handled downstream by `markDuplicateStops` (unchanged, and
+still the right place for it).
+
+## NOT DONE — outstanding before this can merge
+
+- **M1.9's fresh-context audit has NOT been run** (no subagent was launched this session). All
+  gates are green and re-derived, but nothing has independently reviewed this diff against the
+  spec. Required before merge per the protocol.
+- **Nothing is committed.** Branch `m1-interpretation` holds the work in the working tree.
+- **CHRIS-VERIFY (exit criterion, prod):** paste a real text-only 2-day itinerary with
+  `ANTHROPIC_API_KEY` live → correct days/pins/anchors; rate limit visible in KV metrics. The LLM
+  adapter's new prompt rules 9/10 remain **UNVERIFIED against the live API by design** — no key
+  was exercised here.
+- `.gitignore` carries an uncommitted Vercel CLI edit (`.vercel`, `.env*`) from linking the
+  project during this session's scouting.

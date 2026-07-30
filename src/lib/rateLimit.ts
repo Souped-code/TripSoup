@@ -4,7 +4,7 @@
 //
 // Key scheme: rl:{route}:{ip}:{Math.floor(Date.now()/3600000)}
 // Commands:   [["INCR", key], ["EXPIRE", key, "3600", "NX"]]
-// Allow if count <= 20 (per-IP, per-hour, per route).
+// Allow if count <= the route's limit (per-IP, per-hour, per route).
 //
 // NOTE — deviation from plan: the plan names @upstash/ratelimit as the
 // implementation library. Repo convention (ITINERARY-HANDOVER.md §8: minimum
@@ -12,12 +12,21 @@
 // implementation. This zero-dependency fixed window is functionally equivalent.
 // Recorded as a deviation in STATE.md.
 
-const LIMIT = 20;
+const DEFAULT_LIMIT = 20;
+
+// Per-route hourly ceilings. The pipeline is deliberately tighter (M1.7): one
+// paste can now fan out to `maxStops` billed Places lookups AND a billed LLM
+// parse, so it is by far the most expensive route to hammer. `resolve` and
+// `plan` stay at the default — they act on an already-bounded trip doc.
+const ROUTE_LIMITS: Record<string, number> = {
+  pipeline: 10,
+};
 
 export async function checkRateLimit(
   route: string,
   req: Request
 ): Promise<{ limited: boolean }> {
+  const limit = ROUTE_LIMITS[route] ?? DEFAULT_LIMIT;
   const url = process.env.KV_REST_API_URL;
   const token = process.env.KV_REST_API_TOKEN;
   // No-op when KV is not provisioned — dev, jest, and Playwright are unaffected.
@@ -44,7 +53,7 @@ export async function checkRateLimit(
     });
     if (!res.ok) return { limited: false };
     const [{ result: count }] = (await res.json()) as [{ result: number }, unknown];
-    return { limited: count > LIMIT };
+    return { limited: count > limit };
   } catch {
     return { limited: false };
   }
