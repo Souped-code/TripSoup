@@ -1,0 +1,102 @@
+{
+  "name": "National Gallery Singapore",
+  "hours": {
+    "openNow": true,
+    "periods": [
+      {
+        "open": {
+          "day": 0,
+          "hour": 10,
+          "minute": 0
+        },
+        "close": {
+          "day": 0,
+          "hour": 19,
+          "minute": 0
+        }
+      },
+      {
+        "open": {
+          "day": 1,
+          "hour": 10,
+          "minute": 0
+        },
+        "close": {
+          "day": 1,
+          "hour": 19,
+          "minute": 0
+        }
+      },
+      {
+        "open": {
+          "day": 2,
+          "hour": 10,
+          "minute": 0
+        },
+        "close": {
+          "day": 2,
+          "hour": 19,
+          "minute": 0
+        }
+      },
+      {
+        "open": {
+          "day": 3,
+          "hour": 10,
+          "minute": 0
+        },
+        "close": {
+          "day": 3,
+          "hour": 19,
+          "minute": 0
+        }
+      },
+      {
+        "open": {
+          "day": 4,
+          "hour": 10,
+          "minute": 0
+        },
+        "close": {
+          "day": 4,
+          "hour": 19,
+          "minute": 0
+        }
+      },
+      {
+        "open": {
+          "day": 5,
+          "hour": 10,
+          "minute": 0
+        },
+        "close": {
+          "day": 5,
+          "hour": 19,
+          "minute": 0
+        }
+      },
+      {
+        "open": {
+          "day": 6,
+          "hour": 10,
+          "minute": 0
+        },
+        "close": {
+          "day": 6,
+          "hour": 19,
+          "minute": 0
+        }
+      }
+    ],
+    "weekdayDescriptions": [
+      "Monday: 10:00 AM – 7:00 PM",
+      "Tuesday: 10:00 AM – 7:00 PM",
+      "Wednesday: 10:00 AM – 7:00 PM",
+      "Thursday: 10:00 AM – 7:00 PM",
+      "Friday: 10:00 AM – 7:00 PM",
+      "Saturday: 10:00 AM – 7:00 PM",
+      "Sunday: 10:00 AM – 7:00 PM"
+    ],
+    "nextCloseTime": "2026-08-10T11:00:00Z"
+  }
+}
