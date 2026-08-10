@@ -2110,3 +2110,26 @@ Monday-closed venue on a Monday → the "Heads up — X looks closed" note appea
 
 NEXT: E5 — the engine port (promote spike/alns.ts behind SolverEngine; conflicts+proposals;
 SSE progress; hybrid exhaustive ≤9; cheap toggle path per the E4 audit carry-forward).
+
+## E5a — ENGINE CORE COMPLETE (2026-08-10, commit 546d1d9)
+
+`src/lib/engine/` [Opus·xhigh]: the race-winning ALNS behind the SolverEngine port. ConstraintSet
+via stopKeys(); LOCKED effective-matrix travel (decide-then-offer preserved, leg identity
+asserted `toBe`); hours day-concrete and HARD at problem build; DayPlan wire shape unchanged;
+conflicts + proposals with test-applied patches (apply → re-solve → conflict gone, proven).
+Differential: exhaustive floor reproduces planDay EXACTLY on old-class days (incl. 8!/9!
+enumerations + a 12-stop/2-anchor day). Byte-deterministic per (doc, seed, iterCap) across
+processes. Perf: dense 40×7 in 6.5s of a 30s budget (audit-measured).
+
+Fable·xhigh audit: COMMIT-READY-WITH-FIXES, 0 blocking. Fixed pre-commit: iterCap now truly
+machine-independent (Infinity-budget→0 coercion + clock break removed); exhaustive gate widened
+to per-RUN width (multi-anchor plan churn averted, +differential case); itemised softViolations
+exported (old cross-day-precedence margin note survives into E6).
+
+**E5b MUST-DO (audit handoff):** (1) solveHash gains stop.hours THE MOMENT the engine is wired
+— it consumes them, staleness detection lies otherwise; (2) surface conflicts as margin notes
+minimally before hoursFromDoc runs in prod (cards are E6); (3) pass finite generous budgets
+alongside iterCap; (4) per-day matrix pair-completeness validation at the planService seam;
+(5) decide quality-regression harness vs spike baselines (own or waive). Dormant-until-E7:
+soft blocks over-enforced (search.ts pushAfterBlocks ignores hardness); soft windows don't
+steer slot selection.
