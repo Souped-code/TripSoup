@@ -8,7 +8,19 @@ Web app that turns a pile of Google Maps links into an optimized multi-day group
 
 Users collect stops as Google Maps links. The app resolves them to places, builds a travel time matrix, and optimizes the visit order within each day — respecting fixed bookings. Output is a shareable day-by-day plan with times and travel legs, good enough to run a 10-person group trip from.
 
-Core mental model — **LOCKED**:
+> **⚠ E0 AMENDMENT (2026-08-10, Chris-approved engine roadmap — see
+> `~/.claude/plans/shimmering-rolling-minsky.md` + STATE.md):** §1's mental model and §2's solver
+> are **UNLOCKED FOR REPLACEMENT**. The constraint set the product now targets (opening hours,
+> time WINDOWS instead of point anchors, soft constraints/priorities, pace, multi-day stop
+> assignment at ~40 stops / 5–7 days) cannot be carried by the segment decomposition or the
+> exhaustive+2-opt method locked below. The old behaviour contract survives as TESTS the new
+> engine must pass where still applicable: decide-then-offer walk/drive semantics with per-leg
+> toggle that re-times without re-ordering; structured infeasibility (upgraded from dead-end to
+> trade-off proposals); ≤9-stop optimality via brute-force differential; seeded determinism
+> (plans now PERSIST on the doc — share pages read, not recompute). §3 (maps boundary, cost
+> control) and the resolve checkpoint remain LOCKED and unweakened.
+
+Core mental model — **LOCKED** *(superseded per the E0 amendment above — kept for history)*:
 
 - **Stop**: a resolved place with an estimated visit duration.
 - **Anchor**: a stop with a fixed start time (a booking — restaurant reservation, show, checked-in activity). Anchors are immovable, and they are computational gifts: each one chops the day into smaller independent problems.
@@ -16,7 +28,7 @@ Core mental model — **LOCKED**:
 
 Non-goals for v1: multi-city routing between days, hotel/flight booking, collaborative live editing, user accounts, transit mode (v1 is driving with automatic walk legs for short hops), weather, budgeting.
 
-## 2. Solver — **LOCKED**
+## 2. Solver — **LOCKED** *(superseded per the E0 amendment in §1 — kept for history; behaviour contract preserved as tests)*
 
 A pure TypeScript function, no I/O: `optimize(segment, matrix, constraints) → { order, schedule, quality }`. The matrix it consumes is the **effective matrix**, built per stop pair: a pair is *walk-eligible* when the local walking estimate (§3) ≤ `walkMax` (default 10 min — a user-facing comfort setting, shipped in v1). For eligible pairs the mode is whichever is faster of walk time versus drive time + `driveOverheadMin` (default 10, settings — the hail/load/park cost that raw API times omit and that makes short drives absurd for a 10-person group). Ineligible pairs always drive at raw drive time. **Decide-then-offer**: the solver's choice sets the ordering, but eligible legs retain BOTH times (`{ mode, walkMin, driveMin, chosenBy: 'auto' | 'user' }`) so the UI can show them side by side with a per-leg toggle; a user toggle re-times the schedule downstream without re-ordering, and persists. Schedule math always uses the effective time of the active mode (walk = walk estimate; drive = drive + overhead).
 
