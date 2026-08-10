@@ -2084,3 +2084,29 @@ regularOpeningHours payloads for E3's parser goldens. The over-midnight bar retu
 field: absence is a real production case.
 
 E3 (hours plumbing) in flight [Sonnet·high].
+
+## E3 — OPENING HOURS COMPLETE (2026-08-10, commit 4ae1346)
+
+Google's regularOpeningHours now survives all 7 death points: parseGoogleHours (never throws) →
+TripStop.hours → advisory marginNotes in savePlanned + pipeline → rendered in JournalSidebar/
+ShareTimeline (marginNotes were previously rendered NOWHERE — cross-day precedence advisories
+became visible too). Parser goldens hand-derived from the 5 real captured payloads; the builder
+caught that the corpus FILENAMES were wrong (National Gallery is open Mondays; Burnt Ends is the
+real Mon+Sun-closed case) and derived from content. Weekday conversion (Google 0=Sun vs ISO
+0=Mon) audit-verified via four independent representations. Fixture city carries raw-Google-shape
+hours on 4 stops so the real parser runs in fixture mode. Timezone v1: single-tz consistent by
+construction; mixed-tz downgrade = E5 TODO. hours deliberately excluded from solveHash until E5
+consumes them (regression-pinned).
+
+Fable·xhigh audit: **COMMIT-READY — first clean verdict (0 majors)**. Post-audit hardenings:
+NaN-weekday guard (no more "closed on undefineds" from a hand-crafted PUT), solveHash-invariance
+test, stale comment retargets. E5 carry-notes: semantic range checks on hours at the PUT
+boundary; over-midnight-visit false-positive class when hours become load-bearing; lastEntryMin
+is NEVER in regularOpeningHours (verified against the Flower Dome capture) — needs a different
+source if the product wants real last-entry data.
+
+**CHRIS-VERIFY (prod, when back):** paste a real itinerary with a real date landing a
+Monday-closed venue on a Monday → the "Heads up — X looks closed" note appears in the sidebar.
+
+NEXT: E5 — the engine port (promote spike/alns.ts behind SolverEngine; conflicts+proposals;
+SSE progress; hybrid exhaustive ≤9; cheap toggle path per the E4 audit carry-forward).
