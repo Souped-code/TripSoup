@@ -2040,3 +2040,47 @@ budget-aware ALNS iteration cap, above.
 
 E1 CLOSED. E2 (constraint model) built [Opus·high], 32 new tests, fast-check seeds pinned after
 an unseeded-flake catch by the orchestrator — Fable·xhigh audit in flight. E3 next.
+
+## E4 — PLAN PERSISTENCE COMPLETE (2026-08-10, commit 01b2aad)
+
+Plans are persisted state: `TripDoc.plan? {version, engine{name,version,seed}, computedAt,
+solveHash, days}`. savePlanned = the only from-scratch compute path; readPlanned never computes
+except one-time lazy heal (legacy/stale docs, incl. share — matrix cached, not a spend);
+solveHash covers exactly the solve-relevant projection (EXCLUDES legOverrides + display fields);
+fileStore.put throws on stale hash (dev/test loud), kvStore permissive (prod self-heals).
+RevealClient: one PUT per mutation (follow-up POST /plan + replanAll deleted). validManualOrder
+3 copies → 1 (planShared.ts). Share e2e asserts ZERO /plan requests on load.
+
+Fable·xhigh audit: COMMIT-READY-WITH-FIXES, staleness-path table clean (every write restamps or
+writes plan-less→lazy-heal). MAJOR fixed pre-commit: transient solve failures were persisted
+forever (rejected day + matching hash = served on every read, no retry; pre-E4 recomputed each
+load) → readPlanned retries rejected-day plans aged past 5min (hot-loop guard). Also closed the
+audit's hash-matrix gaps (+4 tests). CARRY-FORWARD to E5: leg toggles need the cheap re-time
+path once solves cost 10-30s (today full re-solve is observably identical — deterministic
+engine). PARKED for M3 hardening: PUT is not rate-limited but now costs N solves.
+
+## E2 — CONSTRAINT MODEL COMPLETE (2026-08-10, commit 196bfbc)
+
+`src/lib/constraints/`: the production constraint vocabulary [built Opus·high]. Constraint<T>
+envelope carrying provenance {source, confirmed?} + hardness (hard | soft{weight}) on EVERY
+assertion; merge precedence user 100 > llm-confirmed 80 > google 60 > llm-unconfirmed 40 >
+derived 20 > legacy 0, later-equal-wins; ListConstraint per-item provenance (E6's "whose
+constraint"); canonical relation ids (symmetric kinds sort endpoints). pinnedDay typed so
+single-day→multi-day is a hardness VALUE change — the anti-remodel invariant, audit-verified.
+compileFromDoc: anchors → hard [t,t] windows; same-day precedence hard, cross-day soft-50;
+every stop must+hard-pinned+medium-effort; manualOrder/legOverrides provably NOT modelled.
+
+Fable·xhigh audit: COMMIT-READY-WITH-FIXES. MAJOR fixed pre-commit: cross-day repeat visits
+(same bare id on two days — pipeline.ts explicitly blesses this) collapsed to first-occurrence-
+owns, silently dropping the later visit's anchor. Now occurrence-keyed via exported stopKeys()
+(bare id first, `id@dN` later) — E5's problem builder MUST use stopKeys() so set keys and node
+ids can never diverge. Minors fixed: winner() null/provenance-less tolerance; __proto__ patch-
+key guard. Orchestrator caught an unseeded fast-check flake pre-audit → seeds pinned 421/422.
+35 constraint tests. E2 audit design note for E7: ConstraintPatch.days is positional — day
+insertion/reorder can retarget a persisted patch; E7's validation layer owns this.
+
+Also captured (1 billed run, 5 lookups): `src/lib/maps/__fixtures__/hours/` — real Google
+regularOpeningHours payloads for E3's parser goldens. The over-midnight bar returned NO hours
+field: absence is a real production case.
+
+E3 (hours plumbing) in flight [Sonnet·high].
