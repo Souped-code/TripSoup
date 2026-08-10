@@ -158,6 +158,32 @@ describe("runPipeline", () => {
     ]);
   });
 
+  // E3 — hours threaded end to end through the REAL parser: fixtureAdapter.ts
+  // mirrors fx-03's hand-written raw Google shape as Stop.openingHours, and
+  // pipeline.ts's assembly parses it via the same parseGoogleHours production
+  // uses (never a fixture-only shortcut).
+  it("attaches parsed opening hours from the fixture adapter's raw payload, and warns on a Monday visit", async () => {
+    const { result } = await drive("16 March 2026\nGuildhall Museum");
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+
+    const stop = result.doc.days[0].stops.find((s) => s.id === "fx-03");
+    expect(stop?.hours).toBeDefined();
+    expect(stop!.hours!.byWeekday[0]).toEqual([]); // Monday (ISO index 0) — closed
+    expect(stop!.hours!.byWeekday[1]).toEqual([{ startMin: 540, endMin: 1020 }]); // Tuesday
+
+    // 16 March 2026 is a real, verified Monday — no dayLabel, so the advisory
+    // check runs and the FIRST solve already carries the warning (not just a
+    // later re-plan through planStore.savePlanned).
+    expect(result.doc.days[0].dayLabel).toBeUndefined();
+    const day0 = result.plans[0];
+    expect(day0.status).toBe("ok");
+    if (day0.status !== "ok") return;
+    expect(day0.marginNotes).toEqual([
+      "Heads up — Guildhall Museum looks closed on Mondays.",
+    ]);
+  });
+
   it("succeeds with an empty parse (no days, no items) and still reaches pct 100", async () => {
     const { progress, result } = await drive("");
     expect(progress[progress.length - 1].pct).toBe(100);

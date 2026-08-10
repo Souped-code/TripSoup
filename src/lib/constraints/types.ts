@@ -1,5 +1,5 @@
 // E2 — the production constraint model. This is the vocabulary every later
-// milestone speaks: E3 fills `hours`, E5's engine consumes a ConstraintSet,
+// milestone speaks: E3 filled TripStop.hours (advisory-only); E5's engine consumes a ConstraintSet,
 // E6 renders conflicts back through `provenance`, E7's LLM emits a
 // ConstraintPatch. Promoted from `spike/ir.ts` with what the E1 spike taught.
 //
@@ -68,7 +68,7 @@ export type Window = { startMin: Minutes; endMin: Minutes };
 /** Per-weekday open intervals, 0 = Monday .. 6 = Sunday (ISO). An empty array
  * means closed that weekday. `lastEntryMin` caps the latest allowed START
  * ("last entry 16:30"). `closedDates` are ISO dates (YYYY-MM-DD) that override
- * `byWeekday` to closed — public holidays, annual maintenance closures; E3
+ * `byWeekday` to closed — public holidays, annual maintenance closures; E5
  * fills it from Google's `specialDays`/`regularOpeningHours`. */
 export type WeeklyHours = {
   byWeekday: ReadonlyArray<ReadonlyArray<Window>>; // length 7
@@ -259,7 +259,7 @@ export type StopConstraints = {
   /** Constrains the visit's START, not its arrival and not its departure. A
    * legacy anchor compiles to the degenerate window [t, t]. */
   window?: Constraint<Window>;
-  /** Weekly opening hours; E3 fills these from Google. Semantics: spike
+  /** Weekly opening hours; E3 landed the Google parser (openingHours.ts) — E5 wires them here via compileFromDoc. Semantics: spike
    * learning 2 (whole visit inside ONE interval; lastEntryMin caps the start). */
   hours?: Constraint<WeeklyHours>;
   duration: Constraint<DurationRange>;
@@ -290,11 +290,11 @@ export type DayConstraints = {
   paceBudget?: Constraint<PaceBudget>;
 };
 
-// NOTE (deliberate omission, E3 owns it): DayConstraints carries no `date` or
+// NOTE (deliberate omission, E5 owns it): DayConstraints carries no `date` or
 // `weekday`, even though WeeklyHours must be intersected against a weekday to
 // become day-concrete. M1.5 docs can carry an INERT placeholder date (see
 // TripDay.dayLabel), so a `weekday` derived here would be a confident lie on
-// exactly the trips where hours matter least. E3 decides how a label-only day
+// exactly the trips where hours matter least. E5 decides how a label-only day
 // resolves its weekday, and adds the field then — additively.
 
 // ---------------------------------------------------------------------------

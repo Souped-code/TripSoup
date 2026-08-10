@@ -12,6 +12,18 @@
 // order via planTripDay's existing legOverrides machinery — no full re-solve
 // needed) and every display-only field (stop name/address/source/
 // duplicateOf, day dayLabel) — none of those affect what the solver decides.
+//
+// E3 DECISION: stop.hours (WeeklyHours, src/lib/store/types.ts) is ALSO
+// excluded here, deliberately. The current engine (src/lib/schedule/
+// schedule.ts) never reads hours at all — E3 only threads them to an
+// advisory margin-note check (src/lib/plan/hoursAdvisory.ts) that runs
+// AFTER the solve, on the already-computed plan. Including hours in the
+// projection would stale every previously-stored plan's solveHash for a
+// field the solver structurally ignores — a recompute with zero behaviour
+// change. E5 MUST add stop.hours (and any other new constraint field it
+// starts consuming) to SolveProjectionStop/solveProjection the moment its
+// engine actually reads them, or a hours-only edit will silently serve a
+// stale plan.
 
 import type { LatLng } from "../maps/types";
 import type { TripDay, TripDoc } from "../store/types";

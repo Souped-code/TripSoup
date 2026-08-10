@@ -189,6 +189,15 @@ export function ShareTimeline({ day, plan, orderedIds }: ShareTimelineProps) {
             {marginMessage}
           </p>
         )}
+
+        {/* E3 — same minimal render as JournalSidebar's sidebar-hours-note,
+            read-only mirror (src/lib/plan/hoursAdvisory.ts). */}
+        {plan.status === "ok" &&
+          plan.marginNotes?.map((note, i) => (
+            <p key={i} className="reveal-margin-note" data-testid="share-hours-note">
+              {note}
+            </p>
+          ))}
       </div>
     </aside>
   );

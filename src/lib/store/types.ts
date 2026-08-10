@@ -4,6 +4,7 @@
 
 import type { LatLng } from "../maps/types";
 import type { DayPlan } from "../schedule/types";
+import type { WeeklyHours } from "../constraints/types";
 
 export type TripStop = {
   id: string; // place_id (fixture or Google); a same-day duplicate occurrence
@@ -24,6 +25,18 @@ export type TripStop = {
   // its "duplicate of Stop N — remove if accidental" affordance from this
   // field, and the user decides whether the repeat was intentional.
   duplicateOf?: string;
+  // E3 — Google's regularOpeningHours (resolvePlaces.ts's `Stop.openingHours`),
+  // parsed via src/lib/maps/openingHours.ts's parseGoogleHours and attached
+  // only when non-null. Additive/optional — absent on pre-E3 docs and on any
+  // stop whose payload had no usable hours. Consumed today ONLY as an
+  // advisory (src/lib/plan/hoursAdvisory.ts, via planStore.savePlanned /
+  // pipeline.ts): a planned visit outside these hours produces a margin note,
+  // never a solver constraint — E5 is what makes hours load-bearing on the
+  // solve itself. Deliberately EXCLUDED from solveHash (see
+  // src/lib/plan/solveProjection.ts's header comment) — the current engine
+  // never reads it, so including it would stale every stored plan for zero
+  // behaviour change.
+  hours?: WeeklyHours;
 };
 
 export type TripDay = {

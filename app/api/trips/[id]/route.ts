@@ -5,6 +5,7 @@
 import { NextResponse } from "next/server";
 import { getTripStore } from "@/lib/config";
 import { savePlanned } from "@/lib/planStore";
+import { isValidWeeklyHoursShape } from "@/lib/maps/openingHours";
 import type { TripDoc } from "@/lib/store/types";
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -38,6 +39,10 @@ function malformed(doc: TripDoc, id: string): string | null {
       // markDuplicateStops). Validated like every other optional stop field.
       if (s.duplicateOf !== undefined && typeof s.duplicateOf !== "string")
         return "stop duplicateOf";
+      // E3: additive/optional — reject a hand-crafted or corrupted hours
+      // payload at the boundary rather than let it reach the advisory check
+      // (src/lib/plan/hoursAdvisory.ts) or the constraint compiler malshaped.
+      if (s.hours !== undefined && !isValidWeeklyHoursShape(s.hours)) return "stop hours";
     }
     if (day.precedence !== undefined) {
       if (!Array.isArray(day.precedence)) return "day precedence";

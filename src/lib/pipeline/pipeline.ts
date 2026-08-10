@@ -17,6 +17,8 @@ import { getMapsProvider, getTripStore } from "../config";
 import { getEntitlements, type Entitlements } from "../entitlements/entitlements";
 import { planTripDay } from "../planService";
 import { persistPlanned } from "../planStore";
+import { applyHoursAdvisories } from "../plan/hoursAdvisory";
+import { parseGoogleHours } from "../maps/openingHours";
 import type { TripDoc, TripDay, TripStop } from "../store/types";
 import type { DayPlan } from "../schedule/types";
 import type { Failure, Stop } from "../../../resolvePlaces";
@@ -398,6 +400,13 @@ export async function* runPipeline(
         source: stop.source,
       };
 
+      // E3 — Google's regularOpeningHours (or the fixture adapter's mirror of
+      // it — see fixtureAdapter.ts), parsed and attached only when usable.
+      // parseGoogleHours never throws, so a malformed payload here degrades
+      // to "no hours known" rather than failing the resolve.
+      const hours = parseGoogleHours(stop.openingHours);
+      if (hours) tripStop.hours = hours;
+
       const anchorMin =
         item.anchorLikely && item.timeHint ? parseTimeHint(item.timeHint) : null;
       if (anchorMin !== null) tripStop.anchor = { startMin: anchorMin };
@@ -521,15 +530,28 @@ export async function* runPipeline(
       plans.push(plan);
     }
 
+    // E3 — advisory-only opening-hours warnings on the plans just computed
+    // (see hoursAdvisory.ts's header for why this runs here rather than
+    // inside persistPlanned/stampPlan). This is the trip's FIRST solve, so
+    // it must get the same treatment planStore.savePlanned gives every
+    // later re-plan, or a fresh paste would never show the warning.
+    const plansWithAdvisories = applyHoursAdvisories(doc, plans);
+
     // E4 — persist the plans just computed above (never recompute: they were
     // already paid for) so the doc lands WITH its plan instead of the old
     // compute-then-discard-then-recompute-on-first-read pattern. plannedDoc
     // is what's now actually in the store — return THAT, not the pre-plan
     // `doc`, so callers (and pipeline.test.ts's persisted-doc round-trip
     // assertion) see the same thing the store holds.
-    const plannedDoc = await persistPlanned(doc, plans);
+    const plannedDoc = await persistPlanned(doc, plansWithAdvisories);
 
-    return { status: "ok", tripId, doc: plannedDoc, plans, failures: resolveResult.failures };
+    return {
+      status: "ok",
+      tripId,
+      doc: plannedDoc,
+      plans: plansWithAdvisories,
+      failures: resolveResult.failures,
+    };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { status: "error", stage, message };

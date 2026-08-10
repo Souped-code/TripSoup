@@ -17,6 +17,7 @@ import type { DayPlan } from "@/lib/schedule/types";
 import type { Failure } from "../../../resolvePlaces";
 import { PlanView } from "@/ui/PlanView";
 import { fmtTime, parseTime } from "@/ui/time";
+import { parseGoogleHours } from "@/lib/maps/openingHours";
 
 export function TripBoard({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -73,6 +74,10 @@ export function TripBoard({ params }: { params: Promise<{ id: string }> }) {
         if (existing.has(s.id) || fresh.some((f) => f.id === s.id)) {
           dupes.push({ source: s.source ?? s.name, reason: "already on this day" });
         } else {
+          // E3 — parseGoogleHours is pure (no I/O) and safe to run client-side;
+          // preserves the resolved raw openingHours as TripStop.hours the same
+          // way pipeline.ts's assembly does server-side.
+          const hours = parseGoogleHours(s.openingHours);
           fresh.push({
             id: s.id,
             name: s.name,
@@ -80,6 +85,7 @@ export function TripBoard({ params }: { params: Promise<{ id: string }> }) {
             address: s.address,
             durationMin: 60,
             source: s.source,
+            ...(hours ? { hours } : {}),
           });
         }
       }

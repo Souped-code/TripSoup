@@ -11,10 +11,23 @@ import * as planServiceModule from "../planService";
 import { getTripStore } from "../config";
 import type { TripDoc, TripStop } from "../store/types";
 import { FIXTURE_STOPS } from "../maps/fixtureCity";
+import { parseGoogleHours } from "../maps/openingHours";
 
 const stop = (id: string, extra: Partial<TripStop> = {}): TripStop => {
   const f = FIXTURE_STOPS.find((s) => s.id === id)!;
-  return { id: f.id, name: f.name, location: f.location, durationMin: 60, ...extra };
+  // E3 — mirrors pipeline.ts's assembly: fixtureCity.ts's `.hours` is the raw
+  // Google-shape mirror (FixtureGoogleHours), parsed through the REAL
+  // parseGoogleHours here too, exactly like production, rather than a
+  // test-only shortcut.
+  const hours = f.hours ? parseGoogleHours(f.hours) : null;
+  return {
+    id: f.id,
+    name: f.name,
+    location: f.location,
+    durationMin: 60,
+    ...(hours ? { hours } : {}),
+    ...extra,
+  };
 };
 
 // Four walkable old-town stops -> always feasible in the fixture city.
@@ -390,6 +403,53 @@ describe("planStore (E4)", () => {
     await expect(getTripStore().put(tampered)).rejects.toThrow(/solveHash is stale/);
   });
 
+  // ---------------------------------------------------------------- E3 hours advisory
+
+  describe("savePlanned — opening-hours advisory (E3)", () => {
+    // Guildhall Museum (fx-03) is hand-written in fixtureCity.ts as
+    // Monday-closed, open 09:00-17:00 the rest of the week.
+    const guildhall = FIXTURE_STOPS.find((f) => f.id === "fx-03")!;
+
+    it("adds a margin note for a stop visited on its closed weekday", async () => {
+      const doc = baseDoc("t-hours-closed", {
+        date: "2026-03-16", // a real, verified Monday
+        stops: [stop("fx-03")],
+      });
+      const saved = await savePlanned(doc);
+      const day0 = saved.plan!.days[0];
+      expect(day0.status).toBe("ok");
+      if (day0.status !== "ok") return;
+      expect(day0.marginNotes).toEqual([
+        `Heads up — ${guildhall.name} looks closed on Mondays.`,
+      ]);
+    });
+
+    it("adds no margin note when the stop is open at the visited time", async () => {
+      const doc = baseDoc("t-hours-open", {
+        date: "2026-03-17", // the following Tuesday — fx-03 is open 09:00-17:00
+        stops: [stop("fx-03")],
+      });
+      const saved = await savePlanned(doc);
+      const day0 = saved.plan!.days[0];
+      expect(day0.status).toBe("ok");
+      if (day0.status !== "ok") return;
+      expect(day0.marginNotes ?? []).toEqual([]);
+    });
+
+    it("skips the check when the day carries a dayLabel, even on a closed weekday date", async () => {
+      const doc = baseDoc("t-hours-label", {
+        date: "2026-03-16", // Monday — would otherwise trigger the note
+        dayLabel: "Day 1",
+        stops: [stop("fx-03")],
+      });
+      const saved = await savePlanned(doc);
+      const day0 = saved.plan!.days[0];
+      expect(day0.status).toBe("ok");
+      if (day0.status !== "ok") return;
+      expect(day0.marginNotes ?? []).toEqual([]);
+    });
+  });
+
   it("fileStore.put allows a doc with a correct solveHash, and one with no plan at all", async () => {
     const doc = baseDoc("t-invariant-ok");
     const saved = await savePlanned(doc); // already round-tripped through put() once, successfully
@@ -399,4 +459,23 @@ describe("planStore (E4)", () => {
     const withoutPlan = baseDoc("t-invariant-ok-2");
     await expect(getTripStore().put(withoutPlan)).resolves.toBeUndefined();
   });
+});
+
+// E3 audit minor 3: the no-mass-staleness argument rests on hours being
+// OUTSIDE the solve projection until E5's engine consumes them. Pin it.
+it("adding hours to a stop leaves solveHash unchanged (E3 — hours are advisory-only)", () => {
+  const plain = baseDoc("t-hours-hash");
+  const withHours: TripDoc = {
+    ...plain,
+    days: [
+      {
+        ...plain.days[0],
+        stops: plain.days[0].stops.map((s) => ({
+          ...s,
+          hours: { byWeekday: [[], [], [], [], [], [], []] },
+        })),
+      },
+    ],
+  };
+  expect(computeSolveHash(withHours)).toBe(computeSolveHash(plain));
 });

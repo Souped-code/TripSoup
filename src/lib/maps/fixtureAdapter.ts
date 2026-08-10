@@ -85,6 +85,10 @@ export function createFixtureAdapter(): MapsProvider {
             location: match.location,
             address: match.address,
             source: input,
+            // E3 — mirrors resolvePlaces.ts's `openingHours: p.regularOpeningHours`:
+            // the raw Google-shape payload, so the REAL parseGoogleHours path
+            // (not fixture-only logic) runs end to end in fixture mode too.
+            ...(match.hours ? { openingHours: match.hours } : {}),
           });
         } else {
           failures.push({ source: input, reason: "no match in fixture city" });

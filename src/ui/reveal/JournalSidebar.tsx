@@ -233,6 +233,17 @@ export function JournalSidebar({
           </p>
         )}
 
+        {/* E3 — advisory opening-hours warnings (src/lib/plan/hoursAdvisory.ts).
+            Distinct testid from sidebar-margin-note above: these are
+            per-visit advisories on an OK plan, not the single
+            infeasible/rejected/actionError framing that block covers. */}
+        {plan.status === "ok" &&
+          plan.marginNotes?.map((note, i) => (
+            <p key={i} className="reveal-margin-note" data-testid="sidebar-hours-note">
+              {note}
+            </p>
+          ))}
+
         {/* T7 — §2 LOCKED surface: the planner's notes pocket. */}
         <details className="reveal-pocket" data-testid="sidebar-pocket">
           <summary>planner&rsquo;s notes</summary>

@@ -9,6 +9,7 @@
 import { getTripStore } from "./config";
 import { planTripDay } from "./planService";
 import { computeSolveHash } from "./plan/solveProjection";
+import { applyHoursAdvisories } from "./plan/hoursAdvisory";
 import type { DayPlan } from "./schedule/types";
 import type { TripDoc } from "./store/types";
 
@@ -64,7 +65,10 @@ export async function savePlanned(doc: TripDoc): Promise<TripDoc> {
       }
     })
   );
-  return persistPlanned(doc, days);
+  // E3 — advisory-only opening-hours warnings, applied to the freshly
+  // computed plans BEFORE they're persisted (see hoursAdvisory.ts's header
+  // for why this isn't inside persistPlanned/stampPlan itself).
+  return persistPlanned(doc, applyHoursAdvisories(doc, days));
 }
 
 // Read the stored plan, self-healing exactly once when it's missing or stale:
