@@ -16,6 +16,7 @@ import { parseItinerary } from "../parse/parseItinerary";
 import { getMapsProvider, getTripStore } from "../config";
 import { getEntitlements, type Entitlements } from "../entitlements/entitlements";
 import { planTripDay } from "../planService";
+import { persistPlanned } from "../planStore";
 import type { TripDoc, TripDay, TripStop } from "../store/types";
 import type { DayPlan } from "../schedule/types";
 import type { Failure, Stop } from "../../../resolvePlaces";
@@ -520,7 +521,15 @@ export async function* runPipeline(
       plans.push(plan);
     }
 
-    return { status: "ok", tripId, doc, plans, failures: resolveResult.failures };
+    // E4 — persist the plans just computed above (never recompute: they were
+    // already paid for) so the doc lands WITH its plan instead of the old
+    // compute-then-discard-then-recompute-on-first-read pattern. plannedDoc
+    // is what's now actually in the store — return THAT, not the pre-plan
+    // `doc`, so callers (and pipeline.test.ts's persisted-doc round-trip
+    // assertion) see the same thing the store holds.
+    const plannedDoc = await persistPlanned(doc, plans);
+
+    return { status: "ok", tripId, doc: plannedDoc, plans, failures: resolveResult.failures };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { status: "error", stage, message };

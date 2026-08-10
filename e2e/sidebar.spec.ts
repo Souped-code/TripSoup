@@ -137,8 +137,8 @@ test("keyboard reorder moves a row, re-paths the map, and offers re-optimize", a
   await expect(map).toHaveAttribute("data-order", expectedOrder.join("|"), { timeout: 15000 });
   expect(await domRowOrder(page)).toEqual(expectedOrder);
 
-  // The mutation round-trip (PUT then POST /plan) completed: manual quality
-  // is now in effect, offering Re-optimize.
+  // The mutation round-trip (a single PUT, which now re-plans server-side —
+  // E4) completed: manual quality is now in effect, offering Re-optimize.
   await expect(page.getByTestId("sidebar-reoptimize")).toBeVisible();
   await expect(page.getByText(/Your order/)).toBeVisible();
 

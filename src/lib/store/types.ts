@@ -3,6 +3,7 @@
 // legOverrides; user-facing settings (walkMax, driveOverheadMin) on the doc.
 
 import type { LatLng } from "../maps/types";
+import type { DayPlan } from "../schedule/types";
 
 export type TripStop = {
   id: string; // place_id (fixture or Google); a same-day duplicate occurrence
@@ -55,11 +56,29 @@ export type LegOverride = {
   mode: "walk" | "drive";
 };
 
+// E4 — persisted plan state (src/lib/planStore.ts is the sole writer). The
+// engine used to be recomputed on every read (deterministic solver); E5
+// swaps the solver for a seeded time-budgeted engine, killing that
+// recompute-determinism, so plans must live as state on the doc instead.
+// Additive/optional like every prior field — absent on pre-E4 docs, which
+// planStore.readPlanned heals lazily on first read.
 export type TripDoc = {
   tripId: string;
   days: TripDay[];
   settings: { walkMax: number; driveOverheadMin: number };
   legOverrides: LegOverride[];
+  plan?: {
+    version: 1;
+    // The engine that produced `days` below. Today's solver is the only
+    // engine ("legacy-exhaustive"); E5 introduces a seeded alternative —
+    // `seed` is unused (stamped 0) until then.
+    engine: { name: string; version: string; seed: number };
+    computedAt: string; // ISO timestamp
+    // stableHash (../util/stableHash) of solveProjection(doc) — see
+    // ../plan/solveProjection.ts for exactly what this covers/excludes.
+    solveHash: string;
+    days: DayPlan[]; // one per doc day, same DayPlan union as ../schedule/types
+  };
 };
 
 export interface TripStore {

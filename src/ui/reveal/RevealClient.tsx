@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { TripDoc } from "@/lib/store/types";
 import type { DayPlan } from "@/lib/schedule/types";
+import { validManualOrder } from "@/lib/planShared";
 import { RevealMap, type RevealStop } from "./RevealMap";
 import { JournalSidebar } from "./JournalSidebar";
 import { WashiTag, type WashiTone } from "@/ui/journal/WashiTag";
@@ -25,45 +26,21 @@ function rotateFor(i: number): number {
   return ROTATE_CYCLE[i % ROTATE_CYCLE.length];
 }
 
-// Mirrors planService.ts's private validManualOrder (server-only, not
-// exported — and planService is LOCKED, not to be imported from client
-// code). A manualOrder only counts if it's an exact permutation of the
-// day's current stop ids; anything else (stale/partial/unknown) falls back
-// to the solver/stored order, same as the server does.
-function validManualOrder(manualOrder: string[] | undefined, stopIds: string[]): string[] | null {
-  if (!manualOrder || manualOrder.length !== stopIds.length) return null;
-  const idSet = new Set(stopIds);
-  const seen = new Set<string>();
-  for (const id of manualOrder) {
-    if (!idSet.has(id) || seen.has(id)) return null;
-    seen.add(id);
-  }
-  return manualOrder;
-}
-
-async function putDoc(doc: TripDoc): Promise<void> {
+// E4 — PUT now re-plans server-side (src/lib/planStore.ts's savePlanned) and
+// returns the freshly-planned doc in one round-trip, so there is no longer a
+// follow-up POST /plan call to make: the doc IS the plan now.
+async function putDoc(doc: TripDoc): Promise<TripDoc> {
   const res = await fetch(`/api/trips/${doc.tripId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(doc),
   });
-  if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(body.error ?? `save failed: ${res.status}`);
-  }
-}
-
-async function postPlan(tripId: string, dayIndex: number): Promise<DayPlan> {
-  const res = await fetch(`/api/trips/${tripId}/plan`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ dayIndex }),
-  });
   const body = await res.json().catch(() => null);
   if (!res.ok || !body) {
-    throw new Error((body && (body as { error?: string }).error) ?? `plan failed: ${res.status}`);
+    const msg = (body && (body as { error?: string }).error) ?? `save failed: ${res.status}`;
+    throw new Error(msg);
   }
-  return body as DayPlan;
+  return (body as { doc: TripDoc }).doc;
 }
 
 export function RevealClient({
@@ -80,8 +57,8 @@ export function RevealClient({
     return i >= 0 ? i : 0;
   });
   // (a) the optimistic reorder overlay — set the instant a drag drops, so the
-  // map/sidebar update before the PUT+POST round-trip even starts; cleared
-  // once that round-trip lands (success or revert-on-failure).
+  // map/sidebar update before the PUT round-trip even starts; cleared once
+  // that round-trip lands (success or revert-on-failure).
   const [pendingOrder, setPendingOrder] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -114,32 +91,21 @@ export function RevealClient({
   );
   const bookedId = tripDay.stops.find((s) => s.anchor)?.id ?? null;
 
-  // Every mutation follows the same shape: build the next doc, PUT it, POST
-  // a re-plan, then commit both to state — or revert + show a margin note.
-  // Serialized behind `busy` so two mutations (a fast double-drag, a drag
-  // racing Re-optimize, etc.) can never interleave.
+  // Every mutation follows the same shape: build the next doc, PUT it (the
+  // server re-plans EVERY day and returns the planned doc in that one
+  // response — E4, see putDoc above), then commit it to state — or revert +
+  // show a margin note. Serialized behind `busy` so two mutations (a fast
+  // double-drag, a drag racing Re-optimize, etc.) can never interleave.
   const runMutation = useCallback(
-    async (buildNextDoc: (d: TripDoc) => TripDoc, failureVerb: string, replanAll = false) => {
+    async (buildNextDoc: (d: TripDoc) => TripDoc, failureVerb: string) => {
       if (busy) return;
-      const dayIndex = activeDay;
       setBusy(true);
       setActionError(null);
       try {
         const nextDoc = buildNextDoc(doc);
-        await putDoc(nextDoc);
-        if (replanAll) {
-          // doc-level changes (T7: the planner's-notes settings) stale EVERY
-          // day's plan, not just the active one — re-plan them all
-          const nextPlans = await Promise.all(
-            nextDoc.days.map((_, i) => postPlan(nextDoc.tripId, i))
-          );
-          setDoc(nextDoc);
-          setPlans(nextPlans);
-        } else {
-          const nextPlan = await postPlan(nextDoc.tripId, dayIndex);
-          setDoc(nextDoc);
-          setPlans((p) => p.map((pl, i) => (i === dayIndex ? nextPlan : pl)));
-        }
+        const savedDoc = await putDoc(nextDoc);
+        setDoc(savedDoc);
+        setPlans(savedDoc.plan!.days);
         setPendingOrder(null);
       } catch (e) {
         setPendingOrder(null); // revert to the pre-mutation order
@@ -149,7 +115,7 @@ export function RevealClient({
         setBusy(false);
       }
     },
-    [busy, doc, activeDay]
+    [busy, doc]
   );
 
   const handleReorder = useCallback(
@@ -204,7 +170,7 @@ export function RevealClient({
   // T7 — §2 LOCKED surface: walkMax / driveOverheadMin, the planner's notes.
   const handleSettingsChange = useCallback(
     (settings: TripDoc["settings"]) => {
-      void runMutation((d) => ({ ...d, settings }), "Those notes didn't take", true);
+      void runMutation((d) => ({ ...d, settings }), "Those notes didn't take");
     },
     [runMutation]
   );

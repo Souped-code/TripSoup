@@ -1,40 +1,23 @@
 // Phase B.1 — read-only share view by slug, rebuilt into the same journal
 // world as the reveal (/trip/[id]): the hand-drawn map beside a read-only
 // torn-journal timeline (src/ui/reveal/ShareTimeline.tsx), instead of the
-// legacy PlanView inside generic white .cards. Server component —
-// recomputes plans from the stored document (deterministic solver: recompute
-// == what the owner saw, including persisted leg toggles via planService).
-// Same resilience pattern as /trip/[id]: a planTripDay failure degrades to a
-// rejected-status plan for that day rather than 500ing the whole page.
+// legacy PlanView inside generic white .cards. Server component — reads the
+// trip's PERSISTED plan (E4 — src/lib/planStore.ts's readPlanned; no
+// per-page recompute), which is byte-for-byte what the owner saw, including
+// persisted leg toggles, because it's the SAME stored plan, not a fresh
+// solve. Zero /api/trips/*/plan network calls happen on this page (e2e:
+// e2e/share.spec.ts asserts that).
 
-import { getTripStore } from "@/lib/config";
-import { planTripDay } from "@/lib/planService";
+import { readPlanned } from "@/lib/planStore";
+import { validManualOrder } from "@/lib/planShared";
 import { RevealMap, type RevealStop } from "@/ui/reveal/RevealMap";
 import { ShareTimeline } from "@/ui/reveal/ShareTimeline";
-import type { DayPlan } from "@/lib/schedule/types";
 
 export const dynamic = "force-dynamic";
 
-// Mirrors planService.ts's private validManualOrder / RevealClient.tsx's
-// client-side copy of the same rule (server-only, not exported, and
-// RevealClient is a "use client" module this server component can't import
-// a plain function from) — a manualOrder only counts if it's an exact
-// permutation of the day's current stop ids; anything else (stale/partial/
-// unknown) falls back to the stored stop order, same as the server does.
-function validManualOrder(manualOrder: string[] | undefined, stopIds: string[]): string[] | null {
-  if (!manualOrder || manualOrder.length !== stopIds.length) return null;
-  const idSet = new Set(stopIds);
-  const seen = new Set<string>();
-  for (const id of manualOrder) {
-    if (!idSet.has(id) || seen.has(id)) return null;
-    seen.add(id);
-  }
-  return manualOrder;
-}
-
 export default async function SharePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const doc = await getTripStore().get(id);
+  const doc = await readPlanned(id);
 
   if (!doc) {
     return (
@@ -52,19 +35,11 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
     );
   }
 
-  const plans: DayPlan[] = await Promise.all(
-    doc.days.map(async (_, i) => {
-      try {
-        return await planTripDay(doc, i);
-      } catch (e) {
-        return {
-          status: "rejected" as const,
-          message:
-            "This day's plan couldn't be cooked — " + (e instanceof Error ? e.message : String(e)),
-        };
-      }
-    })
-  );
+  // readPlanned guarantees `doc.plan` is present (self-healing legacy docs on
+  // the way) — see planStore.ts. Non-null: `plan` is optional only in the
+  // TripDoc TYPE (so pre-E4 docs typecheck), never in what readPlanned
+  // actually returns.
+  const plans = doc.plan!.days;
 
   return (
     <main

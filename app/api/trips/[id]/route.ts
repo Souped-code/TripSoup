@@ -1,7 +1,10 @@
 // GET  /api/trips/[id] — fetch the trip document.
-// PUT  /api/trips/[id] — replace the trip document (boundary-validated).
+// PUT  /api/trips/[id] — replace the trip document (boundary-validated), then
+//      re-plan it (E4 — src/lib/planStore.ts's savePlanned) and return the
+//      freshly-planned doc, so callers never need a follow-up POST /plan.
 import { NextResponse } from "next/server";
 import { getTripStore } from "@/lib/config";
+import { savePlanned } from "@/lib/planStore";
 import type { TripDoc } from "@/lib/store/types";
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -62,6 +65,6 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
   const doc = (await req.json()) as TripDoc;
   const bad = malformed(doc, id);
   if (bad) return NextResponse.json({ error: `malformed trip document: ${bad}` }, { status: 400 });
-  await getTripStore().put(doc);
-  return NextResponse.json({ ok: true });
+  const saved = await savePlanned(doc);
+  return NextResponse.json({ doc: saved });
 }

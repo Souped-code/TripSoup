@@ -130,6 +130,12 @@ describe("runPipeline", () => {
     const reread = await config.getTripStore().get(result.tripId);
     expect(reread).toEqual(result.doc);
 
+    // --- E4: the computed plans are stamped onto the doc that's actually in
+    // the store, not just returned-and-discarded (design.md's E4) ---
+    expect(result.doc.plan).toBeDefined();
+    expect(result.doc.plan?.days).toEqual(result.plans);
+    expect(reread?.plan?.days).toEqual(result.plans);
+
     // --- anchor lands on the correct TripStop (Clock Tower Square, fx-02) ---
     const clockTower = result.doc.days[0].stops.find((s) => s.id === "fx-02");
     expect(clockTower).toBeDefined();

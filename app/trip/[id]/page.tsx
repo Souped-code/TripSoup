@@ -1,16 +1,16 @@
-// D2.3 T6 — the reveal at /trip/[id]: server component fetches the trip
-// document + computes each day's plan (same resilience pattern as before: a
-// planTripDay failure degrades to a rejected-status plan for that day rather
-// than 500ing the whole page), then hands both to RevealClient, which owns
-// all reveal state (active day, drag-reorder, re-optimize, duplicate
-// removal) and renders the map beside the torn-journal sidebar.
+// D2.3 T6 — the reveal at /trip/[id]: server component reads the trip's
+// PERSISTED plan (E4 — src/lib/planStore.ts's readPlanned; no per-page
+// recompute. A planTripDay failure still degrades to a rejected-status plan
+// for that day rather than 500ing the whole page, but that resilience now
+// lives inside planStore.savePlanned, not here), then hands doc + plans to
+// RevealClient, which owns all reveal state (active day, drag-reorder,
+// re-optimize, duplicate removal) and renders the map beside the
+// torn-journal sidebar.
 
-import { getTripStore } from "@/lib/config";
-import { planTripDay } from "@/lib/planService";
+import { readPlanned } from "@/lib/planStore";
 import { SketchDivider } from "@/ui/journal/SketchDivider";
 import { GracieScene } from "@/ui/journal/GracieScene";
 import { RevealClient } from "@/ui/reveal/RevealClient";
-import type { DayPlan } from "@/lib/schedule/types";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +20,7 @@ export default async function TripRevealPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const doc = await getTripStore().get(id);
+  const doc = await readPlanned(id);
 
   if (!doc) {
     return (
@@ -44,25 +44,11 @@ export default async function TripRevealPage({
     );
   }
 
-  // A plan failure (matrix/adapter error) must degrade legibly, never 500 the
-  // reveal: RevealClient/JournalSidebar render that day's rejected state (a
-  // red margin note) and the map still paints the stored stop order. (Found
-  // by a live smoke: unknown-to-fixture stop ids made planTripDay throw and
-  // crash the whole page.)
-  const plans: DayPlan[] = await Promise.all(
-    doc.days.map(async (_, i) => {
-      try {
-        return await planTripDay(doc, i);
-      } catch (e) {
-        return {
-          status: "rejected" as const,
-          message:
-            "This day's plan couldn't be cooked — " +
-            (e instanceof Error ? e.message : String(e)),
-        };
-      }
-    })
-  );
+  // readPlanned guarantees `doc.plan` is present (self-healing legacy docs
+  // and stamping trivial empty-day plans on the way) — see planStore.ts.
+  // Non-null: `plan` is optional only in the TripDoc TYPE (so pre-E4 docs
+  // typecheck), never in what readPlanned actually returns.
+  const plans = doc.plan!.days;
 
   return (
     <main
