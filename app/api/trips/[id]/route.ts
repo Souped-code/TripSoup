@@ -21,6 +21,9 @@ function malformed(doc: TripDoc, id: string): string | null {
   for (const day of doc.days) {
     if (typeof day.date !== "string" || !isNum(day.dayStartMin) || !isNum(day.dayEndMin))
       return "day shape";
+    // M1.5: additive/optional display label used in place of `date` when the
+    // paste gave no real calendar date (src/lib/store/types.ts).
+    if (day.dayLabel !== undefined && typeof day.dayLabel !== "string") return "day dayLabel";
     if (!Array.isArray(day.stops)) return "day stops";
     for (const s of day.stops) {
       if (typeof s.id !== "string" || typeof s.name !== "string") return "stop id/name";

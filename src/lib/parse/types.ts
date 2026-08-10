@@ -13,6 +13,17 @@ export const ParsedItemSchema = z.object({
   raw: z.string(),
   url: z.string().optional(),
   label: z.string().optional(),
+  // M1.2 — a DISAMBIGUATED place search string (name + city/area context drawn
+  // from the paste, e.g. "Maxwell Food Centre, Singapore"), present ONLY for
+  // items an adapter judges to be a real, searchable place.
+  //
+  // Deliberately distinct from `label`: `label` is display/context text and is
+  // NEVER a query. `placeQuery` is the only text-derived string the pipeline
+  // will geocode, and only when the caller holds `interpret.names` (see the
+  // resolve checkpoint in pipeline.ts). The heuristic adapter cannot identify
+  // places in free text and therefore never emits this field — which is why
+  // the free/no-key path stays links-only, unchanged.
+  placeQuery: z.string().optional(),
   dateHint: z.string().optional(),
   timeHint: z.string().optional(),
   anchorLikely: z.boolean(),

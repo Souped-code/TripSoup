@@ -16,6 +16,9 @@ import { checkRateLimit } from "@/lib/rateLimit";
 // pairs cache as they land), so a client retry resumes from cache, not zero.
 export const maxDuration = 120;
 
+// M1.7 — hard ceiling on a single paste (20KB).
+const MAX_PASTE_BYTES = 20 * 1024;
+
 const encoder = new TextEncoder();
 const sse = (data: unknown, event?: string): Uint8Array =>
   encoder.encode(`${event ? `event: ${event}\n` : ""}data: ${JSON.stringify(data)}\n\n`);
@@ -39,6 +42,19 @@ export async function POST(req: Request): Promise<Response> {
         status: 400,
         headers: { "Content-Type": "application/json" },
       });
+    }
+    // M1.7 — paste size cap. An LLM parse is billed per token, so an
+    // unbounded paste is an unbounded bill; 20KB is far more than any real
+    // itinerary and the message says what to do about it. Measured in BYTES
+    // (not .length) so multi-byte characters can't slip past the ceiling.
+    if (Buffer.byteLength(body.text, "utf8") > MAX_PASTE_BYTES) {
+      return new Response(
+        JSON.stringify({
+          error:
+            "That's a hefty itinerary — more than Gracie can read in one go. Try splitting it into a couple of pastes.",
+        }),
+        { status: 413, headers: { "Content-Type": "application/json" } }
+      );
     }
     text = body.text;
   } catch {
