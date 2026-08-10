@@ -1922,3 +1922,50 @@ still the right place for it).
   was exercised here.
 - `.gitignore` carries an uncommitted Vercel CLI edit (`.vercel`, `.env*`) from linking the
   project during this session's scouting.
+
+---
+
+# ENGINE ROADMAP E0–E8 (begins 2026-08-10) — plan: ~/.claude/plans/shimmering-rolling-minsky.md
+
+Chris-approved (2026-08-05..10): the algorithm becomes the product. Solver UNLOCKED for
+replacement (behaviour contract survives as tests); plans will PERSIST (share reads, not
+recomputes); benchmark spike decides TS-ALNS vs OR-Tools CP-SAT with a pre-registered rule
+(tie → TS); ~40 stops / 5–7 days with engine-assigned days; 10–30s solves with live progress;
+infeasibility becomes trade-off proposals; LLM staged compile→explain→chat. M4 social shelved;
+old M2 absorbed as moveDay proposals; M3 payments AFTER the engine (Stripe/Sentry wiring
+postponed by Chris). Orchestration per f2pp2f: frontier session orchestrates, Opus/Sonnet/Haiku
+execute by task shape, Fable·xhigh audits every milestone gate.
+
+## E0 — COMPLETE (2026-08-10)
+
+- **M1 merged to main** (PR #2, merge f0443eb) after blocking `checks` green ×2; auto-deployed.
+- **ITINERARY-HANDOVER §1/§2 annotated** UNLOCKED FOR REPLACEMENT (E0 amendment block); §3 maps
+  cost boundary stays LOCKED.
+- **Utils landed** (184063e): `src/lib/util/rng.ts` (mulberry32, [Haiku·low] build) +
+  `src/lib/util/stableHash.ts` (canonical-JSON sha256). Orchestrator review caught a real bug in
+  the subagent's draft: whole-walk `seen` Set rejected SHARED (acyclic) references as circular —
+  fixed to path-based tracking, regression-tested. 36 util tests.
+- **Prod verify found a REAL BUG** — the M1 audit's "live LLM path unverified by design" bit
+  exactly as warned: live claude-haiku omits `anchorLikely` for items with no time cue; the
+  schema required it; at temp 0 all 3 retries failed identically. Hotfix 3ab7c57: schema-boundary
+  tolerance (`nullish → false`; other garbage still rejected → retry loop). Re-verified LIVE:
+  text-only paste "Merlion Park / Gardens by the Bay 2pm" on prod → both resolved to real place
+  IDs via city-disambiguated queries, 2pm anchored (startMin 840), optimal plan returned. **This
+  also closes M1's CHRIS-VERIFY exit criterion** (real text-only paste works on prod).
+- Gates at E0 close: tsc 0 · jest 203/203 (26 suites) · build 0.
+- New devDep: `tsx` (spike/report runner — dev-only, justified: zero-dep repo convention applies
+  to runtime deps; spike scripts need a TS runner and jest is the wrong tool for benchmarks).
+- **Flag for Chris (worked around, not blocking):** VPS SSH access unavailable from this session
+  (`~/.claude/rc-vps.env` absent on this machine; key auth denied for guessed users; agent-socket
+  use blocked by permission classifier). E1's CP-SAT contender therefore runs LOCALLY (python
+  3.12 + ortools) — fairer race anyway (identical hardware); the VPS matters only for production
+  hosting IF CP-SAT wins, and that deploy step would be a CHRIS-STEP regardless.
+
+## E1 — Benchmark spike (IN PROGRESS, 2026-08-10)
+
+- `spike/ir.ts` FROZEN by orchestrator: SpikeProblem/SpikeSolution/travelMin/PACE_BUDGETS/
+  EFFORT_POINTS — minutes-from-midnight, day indexes, planar km coordinates, hard/soft hardness
+  carried on pinnedDay from day one (the anti-remodel move).
+- In flight, parallel: generator+evaluator [Sonnet·high], ALNS contender [Opus·high], CP-SAT
+  contender [Sonnet·medium, local python]. E4 plan persistence [Sonnet·high] runs in parallel
+  (disjoint files) per the plan's dependency graph.
