@@ -6,21 +6,31 @@
 // Stage weights (of the overall 0..100 pct):
 //   parse   0  -> 15
 //   resolve 15 -> 55  (40 points)
-//   matrix  55 -> 85  (30 points, split across days)
-//   solve   85 -> 100 (15 points, split across days)
-// matrix+solve are interleaved per day below (each day's matrix tick then
-// solve tick), but together they always span 55 -> 100.
+//   matrix  55 -> 85  (30 points, split across days — genuinely async I/O,
+//                      one tick per day, exactly as before)
+//   solve   85 -> 100 (15 points, driven by the E5a engine's own onProgress)
+//
+// E5b: matrix+solve are no longer interleaved per day. The engine solves every
+// non-bypassed day in ONE call (src/lib/planEngine.ts), so there is exactly
+// one "solve" the whole trip goes through, not one per day. Matrix fetching
+// stays a genuine per-day loop HERE (this generator owns it directly, so it
+// can really `yield` between iterations); the engine's progress ticks are
+// captured via its onProgress callback and re-yielded once the (synchronous,
+// CPU-bound — see planEngine.ts's SolveWithPreparedOptions doc comment) solve
+// call returns. They cannot arrive live mid-call on Node's single thread
+// either way, so this loses nothing a "streamed" version would have had.
 
 import { randomBytes } from "crypto";
 import { parseItinerary } from "../parse/parseItinerary";
 import { getMapsProvider, getTripStore } from "../config";
 import { getEntitlements, type Entitlements } from "../entitlements/entitlements";
-import { planTripDay } from "../planService";
+import { matrixForDay, settingsOf, solveWithPreparedMatrices } from "../planEngine";
+import { validManualOrder } from "../planShared";
 import { persistPlanned } from "../planStore";
-import { applyHoursAdvisories } from "../plan/hoursAdvisory";
 import { parseGoogleHours } from "../maps/openingHours";
 import type { TripDoc, TripDay, TripStop } from "../store/types";
 import type { DayPlan } from "../schedule/types";
+import type { EffectiveMatrix } from "../solver/types";
 import type { Failure, Stop } from "../../../resolvePlaces";
 
 export type PipelineStage = "parse" | "resolve" | "matrix" | "solve";
@@ -239,6 +249,28 @@ export type PipelineOptions = {
    */
   refToday?: string;
 };
+
+// E5b design point 4: journal-voice text per engine search phase (see
+// src/lib/engine/search.ts's `emit(frac, phase)` calls for the phase names —
+// "construct", "search", "polish" — plus alnsEngine.ts's own "proposals" and
+// "done"). Kept short, matches the soup-pot/Gracie framing the loading view
+// already uses for the other stages.
+function solveDetailFor(phase: string): string {
+  switch (phase) {
+    case "construct":
+      return "Laying out a first draft…";
+    case "search":
+      return "Gracie's simmering — tasting a better order…";
+    case "polish":
+      return "Tidying up the edges…";
+    case "proposals":
+      return "Weighing a few trade-offs…";
+    case "done":
+      return "Plan's out of the oven.";
+    default:
+      return "Cooking the best order…";
+  }
+}
 
 export async function* runPipeline(
   text: string,
@@ -498,58 +530,82 @@ export async function* runPipeline(
 
     await getTripStore().put(doc);
 
-    // ------------------------------------------------------------ matrix/solve
-    const plans: DayPlan[] = [];
-    const perDay = 45 / doc.days.length; // 30 (matrix) + 15 (solve), split evenly per day
-
+    // ------------------------------------------------------------ matrix
+    stage = "matrix";
+    const settings = settingsOf(doc);
+    const rejectedMessages = new Map<number, string>();
+    const matrices: EffectiveMatrix[] = [];
     for (let i = 0; i < doc.days.length; i++) {
-      stage = "matrix";
-      const matrixPct = Math.round(55 + i * perDay);
+      const matrixPct = Math.round(55 + (i / doc.days.length) * 30);
       yield {
         stage: "matrix",
         pct: matrixPct,
         detail: `Measuring the drives (day ${i + 1} of ${doc.days.length})…`,
       };
 
-      // Idempotency note: planTripDay -> getMapsProvider().getTravelMatrix pulls
-      // through matrixSource's MatrixCache (see maps/matrixSource.ts), which is
+      // Idempotency note: matrixForDay -> getMapsProvider().getTravelMatrix
+      // pulls through matrixSource's MatrixCache (see maps/matrixSource.ts),
       // keyed by (fromId, toId, mode) and persisted (file/KV, see config.ts).
       // Pairs are cached as they resolve, so re-running this pipeline on the
       // same input text — which re-derives the same stop ids — resumes from
       // cache instead of paying for every pair again. Safe to re-invoke.
-      const plan = await planTripDay(doc, i);
-
-      stage = "solve";
-      const solvePct = Math.round(55 + (i + 1) * perDay);
-      yield {
-        stage: "solve",
-        pct: solvePct,
-        detail: "Cooking the best order…",
-      };
-
-      plans.push(plan);
+      const { matrix, rejectedMessage } = await matrixForDay(doc.days[i], settings);
+      matrices.push(matrix);
+      if (rejectedMessage) rejectedMessages.set(i, rejectedMessage);
     }
 
-    // E3 — advisory-only opening-hours warnings on the plans just computed
-    // (see hoursAdvisory.ts's header for why this runs here rather than
-    // inside persistPlanned/stampPlan). This is the trip's FIRST solve, so
-    // it must get the same treatment planStore.savePlanned gives every
-    // later re-plan, or a fresh paste would never show the warning.
-    const plansWithAdvisories = applyHoursAdvisories(doc, plans);
+    const manualOrders = new Map<number, string[]>();
+    doc.days.forEach((tripDay, i) => {
+      if (rejectedMessages.has(i)) return;
+      const order = validManualOrder(
+        tripDay.manualOrder,
+        tripDay.stops.map((s) => s.id)
+      );
+      if (order) manualOrders.set(i, order);
+    });
 
-    // E4 — persist the plans just computed above (never recompute: they were
+    // -------------------------------------------------------------- solve
+    // E5b: one whole-trip engine call, not one per day — see this file's
+    // header comment for why matrix/solve are no longer interleaved, and
+    // planEngine.ts's SolveWithPreparedOptions for why the engine's own
+    // progress ticks are captured here and re-yielded rather than streamed
+    // live (the call is synchronous/CPU-bound; nothing can interleave with
+    // it on Node's single thread regardless of how the callback is wired).
+    stage = "solve";
+    yield { stage: "solve", pct: 85, detail: "Cooking the best order…" };
+
+    const solveTicks: PipelineProgress[] = [];
+    const result = await solveWithPreparedMatrices(
+      doc,
+      { matrices, rejectedMessages, manualOrders },
+      {
+        onSolveProgress: (p) => {
+          const pct = Math.round(85 + Math.max(0, Math.min(100, p.pct)) * 0.15);
+          solveTicks.push({ stage: "solve", pct, detail: solveDetailFor(p.phase) });
+        },
+      }
+    );
+    for (const tick of solveTicks) yield tick;
+
+    // E4 — persist the plan just computed above (never recompute: it was
     // already paid for) so the doc lands WITH its plan instead of the old
     // compute-then-discard-then-recompute-on-first-read pattern. plannedDoc
     // is what's now actually in the store — return THAT, not the pre-plan
     // `doc`, so callers (and pipeline.test.ts's persisted-doc round-trip
-    // assertion) see the same thing the store holds.
-    const plannedDoc = await persistPlanned(doc, plansWithAdvisories);
+    // assertion) see the same thing the store holds. This is the trip's
+    // FIRST solve, so it gets the same E3 hours-advisory + E5b conflict
+    // margin-note treatment every later re-plan gets — both already applied
+    // inside solveWithPreparedMatrices, per day.
+    const plannedDoc = await persistPlanned(doc, result.days, result.engineMeta, {
+      conflicts: result.conflicts,
+      proposals: result.proposals,
+    });
 
     return {
       status: "ok",
       tripId,
       doc: plannedDoc,
-      plans: plansWithAdvisories,
+      plans: result.days,
       failures: resolveResult.failures,
     };
   } catch (err) {

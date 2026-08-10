@@ -14,6 +14,12 @@ import { RevealMap, type RevealStop } from "@/ui/reveal/RevealMap";
 import { ShareTimeline } from "@/ui/reveal/ShareTimeline";
 
 export const dynamic = "force-dynamic";
+// E5b audit F1: readPlanned can HEAL here — a full engine solve (wall-clocked
+// at the budget, but still tens of seconds) inside this page render. Every doc
+// stamped before hours entered solveHash heals exactly once post-deploy; the
+// platform-default function timeout would kill exactly those renders.
+export const maxDuration = 120;
+
 
 export default async function SharePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

@@ -19,6 +19,10 @@ const DEFAULT_LIMIT = 20;
 // parse, so it is by far the most expensive route to hammer. `resolve` and
 // `plan` stay at the default — they act on an already-bounded trip doc.
 const ROUTE_LIMITS: Record<string, number> = {
+  // Owner editing: every drag/toggle/anchor tweak is one PUT, and cheap
+  // fast-path toggles share the bucket with full solves — 20/hr starves a
+  // normal editing session (E5b audit F12). Separate, roomier bucket.
+  "plan-put": 60,
   pipeline: 10,
 };
 

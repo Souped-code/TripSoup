@@ -2,11 +2,28 @@
 // PUT  /api/trips/[id] — replace the trip document (boundary-validated), then
 //      re-plan it (E4 — src/lib/planStore.ts's savePlanned) and return the
 //      freshly-planned doc, so callers never need a follow-up POST /plan.
+//
+// E5b design point 6: PUT now runs the E5a engine (up to ENGINE_BUDGET_MS per
+// day set it re-plans from scratch — the toggle-only fast path in
+// planStore.savePlanned keeps a leg toggle cheap, but a stop add/remove/
+// anchor edit is a real engine solve now). checkRateLimit closes E4
+// observation 9 PARTIALLY: it caps requests per owner-IP per hour (20/hr
+// default — see rateLimit.ts's ROUTE_LIMITS, "plan" bucket, shared with
+// POST /api/trips/[id]/plan), not the engine-seconds actually spent per
+// request; a request that edits many days still costs one call to this
+// route's 20/hr budget regardless of how many days it re-plans.
 import { NextResponse } from "next/server";
 import { getTripStore } from "@/lib/config";
 import { savePlanned } from "@/lib/planStore";
+import { checkRateLimit } from "@/lib/rateLimit";
 import { isValidWeeklyHoursShape } from "@/lib/maps/openingHours";
 import type { TripDoc } from "@/lib/store/types";
+
+// A full multi-day re-plan is a real engine solve now (up to ENGINE_BUDGET_MS
+// per day set, run serially — see planStore.savePlanned/planEngine.ts); the
+// platform default function timeout is too tight for that on a many-day trip.
+// Mirrors app/api/pipeline/route.ts's same reasoning/value.
+export const maxDuration = 120;
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
@@ -66,6 +83,13 @@ function malformed(doc: TripDoc, id: string): string | null {
 }
 
 export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const { limited } = await checkRateLimit("plan-put", req);
+  if (limited) {
+    return NextResponse.json(
+      { error: "You've been planning up a storm — give it a short breather and try again soon." },
+      { status: 429 }
+    );
+  }
   const { id } = await ctx.params;
   const doc = (await req.json()) as TripDoc;
   const bad = malformed(doc, id);

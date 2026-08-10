@@ -21,6 +21,10 @@ export default defineConfig({
       MAPS_PROVIDER: "fixture",
       TRIPS_DIR: ".trips-e2e",
       DEBUG_BOARD: "1",
+      // E5b: fixture-city e2e docs are small; the production default (20s)
+      // would spend it on every optimize/toggle for no product benefit here.
+      // Still finite, still generous relative to what these tiny problems need.
+      ENGINE_BUDGET_MS: "3000",
     },
   },
 });

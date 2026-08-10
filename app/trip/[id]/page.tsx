@@ -13,6 +13,12 @@ import { GracieScene } from "@/ui/journal/GracieScene";
 import { RevealClient } from "@/ui/reveal/RevealClient";
 
 export const dynamic = "force-dynamic";
+// E5b audit F1: readPlanned can HEAL here — a full engine solve (wall-clocked
+// at the budget, but still tens of seconds) inside this page render. Every doc
+// stamped before hours entered solveHash heals exactly once post-deploy; the
+// platform-default function timeout would kill exactly those renders.
+export const maxDuration = 120;
+
 
 export default async function TripRevealPage({
   params,

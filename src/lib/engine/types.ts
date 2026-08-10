@@ -359,6 +359,13 @@ export type SolveOptions = {
    * speed at all — which is why the determinism tests set it, and why E5b may
    * set it for a "same plan on every replica" guarantee. */
   iterCap?: number;
+  /** HARD wall-clock safety net that applies EVEN WITH iterCap set (E5b audit,
+   * F2: iterCap + finite budget left nothing actually bounding solve time — a
+   * 26s solve was measured over a "20s budget"). When it fires, the anytime
+   * best-so-far is returned and byte-determinism is sacrificed for that one
+   * solve — the right trade for a serverless function that must finish. Sized
+   * by the caller well above the expected solve time (net, not budget). */
+  hardStopMs?: number;
   onProgress?: (p: { pct: number; bestScore: number; phase: string }) => void;
   /** Safety net only, exactly like the wall clock: aborting mid-search returns
    * the best-so-far (anytime), which is by definition no longer reproducible. */

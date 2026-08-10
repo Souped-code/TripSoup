@@ -130,6 +130,11 @@ export function searchAlns(problem: EngineProblem, opts: SearchOptions): EngineS
   // Abort via opts.signal still applies in both modes.
   const timeBudgetMs = Number.isFinite(opts.timeBudgetMs) ? Math.max(0, opts.timeBudgetMs) : Infinity;
   const useWallClock = opts.iterCap === undefined && Number.isFinite(timeBudgetMs);
+  // The hard safety net applies regardless of iterCap (see SolveOptions).
+  const hardStopMs =
+    opts.hardStopMs !== undefined && Number.isFinite(opts.hardStopMs)
+      ? Math.max(0, opts.hardStopMs)
+      : Infinity;
 
   const active = opts.activeKeys;
   const stops = problem.nodes.filter((n) => !active || active.has(n.key));
@@ -1359,6 +1364,7 @@ export function searchAlns(problem: EngineProblem, opts: SearchOptions): EngineS
     if (iter % TIME_CHECK_EVERY === 0) {
       if (opts.signal?.aborted) break;
       if (useWallClock && Date.now() - startedAt >= timeBudgetMs) break;
+      if (Date.now() - startedAt >= hardStopMs) break; // safety net — even with iterCap
     }
 
     copyInto(cand, cur);

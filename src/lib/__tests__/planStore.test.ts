@@ -8,6 +8,9 @@ import * as path from "path";
 import { savePlanned, readPlanned, stampPlan, persistPlanned } from "../planStore";
 import { solveProjection, computeSolveHash } from "../plan/solveProjection";
 import * as planServiceModule from "../planService";
+import * as planEngineModule from "../planEngine";
+import { seedFor } from "../planEngine";
+import { ENGINE_NAME, ENGINE_VERSION } from "../engine";
 import { getTripStore } from "../config";
 import type { TripDoc, TripStop } from "../store/types";
 import { FIXTURE_STOPS } from "../maps/fixtureCity";
@@ -76,7 +79,14 @@ describe("planStore (E4)", () => {
 
     expect(saved.plan).toBeDefined();
     expect(saved.plan!.version).toBe(1);
-    expect(saved.plan!.engine).toEqual({ name: "legacy-exhaustive", version: "1", seed: 0 });
+    // E5b: the production engine is now the E5a ALNS behind the SolverEngine
+    // port, seeded deterministically from the doc's own solve projection —
+    // no more hardcoded {name:"legacy-exhaustive", seed:0}.
+    expect(saved.plan!.engine).toEqual({
+      name: ENGINE_NAME,
+      version: ENGINE_VERSION,
+      seed: seedFor(doc),
+    });
     expect(typeof saved.plan!.computedAt).toBe("string");
     expect(new Date(saved.plan!.computedAt).toString()).not.toBe("Invalid Date");
     expect(saved.plan!.solveHash).toBe(computeSolveHash(doc));
@@ -170,7 +180,9 @@ describe("planStore (E4)", () => {
     // savePlanned that hit a transient failure) — write the raw file.
     fs.writeFileSync(path.join(tmpDir, "t-rej-fresh.json"), JSON.stringify(rejected));
 
-    const spy = jest.spyOn(planServiceModule, "planTripDay");
+    // E5b: a real recompute now goes through planEngine.planTripWithEngine
+    // (one whole-trip engine call), not per-day planService.planTripDay.
+    const spy = jest.spyOn(planEngineModule, "planTripWithEngine");
     const read = await readPlanned("t-rej-fresh");
     expect(spy).not.toHaveBeenCalled(); // fresh rejection: no thrash
     expect(read!.plan!.days[0].status).toBe("rejected");
@@ -189,7 +201,7 @@ describe("planStore (E4)", () => {
     };
     fs.writeFileSync(path.join(tmpDir, "t-rej-aged.json"), JSON.stringify(rejected));
 
-    const spy = jest.spyOn(planServiceModule, "planTripDay");
+    const spy = jest.spyOn(planEngineModule, "planTripWithEngine");
     const read = await readPlanned("t-rej-aged");
     expect(spy).toHaveBeenCalled(); // aged rejection: retried
     expect(read!.plan!.days[0].status).toBe("ok"); // fixture solve succeeds now
@@ -375,14 +387,16 @@ describe("planStore (E4)", () => {
   it("stampPlan is pure (no I/O) and persistPlanned writes the given plans as-is, without recomputing", async () => {
     const doc = baseDoc("t-persist");
     const days = await Promise.all(doc.days.map((_, i) => planServiceModule.planTripDay(doc, i)));
+    const engine = { name: ENGINE_NAME, version: ENGINE_VERSION, seed: seedFor(doc) };
 
-    const stamped = stampPlan(doc, days);
+    const stamped = stampPlan(doc, days, engine);
     expect(stamped.plan!.days).toBe(days); // same array reference — not recomputed
+    expect(stamped.plan!.engine).toEqual(engine);
     expect(stamped.plan!.solveHash).toBe(computeSolveHash(doc));
     expect(await getTripStore().get("t-persist")).toBeNull(); // stampPlan alone never writes
 
     const spy = jest.spyOn(planServiceModule, "planTripDay");
-    const persisted = await persistPlanned(doc, days);
+    const persisted = await persistPlanned(doc, days, engine);
     expect(spy).not.toHaveBeenCalled(); // persistPlanned never recomputes either
     expect(persisted.plan!.days).toBe(days);
     expect(await getTripStore().get("t-persist")).toEqual(persisted);
@@ -461,9 +475,18 @@ describe("planStore (E4)", () => {
   });
 });
 
-// E3 audit minor 3: the no-mass-staleness argument rests on hours being
-// OUTSIDE the solve projection until E5's engine consumes them. Pin it.
-it("adding hours to a stop leaves solveHash unchanged (E3 — hours are advisory-only)", () => {
+// E3 audit minor 3 -> E5b MUST-DO 1: the story flips here. At E3, the
+// no-mass-staleness argument rested on hours being OUTSIDE the solve
+// projection because the legacy solver never read them (see this test's own
+// git history for the old assertion, which pinned the OPPOSITE fact). Now
+// that planEngine.ts's engine compiles TripStop.hours into hard, day-concrete
+// constraints (src/lib/engine/problem.ts's `hoursFromDoc`), a hours-only edit
+// can change what the engine solves — so solveHash MUST change too, or a
+// corrected opening time would silently serve a stale plan built against the
+// wrong hours. This is also what stales every pre-E5b stored plan exactly
+// once (see plan/solveProjection.ts's header) — a one-time, zero-spend heal
+// on next read, not a migration.
+it("adding hours to a stop changes solveHash (E5b — hours are load-bearing on the engine)", () => {
   const plain = baseDoc("t-hours-hash");
   const withHours: TripDoc = {
     ...plain,
@@ -477,5 +500,116 @@ it("adding hours to a stop leaves solveHash unchanged (E3 — hours are advisory
       },
     ],
   };
-  expect(computeSolveHash(withHours)).toBe(computeSolveHash(plain));
+  expect(computeSolveHash(withHours)).not.toBe(computeSolveHash(plain));
+});
+
+// ---------------------------------------------------------------------------
+// E5b audit F9: the toggle fast path — the most delicate branch in the live
+// save path — pinned directly. Plus F5/F6 regressions.
+// ---------------------------------------------------------------------------
+describe("toggle fast path (E5b)", () => {
+  let tmpDir: string;
+  let prevMapsProvider: string | undefined;
+  let prevTripsDir: string | undefined;
+
+  beforeEach(() => {
+    prevMapsProvider = process.env.MAPS_PROVIDER;
+    prevTripsDir = process.env.TRIPS_DIR;
+    process.env.MAPS_PROVIDER = "fixture";
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "planstore-fast-"));
+    process.env.TRIPS_DIR = tmpDir;
+  });
+
+  afterEach(() => {
+    if (prevMapsProvider === undefined) delete process.env.MAPS_PROVIDER;
+    else process.env.MAPS_PROVIDER = prevMapsProvider;
+    if (prevTripsDir === undefined) delete process.env.TRIPS_DIR;
+    else process.env.TRIPS_DIR = prevTripsDir;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    jest.restoreAllMocks();
+  });
+  it("a legacy-engine stored plan MISSES the fast path and re-solves", async () => {
+    const doc = baseDoc("t-fast-legacy");
+    const saved = await savePlanned(doc);
+    // Rewrite the stored plan as if stamped by the old engine, hash intact.
+    const legacy: TripDoc = {
+      ...saved,
+      plan: { ...saved.plan!, engine: { name: "legacy-exhaustive", version: "1", seed: 0 } },
+    };
+    fs.writeFileSync(path.join(tmpDir, "t-fast-legacy.json"), JSON.stringify(legacy));
+
+    const resaved = await savePlanned({ ...doc, legOverrides: [] });
+    // Fast path requires engine.name === current engine — a legacy stamp must
+    // force a real re-plan, which restamps with the current engine name.
+    expect(resaved.plan!.engine.name).not.toBe("legacy-exhaustive");
+  });
+
+  it("carries conflicts/proposals forward across a fast-path retime", async () => {
+    const doc = baseDoc("t-fast-carry");
+    const saved = await savePlanned(doc);
+    // Plant a conflict on the stored plan (hash still matches — conflicts are
+    // not part of the projection).
+    const withConflict: TripDoc = {
+      ...saved,
+      plan: {
+        ...saved.plan!,
+        conflicts: [
+          {
+            id: "c1",
+            code: "hours",
+            message: "planted conflict for the carry-forward pin",
+            stopIds: ["fx-03"],
+            violatedByMin: 0,
+            constraintRef: { path: "stops.fx-03.hours", provenance: { source: "google" } },
+          },
+        ],
+      },
+    };
+    fs.writeFileSync(path.join(tmpDir, "t-fast-carry.json"), JSON.stringify(withConflict));
+
+    // A pure legOverrides change hits the fast path (same solveHash)...
+    const spy = jest.spyOn(planServiceModule, "planTripDay");
+    const toggled = await savePlanned({ ...doc });
+    expect(spy).not.toHaveBeenCalled(); // engine bypassed entirely
+    // ...and the planted conflict survives the retime (a toggle must not erase
+    // a real constraint conflict from the UI).
+    expect(toggled.plan!.conflicts).toHaveLength(1);
+    expect(toggled.plan!.conflicts![0].id).toBe("c1");
+  });
+
+  it("ignores the INCOMING doc's plan — the store's copy is the only honest prior (F6)", async () => {
+    const doc = baseDoc("t-fast-forged");
+    await savePlanned(doc);
+    // A crafted client PUT carries a fabricated plan with a hostile order that
+    // would throw inside rescheduleDay if trusted (non-permutation), plus a
+    // fake quality label. savePlanned must consult the STORE's prior instead.
+    const forged: TripDoc = {
+      ...doc,
+      plan: {
+        version: 1,
+        engine: { name: "alns-ts", version: "999", seed: 1 },
+        computedAt: new Date().toISOString(),
+        solveHash: computeSolveHash(doc),
+        days: [
+          {
+            status: "ok",
+            order: ["nope", "nope", "nope"],
+            entries: [],
+            legs: [],
+            quality: "optimal",
+            totalTravelMin: 0,
+            daySlackMin: 9999,
+          },
+        ],
+      },
+    };
+    const result = await savePlanned(forged);
+    // Not a throw, and not the forged content: the honest stored order wins.
+    expect(result.plan!.days[0].status).toBe("ok");
+    const day0 = result.plan!.days[0];
+    if (day0.status === "ok") {
+      expect(day0.order).not.toEqual(["nope", "nope", "nope"]);
+      expect(day0.order.length).toBe(4);
+    }
+  });
 });

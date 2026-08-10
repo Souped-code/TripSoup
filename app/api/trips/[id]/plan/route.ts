@@ -9,6 +9,10 @@ import { getTripStore } from "@/lib/config";
 import { readPlanned, savePlanned } from "@/lib/planStore";
 import { checkRateLimit } from "@/lib/rateLimit";
 
+// E5b: savePlanned's POST path re-solves every day through the real engine
+// now (see app/api/trips/[id]/route.ts's PUT for the same reasoning).
+export const maxDuration = 120;
+
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const doc = await readPlanned(id);

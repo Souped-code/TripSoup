@@ -52,7 +52,17 @@ test("add stops -> mark anchor -> optimize -> correct order and times on screen"
 }) => {
   await newTrip(page);
 
-  const names = ["Old Port Aquarium", "Botanic Conservatory", "Castle Keep", "Northgate Mall"];
+  // E5b: "Castle Keep" (fx-16) carries real E3 opening hours (dailyHours
+  // 09:00-16:00) — that makes this day's constraint class richer than the
+  // old exhaustive solver's ("hours bind" -> src/lib/engine/exhaustive.ts's
+  // isOldClassDay routes it to the ALNS instead of the byte-identical
+  // exhaustive floor), so this test's differential-vs-planDay assertion
+  // below would be comparing the app's answer against the WRONG ground
+  // truth. Swapped for "Cathedral" (fx-10, no hours) to keep this test's
+  // exact-order/exact-time differential meaningful — that byte-for-byte
+  // check is the point of this test, not incidental hours coverage (E3's own
+  // hours behaviour is covered separately by hours.spec.ts).
+  const names = ["Old Port Aquarium", "Botanic Conservatory", "Cathedral", "Northgate Mall"];
   await addStops(page, [...names, "Nonexistent Palace"]);
 
   // the bogus line surfaces as a legible failure, never dropped silently

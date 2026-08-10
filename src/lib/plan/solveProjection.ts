@@ -13,19 +13,22 @@
 // needed) and every display-only field (stop name/address/source/
 // duplicateOf, day dayLabel) — none of those affect what the solver decides.
 //
-// E3 DECISION: stop.hours (WeeklyHours, src/lib/store/types.ts) is ALSO
-// excluded here, deliberately. The current engine (src/lib/schedule/
-// schedule.ts) never reads hours at all — E3 only threads them to an
-// advisory margin-note check (src/lib/plan/hoursAdvisory.ts) that runs
-// AFTER the solve, on the already-computed plan. Including hours in the
-// projection would stale every previously-stored plan's solveHash for a
-// field the solver structurally ignores — a recompute with zero behaviour
-// change. E5 MUST add stop.hours (and any other new constraint field it
-// starts consuming) to SolveProjectionStop/solveProjection the moment its
-// engine actually reads them, or a hours-only edit will silently serve a
-// stale plan.
+// E5b: stop.hours (WeeklyHours, src/lib/store/types.ts) now ENTERS the
+// projection. It used to be excluded (see the git history of this comment for
+// the E3-era reasoning): the legacy solver never read hours at all, so
+// including them would have staled every stored plan for a field nothing
+// consumed. That reasoning no longer holds — src/lib/planEngine.ts's engine
+// compiles TripStop.hours into HARD day-concrete constraints
+// (src/lib/engine/problem.ts's `hoursFromDoc`, default on) and genuinely
+// reorders/breaches around them, so a hours-only edit (a corrected opening
+// time, say) can change the solved order and must invalidate the stored plan.
+// THIS STALES EVERY PREVIOUSLY-STORED PLAN'S solveHash EXACTLY ONCE — the
+// existing self-heal path (planStore.readPlanned: hash mismatch -> recompute,
+// persist, return) absorbs it for free on next read, at zero Google spend
+// (the travel matrix is still cached). No migration needed or wanted.
 
 import type { LatLng } from "../maps/types";
+import type { WeeklyHours } from "../constraints/types";
 import type { TripDay, TripDoc } from "../store/types";
 import { stableHash } from "../util/stableHash";
 
@@ -34,6 +37,7 @@ export type SolveProjectionStop = {
   location: LatLng;
   durationMin: number;
   anchor?: { startMin: number };
+  hours?: WeeklyHours;
 };
 
 export type SolveProjectionDay = {
@@ -63,6 +67,7 @@ export function solveProjection(doc: TripDoc): SolveProjection {
         location: s.location,
         durationMin: s.durationMin,
         ...(s.anchor ? { anchor: s.anchor } : {}),
+        ...(s.hours ? { hours: s.hours } : {}),
       })),
       ...(day.precedence ? { precedence: day.precedence } : {}),
       ...(day.manualOrder ? { manualOrder: day.manualOrder } : {}),

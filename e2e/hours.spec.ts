@@ -10,6 +10,14 @@
 // Test 2 hits the PUT boundary directly to prove a hand-crafted/corrupted
 // `hours` payload is rejected (app/api/trips/[id]/route.ts's malformed()),
 // never silently accepted and misread downstream.
+//
+// Test 3 (E5b) is the NEW case the engine swap changes the stakes on: hours
+// are no longer advisory-only, they're a HARD constraint the engine actually
+// tries to satisfy (src/lib/engine/problem.ts's hoursFromDoc). A stop closed
+// ALL DAY has no slot the engine can dodge into — decision 6 ("infeasibility
+// = trade-off proposals, never silently cut") says the plan must still come
+// back whole, with the stop still in it and a legible note, not a blank page
+// or a quietly-dropped stop.
 
 import { expect, test } from "@playwright/test";
 
@@ -73,5 +81,37 @@ test.describe("opening hours (E3)", () => {
     expect(res.status()).toBe(400);
     const body = await res.json();
     expect(body.error).toContain("hours");
+  });
+
+  test("a hard hours conflict (closed all day) still renders a full reveal — the stop is never silently dropped (E5b)", async ({
+    page,
+  }) => {
+    await page.goto("/");
+
+    // Guildhall Museum is closed ALL DAY on a Monday (byWeekday[0] === []) —
+    // there is no slot in the day the engine could dodge into, so this is a
+    // genuine, unavoidable hard-hours breach, not a schedulable-around one.
+    // Market Hall rides along so the day isn't a trivial single-stop case.
+    await page
+      .getByTestId("greeting-paste")
+      .fill(["16 March 2026", "Guildhall Museum", "Market Hall"].join("\n"));
+    await page.getByTestId("greeting-submit").click();
+
+    await page.waitForURL(/\/trip\/[^/]+$/, { timeout: 15000 });
+    await expect(page.getByTestId("trip-reveal")).toBeVisible();
+
+    // Never a silent cut: both stops are still on screen, including the one
+    // the engine could not satisfy.
+    await expect(page.getByTestId("sidebar-rows")).toContainText("Guildhall Museum");
+    await expect(page.getByTestId("sidebar-rows")).toContainText("Market Hall");
+
+    // A legible note is visible — whether it's the engine's own conflict
+    // (src/lib/planEngine.ts's "Gracie couldn't fit…" wording) or the E3
+    // advisory catch-all, the reveal must never come back blank or broken.
+    await expect(page.getByTestId("sidebar-hours-note").first()).toBeVisible();
+    await expect(page.getByTestId("sidebar-hours-note").first()).toContainText("Guildhall Museum");
+
+    // The day still has a quality label — a real plan, not an error state.
+    await expect(page.getByTestId("journal-sidebar")).not.toContainText("couldn't be cooked");
   });
 });

@@ -5,6 +5,10 @@
 import type { LatLng } from "../maps/types";
 import type { DayPlan } from "../schedule/types";
 import type { WeeklyHours } from "../constraints/types";
+// Imported from engine/types directly (not the engine/ barrel, which pulls in
+// problem.ts, which imports TripDoc from THIS file) — a type-only import from
+// the leaf module avoids that cycle.
+import type { Conflict, Proposal } from "../engine/types";
 
 export type TripStop = {
   id: string; // place_id (fixture or Google); a same-day duplicate occurrence
@@ -82,15 +86,28 @@ export type TripDoc = {
   legOverrides: LegOverride[];
   plan?: {
     version: 1;
-    // The engine that produced `days` below. Today's solver is the only
-    // engine ("legacy-exhaustive"); E5 introduces a seeded alternative —
-    // `seed` is unused (stamped 0) until then.
+    // The engine that produced `days` below. E5b: the production engine is
+    // the E5a ALNS (src/lib/engine/, name "alns-ts") behind the SolverEngine
+    // port; `seed` is derived deterministically from the doc's own solve
+    // projection (src/lib/planEngine.ts's `seedFor`) — same doc, same seed,
+    // same plan. The pre-E5 legacy exhaustive/heuristic solver ("legacy-
+    // exhaustive") stays importable (src/lib/planService.ts's `planTripDay`,
+    // used directly for a single day and for the manualOrder/toggle-only
+    // paths) but is no longer what stamps a fresh whole-trip plan.
     engine: { name: string; version: string; seed: number };
     computedAt: string; // ISO timestamp
     // stableHash (../util/stableHash) of solveProjection(doc) — see
     // ../plan/solveProjection.ts for exactly what this covers/excludes.
     solveHash: string;
     days: DayPlan[]; // one per doc day, same DayPlan union as ../schedule/types
+    // E5b — additive/optional, absent on pre-E5b docs (and on the "manual
+    // order"/"toggle-only fast path" writes that don't recompute them; see
+    // planStore.savePlanned). The engine's relaxations (never a silent cut)
+    // and the priced ways out of them — src/lib/engine/types.ts is the
+    // source of truth for both shapes. E6 renders these as cards; E5b only
+    // stores them and turns them into short margin notes.
+    conflicts?: Conflict[];
+    proposals?: Proposal[];
   };
 };
 
