@@ -1969,3 +1969,74 @@ execute by task shape, Fable·xhigh audits every milestone gate.
 - In flight, parallel: generator+evaluator [Sonnet·high], ALNS contender [Opus·high], CP-SAT
   contender [Sonnet·medium, local python]. E4 plan persistence [Sonnet·high] runs in parallel
   (disjoint files) per the plan's dependency graph.
+
+## E1 — BENCHMARK SPIKE COMPLETE: TS ALNS ships (2026-08-10)
+
+**The pre-registered decision rule fired for TS ALNS — no VPS worker, no second service, the
+production engine is pure TypeScript on Vercel.** The loser survives as a compiled adapter
+behind E5's SolverEngine port (graceful-degrade option preserved).
+
+**Final numbers (post-fix, all 100 artifacts under the final evaluator semantics):**
+
+| cell | solver | feasible | mean score (both-feasible) | p50 | p95 |
+|---|---|---|---|---|---|
+| VERDICT dense-40×7@30s | alns | 100% | **92.8** | 14.9s | 17.2s |
+| VERDICT dense-40×7@30s | cpsat | 100% | 106.8 (15.1% worse) | 31.0s | 31.5s |
+| dense-40×7@10s | alns | 100% | **91.5** | 5.3s | 6.2s |
+| dense-40×7@10s | cpsat | 100% | 278.5 (3.0× worse) | 11.0s | 11.1s |
+| medium-25×5@10s | alns | 100% | **110.1** | 3.8s | 5.1s |
+| medium-25×5@10s | cpsat | 100% | 159.4 | 10.8s | 11.6s |
+| sparse-12×1@10s | alns | 100% | 912.2 | 1.5s | 2.3s |
+| sparse-12×1@10s | cpsat | 100% | **893.1** | 4.3s | 10.6s |
+
+CP-SAT's one win: the tiny single-day cell, where it can prove optimality. ALNS is
+byte-deterministic per (problem, seed, budget) — verified by the gate audit re-running seeds
+6/13/17 to exact score matches; CP-SAT (4 workers) is not reproducible run-to-run.
+
+**Race integrity (Fable·xhigh gate adjudication: VERDICT-STANDS-WITH-CAVEATS, caveats since
+discharged):**
+- The FIRST run's headline "CP-SAT only 55% feasible" was **evidence corruption, not solver
+  failure**: a one-minute off-by-one in the CP-SAT model's meal-block encoding (evaluator
+  forbids start ∈ [blockStart, blockEnd); the model allowed start == blockStart, and a
+  wait-minimizing optimizer lands on binding boundaries constantly). Proven by the auditor's
+  minimal reproduction. Fixed (solve.py `start <= blockStart - 1`), dense cells re-run — the
+  table above is the honest record. CP-SAT was "internally feasible everywhere, ~15% worse on
+  score, at 2–8× the latency" — a cleaner and still decisive ALNS win.
+- Harness fairness verified: identical instances both solvers, CP-SAT's internal 30s budget
+  EXCLUDES model build (it effectively got more solver compute than ALNS, which self-terminated
+  at ≤17.2s on its deterministic iteration cap); evaluator applied identically to both raw
+  outputs; no stale artifacts (all 100 postdate the final evaluator/model semantics, verified
+  by mtime).
+- CP-SAT autopsy: competent model (optional-node AddCircuit per day, reified everything), not a
+  strawman; known misses (no AddHint warm start, multi-worker nondeterminism) noted. Framing:
+  "this CP-SAT model lost on feasibility" was the bug; "CP-SAT the tool lost on score+latency
+  at 25+ stops" is the durable result.
+- External-validity caveat (recorded, matters for E5 acceptance): the generator's instances are
+  recovery-shaped (feasible-by-construction around a planted NN-clustered layout), which mildly
+  favours local search. Both solvers saw identical inputs and CP-SAT's deficit grows with size
+  (a scaling signature), but E5's acceptance tests should add NON-planted instance families.
+
+**Mid-spike semantic rulings (now the canon E2 promoted):** wait is STRUCTURAL (idle gap from
+starts/departs/travel — solver-reported arrival can't zero it; closed a loophole the ALNS
+builder honestly flagged rather than exploited); hours = visit fits entirely in one open
+interval, lastEntry caps the start; pace maxActive = day span; mealBlocks exclude starts;
+duration is a {min,typical,max} range. Two cross-validation catches before any race ran:
+CP-SAT's hours constrained only the start (fixed), and the original wait definition was
+gameable (fixed in evaluator + both objectives; objectives verified equal to the digit, 167.6
+== 167.6).
+
+**ALNS notable properties (from its build + audit):** matches Held-Karp exact optima 12/12 at
+n=8..14 single-day; hits a knapsack lower bound exactly on selection-dominated instances; beats
+or ties the planted solution on every verdict seed; never dropped a must stop; iteration cap =
+clamp(430·budget/(n+10), 20k, 500k) — budget-aware by documented deviation (a size-only cap
+couldn't serve both 10s and 30s cells honestly).
+
+**Deviations:** (1) CP-SAT raced LOCALLY, not on the VPS (SSH unavailable this session — flagged
+in E0; identical-hardware race is fairer anyway; ~1.5s process-spawn overhead stood in for the
+VPS round-trip and latency wasn't the deciding condition). (2) Cell grid pruned from the plan's
+full matrix to the verdict cell @20 seeds + 3 secondary cells @10 (the full grid is 10+ hours
+of compute that couldn't change the decision; pruning logged in run.ts's header). (3) The
+budget-aware ALNS iteration cap, above.
+
+E1 CLOSED. E2 (constraint model) built [Opus·high], 32 new tests, fast-check seeds pinned after
+an unseeded-flake catch by the orchestrator — Fable·xhigh audit in flight. E3 next.
