@@ -26,7 +26,16 @@ export const ParsedItemSchema = z.object({
   placeQuery: z.string().optional(),
   dateHint: z.string().optional(),
   timeHint: z.string().optional(),
-  anchorLikely: z.boolean(),
+  // Required in spirit, tolerant in shape: the LIVE model (caught on prod,
+  // 2026-08-10, E0 verify) omits this field for items with no time cue, and at
+  // temperature 0 every retry omits it identically — so a hard requirement
+  // burns all attempts on a guaranteed failure. Missing/null coerce to false
+  // (the only sensible reading of "no anchor signal"); any other non-boolean
+  // still fails validation and triggers the retry-with-feedback loop.
+  anchorLikely: z
+    .boolean()
+    .nullish()
+    .transform((v) => v ?? false),
   anchorReason: z.string().optional(),
   orderConstraint: z
     .object({

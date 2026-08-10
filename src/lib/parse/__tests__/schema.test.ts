@@ -18,8 +18,26 @@ describe("ParsedItinerarySchema", () => {
     expect(ParsedItinerarySchema.safeParse(VALID).success).toBe(true);
   });
 
-  it("rejects a missing required field (anchorLikely)", () => {
-    const bad = { items: [{ kind: "link", raw: "x" }], days: [], splitGroups: [] };
+  it("coerces a missing/null anchorLikely to false — live-model tolerance (prod, 2026-08-10)", () => {
+    // The live LLM omits anchorLikely on items with no time cue, and at temp 0
+    // every retry omits it identically — a hard requirement burned all attempts
+    // on a guaranteed failure. Missing and null read as "no anchor signal".
+    for (const item of [
+      { kind: "link", raw: "x" },
+      { kind: "link", raw: "x", anchorLikely: null },
+    ]) {
+      const parsed = ParsedItinerarySchema.safeParse({ items: [item], days: [], splitGroups: [] });
+      expect(parsed.success).toBe(true);
+      if (parsed.success) expect(parsed.data.items[0].anchorLikely).toBe(false);
+    }
+  });
+
+  it("still rejects a non-boolean anchorLikely (garbage is not a default)", () => {
+    const bad = {
+      items: [{ kind: "link", raw: "x", anchorLikely: "yes" }],
+      days: [],
+      splitGroups: [],
+    };
     expect(ParsedItinerarySchema.safeParse(bad).success).toBe(false);
   });
 
