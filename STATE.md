@@ -2133,3 +2133,43 @@ alongside iterCap; (4) per-day matrix pair-completeness validation at the planSe
 (5) decide quality-regression harness vs spike baselines (own or waive). Dormant-until-E7:
 soft blocks over-enforced (search.ts pushAfterBlocks ignores hardness); soft windows don't
 steer slot selection.
+
+## E5b — THE ENGINE IS LIVE (2026-08-10, commit 5989496)
+
+savePlanned solves through the E5a ALNS engine; hours entered solveHash (one-time self-heal per
+stored doc); deterministic seed = solve-hash truncation; conflicts/proposals persist on the doc;
+PUT rate-limited (own plan-put 60/hr bucket) + maxDuration 120 on PUT/POST/plan AND both pages.
+Quality-regression suite: 3 seeded 25-stop docs, scores pinned at 1% — **baselines captured at
+commit 5989496** (this entry is the provenance the test file cites).
+
+Fable·xhigh audit: COMMIT-READY-WITH-FIXES, and **DEPLOY-READY: NO as first submitted** — it
+measured a 26.3s heal over the "20s budget" (iterCap disables the wall clock by design) heading
+into pages with platform-default timeouts, right as hours-in-solveHash stales every stored plan.
+All deploy-gating findings fixed pre-commit: pages export maxDuration 120; heals run wall-clock
+mode (new engine opt — no iterCap; finishing beats reproducibility, and the healed plan persists
+so the anytime result becomes stable); engine gained hardStopMs (a net that applies EVEN WITH
+iterCap, 3x/1.5x budget); toggle fast path re-derives hours advisories on retimed schedules and
+reads its prior from the STORE (a crafted PUT could otherwise persist fabricated plans for share
+viewers — forged-plan attack now has a test); +3 fast-path tests.
+
+**FLAGGED FOR CHRIS (product-behaviour, decisions shape E6):**
+1. **Edit latency (audit F3):** every non-toggle edit (drag, remove, settings) is now a real
+   solve — seconds, not sub-second — behind a bare busy flag. Options: extend the fast path to
+   more mutation kinds, a "quick re-time / full re-plan" split in the UI, or accept-and-show-
+   progress (E6 owns the surface either way).
+2. **Seed churn (F4):** content-derived seeds mean ANY edit can visibly reshuffle unedited days
+   (A→B→A does return the identical plan — a genuinely nice property). Alternative: stable
+   per-trip seed reduces churn but loses that identity. Chris's call.
+3. **SSE silence (F13):** during the solve the progress stream is silent then bursts (engine is
+   synchronous). Gracie stays animated (no freeze), but "live progress" during the longest stage
+   is not honestly delivered. Real fix = worker thread; decide if E6 owns it.
+4. E6 must-nots from audit: F7 (lastEntry/closedDates enforced hard but produce NO margin note —
+   unreachable today, must not survive E6), F10 (CI pins a shorter-cooled search trajectory than
+   prod — quality regression at high iteration counts could pass CI).
+
+**CHRIS-VERIFY (prod):** paste a real 40-stop multi-day itinerary → solves with progress, plan
+persists, share link instant on second visit; an edit re-plans; a walk/drive toggle is instant.
+
+E5 COMPLETE (E5a 546d1d9 + E5b 5989496). NEXT: E6 (trade-off cards + explain prose) — but the
+plan's CHRIS CHECKPOINT sits after E6, and the three product flags above genuinely shape E6's
+design. Session pauses here for Chris.
