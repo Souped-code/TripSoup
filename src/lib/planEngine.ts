@@ -37,6 +37,12 @@ import {
   type DocPatch,
   type Proposal,
 } from "./engine";
+// E6a — both `alnsEngine.solve` call sites below go through `runSolve`
+// (src/lib/engineWorker/host.ts), which chooses worker-thread vs in-process
+// per ENGINE_IN_WORKER/JEST_WORKER_ID. `alnsEngine` itself stays imported
+// above for its `.name`/`.version` (engineMeta) — those are static strings,
+// identical either way solve actually ran.
+import { runSolve } from "./engineWorker/host";
 import { hoursNoteFor } from "./plan/hoursAdvisory";
 import { dayProjection, solveProjection } from "./plan/solveProjection";
 import { validManualOrder } from "./planShared";
@@ -351,7 +357,14 @@ export function applyHoursAdvisoryToDay(doc: TripDoc, dayIndex: number, plan: Da
     const stop = stopsById.get(entry.stopId);
     if (!stop?.hours) continue;
     const open = intersectHoursWithWeekday(stop.hours, weekday);
-    const note = hoursNoteFor(stop.name, weekday, entry.startMin, entry.departMin, open);
+    // F7 (E5b audit must-not, closed E6b) — lastEntryMin/closedDates are
+    // enforced HARD by the engine (problem.ts's hoursFromDoc) but say nothing
+    // to a byWeekday-only `open` check; see hoursAdvisory.ts's hoursNoteFor
+    // doc comment for why a breach could otherwise produce zero margin note.
+    const note = hoursNoteFor(stop.name, weekday, entry.startMin, entry.departMin, open, {
+      lastEntryMin: stop.hours.lastEntryMin,
+      closedToday: stop.hours.closedDates?.includes(day.date) ?? false,
+    });
     if (note) notes.push(note);
   }
   return withMarginNotes(plan, notes);
@@ -443,7 +456,7 @@ export async function solveWithPreparedMatrices(
   const seed = seedFor(doc);
   const timeBudgetMs = engineBudgetMs();
 
-  const solution = await alnsEngine.solve(problem, {
+  const solution = await runSolve(problem, {
     seed,
     timeBudgetMs,
     // Deterministic mode passes an explicit iterCap; wall-clock mode (heals —
@@ -455,7 +468,8 @@ export async function solveWithPreparedMatrices(
     // where the primary clock is already armed) = generous enough that the net
     // firing means the machine is pathologically slow, in which case an anytime
     // best-so-far (with determinism sacrificed for that one solve) is strictly
-    // better than a platform timeout.
+    // better than a platform timeout. (E6a: `runSolve`'s worker path adds its
+    // OWN +5s grace on top of this before terminate()-ing — see host.ts.)
     hardStopMs: opts.wallClockOnly ? timeBudgetMs * 1.5 : timeBudgetMs * 3,
     onProgress: opts.onSolveProgress,
   });
@@ -593,7 +607,7 @@ export async function solveDayWithEngine(
   const seed = seedForDay(doc, dayIndex);
   const timeBudgetMs = engineBudgetMs();
 
-  const solution = await alnsEngine.solve(problem, {
+  const solution = await runSolve(problem, {
     seed,
     timeBudgetMs,
     ...(opts.wallClockOnly ? {} : { iterCap: iterCapFor(problem.nodes.length, timeBudgetMs) }),

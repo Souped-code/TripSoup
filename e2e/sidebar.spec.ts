@@ -148,7 +148,15 @@ test("keyboard reorder moves a row, re-paths the map, and offers re-optimize", a
   expect(savedDoc.days[0].manualOrder).toEqual(expectedOrder);
 });
 
-test("re-optimize clears the manual order and hands it back to the solver", async ({ page }) => {
+// E6b — "Re-optimize" became the general-purpose "Re-cook this day" control
+// (same testid, same day-scoped recook handler): it now renders whenever the
+// day has stops, not only after a manual drag, so — unlike before E6b — it no
+// longer DISAPPEARS once the manual pin is cleared. The behavioural claim this
+// test exists to prove (clearing manualOrder hands ordering back to the
+// solver, deterministically) is unchanged; only the "the button vanishes"
+// assertion is replaced with "the manual-order banner text vanishes" and an
+// explicit persisted-doc check, which is the more precise signal anyway.
+test("re-cook this day clears the manual order and hands it back to the solver", async ({ page }) => {
   await stubTiles(page);
   const doc = await createSidebarTrip(page);
   await page.goto(`/trip/${doc.tripId}`);
@@ -160,6 +168,7 @@ test("re-optimize clears the manual order and hands it back to the solver", asyn
   await keyboardDragOneSlotDown(page, `sidebar-handle-${firstId}`);
 
   await expect(page.getByTestId("sidebar-reoptimize")).toBeVisible();
+  await expect(page.getByText(/Your order/)).toBeVisible();
   await expect(map).not.toHaveAttribute("data-order", solverOrder);
 
   await page.getByTestId("sidebar-reoptimize").click();
@@ -167,7 +176,14 @@ test("re-optimize clears the manual order and hands it back to the solver", asyn
   // The solver is deterministic (proven at the unit level), so clearing
   // manualOrder reproduces the exact same order as the original auto-plan.
   await expect(map).toHaveAttribute("data-order", solverOrder, { timeout: 15000 });
-  await expect(page.getByTestId("sidebar-reoptimize")).toHaveCount(0);
+  // The control itself stays offered (it's the general re-cook affordance
+  // now), but the "you pinned this" banner is gone — quality is back to auto.
+  await expect(page.getByTestId("sidebar-reoptimize")).toBeVisible();
+  await expect(page.getByText(/Your order/)).toHaveCount(0);
+
+  const saved = await page.request.get(`/api/trips/${doc.tripId}`);
+  const savedDoc = (await saved.json()) as TripDoc;
+  expect(savedDoc.days[0].manualOrder).toBeUndefined();
 });
 
 test("a flagged duplicate stop shows a remove note, and removing it drops it from the map order", async ({

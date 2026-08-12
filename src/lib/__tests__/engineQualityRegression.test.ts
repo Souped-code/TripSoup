@@ -21,6 +21,7 @@
 // under src/lib/engine/ that index.ts doesn't itself export.
 
 import { solveWithAlns, WEIGHT_TRAVEL, WEIGHT_WAIT, type EngineProblem } from "../engine";
+import { iterCapFor } from "../planEngine";
 import {
   ALL_FIXTURE_IDS,
   docOf,
@@ -170,4 +171,61 @@ describe("engine quality regression (E5b MUST-DO 5)", () => {
     expect(score).toBeGreaterThanOrEqual(baselineScore * 0.99);
     expect(score).toBeLessThanOrEqual(baselineScore * 1.01);
   });
+});
+
+// ---------------------------------------------------------------------------
+// F10 (E5b audit must-not, carried forward at E5c/E6a): "CI pins a shorter-
+// cooled search trajectory than prod — a quality regression at high iteration
+// counts could pass CI." The suite above pins ITER_CAP = 60,000, chosen for
+// jest runtime, not for matching what a real solve actually does: prod's
+// `iterCapFor` (planEngine.ts) at the production budget
+// (ENGINE_BUDGET_MS's default, 20,000ms — see that file's
+// DEFAULT_ENGINE_BUDGET_MS, not exported, so the number is duplicated here
+// exactly as planEngine.ts itself duplicates search.ts's ITER_CAP formula;
+// same rationale — this file must test the actual number prod uses) computes
+// a MUCH higher cap for a 25-node problem: 245,714 iterations, ~4x the
+// suite's own ITER_CAP. A future engine change could plausibly improve the
+// score at 60k iterations (an earlier, less-cooled point in the annealing
+// schedule) while regressing it at prod's 245k (e.g. a reheat/acceptance
+// tweak that helps mid-search but hurts once the schedule has mostly cooled)
+// — CI would stay green throughout. This ONE case closes that gap by pinning
+// fixture A (arbitrary choice among A/B/C — the point is exercising the REAL
+// prod trajectory at all, not which fixture) at the REAL prod iterCap.
+//
+// Reused, not reinvented: fixtureA is the SAME 25-stop doc the suite above
+// already builds; only the iterCap differs. Confirmed BYTE-IDENTICAL to the
+// 60k-cap baseline above at pin time (240.62855526476727 both times, run
+// twice for determinism per this file's usual practice) — the search had
+// already converged for this particular fixture well before 60k iterations,
+// which is itself a useful confirmation, not a reason to skip pinning the
+// number a real solve actually produces. A future divergence between the two
+// numbers is exactly the class of regression this test exists to catch.
+const PROD_BUDGET_MS = 20_000; // planEngine.ts's DEFAULT_ENGINE_BUDGET_MS
+const PROD_ITER_CAP = iterCapFor(25, PROD_BUDGET_MS); // 245,714 at today's formula constants
+const PROD_BASELINE_SCORE = 240.62855526476727;
+
+describe("engine quality regression — prod trajectory (F10)", () => {
+  // Measured ~5-6.5s under plain tsx per run; ts-jest's per-solve overhead
+  // (documented in planEngine.ts's engineBudgetMs comment) pushed a single
+  // run to ~36.5s in THIS run (measured, not guessed — see STATE.md's E6a
+  // entry) — well past jest's default 5s test timeout, so this test alone
+  // gets a raised one. 60s (not the measured 36.5s) leaves headroom for a
+  // slower CI box; still scoped to just this one `test()` call (the second
+  // argument), not a file-wide `jest.setTimeout`, so a hang anywhere ELSE in
+  // this file still fails fast in the ordinary 5s.
+  it(
+    "fixture A stays within 1% of its pinned score at the REAL prod iterCap (245,714, not the suite's 60,000)",
+    async () => {
+      expect(PROD_ITER_CAP).toBeGreaterThan(ITER_CAP); // the whole premise of this test
+      const problem = await fixtureA();
+      expect(problem.nodes.length).toBe(25);
+
+      const solution = solveWithAlns(problem, { seed: SEED, timeBudgetMs: Infinity, iterCap: PROD_ITER_CAP });
+      const score = scoreOf(solution.objectiveBreakdown);
+
+      expect(score).toBeGreaterThanOrEqual(PROD_BASELINE_SCORE * 0.99);
+      expect(score).toBeLessThanOrEqual(PROD_BASELINE_SCORE * 1.01);
+    },
+    60_000
+  );
 });

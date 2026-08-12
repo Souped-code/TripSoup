@@ -2332,3 +2332,68 @@ kept-day-staleness class, neither caught by the 380 tests. **All fixed in the E5
   rejected day pay real day-scoped solves.
 +2 regression tests (the auditor's own repros, verbatim). Perf (audit-measured): ~0.4s/day at
 3s budget; a 7-day settings edit ≈ one E5b whole-trip solve — no deploy regression.
+
+## E6 — TRADE-OFF CARDS + WORKER THREAD COMPLETE (2026-08-12)
+
+Two parallel builds [both Sonnet·high], disjoint file ownership, merged clean.
+
+**E6a — the engine solve moved to a worker thread (Chris flag 3 = C):**
+- src/lib/engineWorker/: host (one worker per solve, terminated after — no pooling on
+  serverless); esbuild pre-bundles workerEntry into a dependency-free worker.generated.cjs
+  (gitignored; predev/prebuild hooks) whose PATH is handed to new Worker() as a runtime string
+  webpack cannot rewrite; next.config.mjs outputFileTracingIncludes ships it into every
+  function. Audit re-verified the tracing itself: bundle present in all 8 API route nft traces
+  + both pages. Missing-bundle failure mode = legible rejected days, not a crash loop.
+- Live progress is REAL now: pipeline's solve stage drains worker messages concurrently
+  (progressChannel push-pull bridge) — the proof script showed 20 ticks over 3.88s arriving
+  BEFORE resolution; the audit independently reproduced a prod-build (next start) smoke with
+  worker ON and live SSE ticks. A setTimeout(Infinity) clamp bug (spurious ~1ms termination
+  when no hard-stop net) was caught by the proof script and regression-tested.
+- ENGINE_IN_WORKER defaults: ON in production, OFF in dev/jest (explicit env always wins).
+  Dev-server worker mode produced repeatable full-suite e2e flakes (different test each run;
+  never reproducible in isolation, under next start, or in tsx — the shape points at next dev's
+  on-demand compile + an independent OS thread, not host.ts, whose mocked unit tests are
+  stable). Honest gap: e2e exercises the in-process path; worker-mode coverage = 14 mocked host
+  tests + the tsx live-progress proof + the prod-build HTTP smoke (audit-reproduced). F10
+  closed: quality harness gained a prod-trajectory case (iterCap 245,714, ~46s under jest).
+
+**E6b — the trade-off surface (the roadmap's core promise, visible):**
+- TradeOffCard: one card per conflict on the active day — journal voice, provenance wording
+  ("Google says" / "from your notes" / "you set this"), by-how-much; proposal chips ("Skip it",
+  "Move to day N", "Trim the visit"...) with costDeltaMin. Accept -> client applyDocPatch
+  (planShared — DISTINGUISHES stale from applied; stale -> margin error + refresh, never a
+  misapply; audit proved byte-identical semantics with the engine's own patch applier incl. the
+  cross-day duplicate-id moveStop) -> the normal PUT re-plan flow. Dismiss -> additive
+  doc.dismissedProposals keyed {conflictId, dayHash} — auto-expires when the day actually
+  changes; survives the toggle fast path; malformed shapes 400 at the PUT boundary (e2e-proven).
+  Share page: cards deliberately absent (owner decisions).
+- Re-cook UI: "Re-cook this day" (absorbs re-optimize semantics, same testid) + whole-trip
+  re-cook behind an inline confirm. Both -> POST {recook:{scope}}.
+- F7 closed: hours advisories now cover lastEntryMin ("last entry is HH:MM — you'd arrive
+  after") and closedDates — audit cross-checked the advisory's inequalities against the
+  engine's hard enforcement: identical semantics, no divergence class.
+- explainTradeoffs prose (LLM b): src/lib/prose/ cloning the llmAdapter cost-safety pattern
+  (construction gate, fixture adapter for all tests, adapter-guard extended, PROSE_PROVIDER
+  selection, new explain.tradeoffs capability, prose rate bucket 20/hr, GET
+  /api/trips/[id]/explain). DECORATIVE by proof: any failure -> prose null -> cards render
+  regardless. LIVE Haiku adapter UNVERIFIED by design (no key exercised — CHRIS-VERIFY).
+- Honest gap (recorded on the card itself): accepting "Ease the pace" reports ok:false with a
+  reason — TripDoc has no pace field until E7 persists constraints. Burns down at E7.
+
+**Fable·xhigh combined audit: COMMIT-READY, DEPLOY-READY YES** — first no-required-code-fixes
+verdict since E3. All findings MINOR/NIT; follow-ups parked: worker-spawn in-process fallback
+with loud log (deliberate non-fallback keeps deploy regressions loud; revisit at hardening);
+SSE route cancel() handler (pre-existing); prose-render e2e assertion; progressChannel
+error-path unit test. Pre-commit fixes landed: this STATE entry (five files cite it) +
+PROSE_PROVIDER pinned in playwright env.
+
+**CHRIS-VERIFY (prod):** open a trip landing a Monday-closed stop on a Monday -> card with
+"Google says..."; accept "Skip it" -> re-planned, card gone; dismiss another -> survives
+reload, expires on edit; re-cook day/trip; watch a fresh paste's solve progress tick LIVE
+(worker is ON in prod); optionally set ANTHROPIC key + PROSE_PROVIDER=llm and eyeball the
+prose paragraph.
+
+E6 CLOSED. The roadmap's core promise — infeasibility becomes visible trade-offs the user
+decides — is now end-to-end: engine emits conflicts+proposals -> cards render them -> accept
+re-plans -> dismiss expires honestly. NEXT: the plan's CHRIS CHECKPOINT (pause for M3
+payments, or continue E7 constraint compilation -> E8 chat).

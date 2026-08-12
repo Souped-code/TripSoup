@@ -4,14 +4,17 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "predev": "npm run build:worker",
     "build": "next build",
+    "prebuild": "npm run build:worker",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "jest",
     "test:e2e": "playwright test",
     "spike:run": "tsx spike/run.ts",
     "spike:report": "tsx spike/report.ts",
-    "spike:selfcheck": "tsx spike/selfcheck.ts"
+    "spike:selfcheck": "tsx spike/selfcheck.ts",
+    "build:worker": "node src/lib/engineWorker/build.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
@@ -36,6 +39,7 @@
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "esbuild": "^0.28.2",
     "fast-check": "^3.23.0",
     "jest": "^29.7.0",
     "ts-jest": "^29.3.0",

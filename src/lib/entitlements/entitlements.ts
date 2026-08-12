@@ -28,7 +28,15 @@ export type Capability =
   // FUTURE (M2): cross-date "propose a smoother move" suggestions. Reserved.
   | "suggest.crossDate"
   // FUTURE (M3.6): high-resolution, watermark-free PNG export.
-  | "export.hires";
+  | "export.hires"
+  // E6b — decorative LLM prose explaining a trip's trade-off cards
+  // (src/lib/prose/explainTradeoffs.ts). Gated for the same cost-boundary
+  // reason as interpret.names: an unbounded number of trade-off cards could
+  // otherwise fan out into unbounded billed Haiku calls. The feature degrades
+  // to a deterministic fixture template with this capability off, or absent
+  // an API key/PROSE_PROVIDER=llm — never a hard failure either way (prose is
+  // decorative; structured cards always render without it).
+  | "explain.tradeoffs";
 
 export type Tier = "free" | "pass";
 
@@ -77,6 +85,7 @@ export const ALL_CAPABILITIES: readonly Capability[] = [
   "interpret.social",
   "suggest.crossDate",
   "export.hires",
+  "explain.tradeoffs",
 ];
 
 // The combined links+names spend cap the pipeline enforces per paste. Lives

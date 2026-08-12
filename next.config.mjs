@@ -25,6 +25,17 @@ const nextConfig = {
       },
     ];
   },
+  // E6a — src/lib/engineWorker/host.ts spawns a worker_thread by handing
+  // `new Worker()` a plain runtime path string (never a `require`/`import`),
+  // so Next's automatic file-tracing (which only follows require/import
+  // graphs) has no way to discover that the deployed function needs
+  // worker.generated.cjs on disk. This is the explicit hint that makes
+  // Vercel ship it anyway. Scoped to every API route (the only place a solve
+  // ever runs — see app/api/pipeline/route.ts and app/api/trips/[id]/*)
+  // rather than every page, since pages never call runSolve directly.
+  outputFileTracingIncludes: {
+    "app/api/**/*": ["./src/lib/engineWorker/worker.generated.cjs"],
+  },
 };
 
 // M0.3: error observability via Sentry. Conservative on purpose — no auth

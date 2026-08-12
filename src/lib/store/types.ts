@@ -118,6 +118,20 @@ export type TripDoc = {
     conflicts?: Conflict[];
     proposals?: Proposal[];
   };
+  // E6b — trade-off cards persist a dismissal per CARD (keyed by `Conflict.id`,
+  // the field name mirrors the roadmap's "dismissedProposalIds keyed to
+  // solveHash" wording but a card can carry zero proposals — e.g. a conflict
+  // the proposal generator couldn't find a clean fix for — so dismissal is a
+  // card-level action, not a per-proposal-chip one; ACCEPT stays per-proposal
+  // via applyDocPatch instead). `dayHash` is the dismissed card's OWN day's
+  // current `plan.dayHashes[dayIndex]` at dismiss time (or `plan.solveHash`
+  // for a trip-level conflict with no `dayIndex`) — src/lib/planShared.ts's
+  // `dismissalKeyForConflict` is the single source of this key on both the
+  // write (RevealClient's dismiss mutation) and read (JournalSidebar's
+  // filter) side. A day edit changes that day's hash, so a stale dismissal
+  // entry simply stops matching — no pruning needed, no re-appearance logic
+  // beyond an ordinary filter. Additive/optional — absent on every pre-E6b doc.
+  dismissedProposals?: Array<{ id: string; dayHash: string }>;
 };
 
 export interface TripStore {

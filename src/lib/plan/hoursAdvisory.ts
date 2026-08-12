@@ -50,18 +50,33 @@ function isoWeekdayOfDate(date: string): number | null {
   return googleWeekdayToIso(jsDay);
 }
 
-/** One journal-voice note for a single visit, or null when it fits. Exported
- * for direct unit testing of the wording/branches without needing a full
- * TripDoc + DayPlan. */
+/** F7 (E5b audit handoff, closed E6b): the ENGINE enforces `lastEntryMin` and
+ * `closedDates` as HARD constraints the moment a stop carries them (E5's
+ * `hoursFromDoc` — src/lib/engine/problem.ts) — a plan can genuinely breach
+ * either today, via a hand-crafted PUT, even though the parser never emits
+ * them (src/lib/maps/openingHours.ts's doc comment). Before this fix, this
+ * advisory only ever looked at `byWeekday`: a visit that fits comfortably
+ * inside the open window but starts after `lastEntryMin`, or lands on a date
+ * in `closedDates` while `byWeekday` says that weekday is normally open,
+ * would report `fits === true` and return null — a real, engine-flagged hard
+ * breach with ZERO margin note. `opts` carries the two additional facts the
+ * caller must supply for the check to be honest. */
 export function hoursNoteFor(
   stopName: string,
   weekday: number,
   startMin: number,
   departMin: number,
-  open: readonly Window[]
+  open: readonly Window[],
+  opts: { lastEntryMin?: number; closedToday?: boolean } = {}
 ): string | null {
+  if (opts.closedToday) {
+    return `Heads up — ${stopName} is closed that date.`;
+  }
   if (open.length === 0) {
     return `Heads up — ${stopName} looks closed on ${ISO_WEEKDAY_NAMES[weekday]}s.`;
+  }
+  if (opts.lastEntryMin !== undefined && startMin > opts.lastEntryMin) {
+    return `Heads up — ${stopName}'s last entry is ${fmtHM(opts.lastEntryMin)} — you'd arrive after.`;
   }
   const fits = open.some((w) => startMin >= w.startMin && departMin <= w.endMin);
   if (fits) return null;
@@ -111,7 +126,10 @@ export function applyHoursAdvisories(doc: TripDoc, days: DayPlan[]): DayPlan[] {
       const stop = stopsById.get(entry.stopId);
       if (!stop?.hours) continue;
       const open = intersectHoursWithWeekday(stop.hours, weekday);
-      const note = hoursNoteFor(stop.name, weekday, entry.startMin, entry.departMin, open);
+      const note = hoursNoteFor(stop.name, weekday, entry.startMin, entry.departMin, open, {
+        lastEntryMin: stop.hours.lastEntryMin,
+        closedToday: stop.hours.closedDates?.includes(day.date) ?? false,
+      });
       if (note) notes.push(note);
     }
     if (notes.length === 0) return plan;

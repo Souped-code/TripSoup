@@ -163,3 +163,61 @@ describe("hoursNoteFor — wording branches", () => {
     );
   });
 });
+
+// F7 (E5b audit must-not) — lastEntryMin/closedDates are HARD-enforced by the
+// engine (problem.ts's hoursFromDoc) but the parser never emits them
+// (openingHours.ts's doc comment); a hand-crafted PUT is the only way either
+// becomes real today, and the note must exist the day it does.
+describe("hoursNoteFor — F7: lastEntryMin / closedDates", () => {
+  const open = [{ startMin: 540, endMin: 1020 }]; // 09:00-17:00
+
+  it("closedToday overrides everything else, even a comfortably-fitting visit", () => {
+    expect(hoursNoteFor("Flower Dome", 1, 600, 660, open, { closedToday: true })).toBe(
+      "Heads up — Flower Dome is closed that date."
+    );
+  });
+
+  it("a visit that fits the byWeekday window but starts after lastEntryMin still gets a note", () => {
+    // 15:30 start, well inside 09:00-17:00 by the old byWeekday-only check —
+    // this is exactly the class of breach that used to produce ZERO note.
+    expect(hoursNoteFor("Castle Keep", 2, 930, 960, open, { lastEntryMin: 900 })).toBe(
+      "Heads up — Castle Keep's last entry is 15:00 — you'd arrive after."
+    );
+  });
+
+  it("a visit starting at/before lastEntryMin is unaffected", () => {
+    expect(hoursNoteFor("Castle Keep", 2, 850, 900, open, { lastEntryMin: 900 })).toBeNull();
+  });
+
+  it("closed-all-day still wins over an (irrelevant) lastEntryMin", () => {
+    expect(hoursNoteFor("Guildhall Museum", 0, 600, 660, [], { lastEntryMin: 900 })).toBe(
+      "Heads up — Guildhall Museum looks closed on Mondays."
+    );
+  });
+});
+
+describe("applyHoursAdvisories — F7: lastEntryMin / closedDates threaded from stop.hours", () => {
+  it("flags a visit inside the weekday window but past lastEntryMin", () => {
+    const hours: WeeklyHours = { ...CLOSED_MONDAYS, lastEntryMin: 900 };
+    // Tuesday, 09:00-17:00, lastEntry 15:00 — visit starts 15:30 (930), fits
+    // byWeekday-only but breaches lastEntryMin.
+    const doc = docWithStop(A_TUESDAY, { hours });
+    const plan = okPlan([entry("stop-1", 930, 960)]);
+    const [result] = applyHoursAdvisories(doc, [plan]);
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.marginNotes).toEqual([
+      "Heads up — Guildhall Museum's last entry is 15:00 — you'd arrive after.",
+    ]);
+  });
+
+  it("flags a visit on a date listed in closedDates even though byWeekday says open", () => {
+    const hours: WeeklyHours = { ...CLOSED_MONDAYS, closedDates: [A_TUESDAY] };
+    const doc = docWithStop(A_TUESDAY, { hours });
+    const plan = okPlan([entry("stop-1", 600, 660)]); // comfortably inside 09:00-17:00
+    const [result] = applyHoursAdvisories(doc, [plan]);
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.marginNotes).toEqual(["Heads up — Guildhall Museum is closed that date."]);
+  });
+});

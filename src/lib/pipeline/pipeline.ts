@@ -1,7 +1,7 @@
 // D2.2 backend spine — pure orchestration, no HTTP/React/Next imports here.
 // Turns pasted itinerary text into a persisted TripDoc + computed DayPlans,
-// reporting progress as an async generator so a later SSE route (separate
-// follow-up, NOT built here) can stream it to the browser.
+// reporting progress as an async generator so the SSE route
+// (app/api/pipeline/route.ts) can stream it to the browser.
 //
 // Stage weights (of the overall 0..100 pct):
 //   parse   0  -> 15
@@ -14,11 +14,21 @@
 // non-bypassed day in ONE call (src/lib/planEngine.ts), so there is exactly
 // one "solve" the whole trip goes through, not one per day. Matrix fetching
 // stays a genuine per-day loop HERE (this generator owns it directly, so it
-// can really `yield` between iterations); the engine's progress ticks are
-// captured via its onProgress callback and re-yielded once the (synchronous,
-// CPU-bound — see planEngine.ts's SolveWithPreparedOptions doc comment) solve
-// call returns. They cannot arrive live mid-call on Node's single thread
-// either way, so this loses nothing a "streamed" version would have had.
+// can really `yield` between iterations).
+//
+// E6a: the solve stage's progress ticks now arrive LIVE, not
+// captured-then-replayed. `solveWithPreparedMatrices` runs its solve through
+// `runSolve` (src/lib/engineWorker/host.ts), which — whenever worker mode is
+// on (the production default) — genuinely runs the engine on a separate OS
+// thread, so `onSolveProgress` fires from real, independently-scheduled
+// `postMessage` events arriving over wall-clock time, not from a single
+// synchronous CPU-bound call blocking Node's one thread. `progressChannel`
+// below bridges that callback into something THIS generator can `for
+// await…of` and `yield` the moment each tick actually lands, exactly like the
+// matrix loop already does per day. In the (jest-only, worker mode forced
+// off) synchronous fallback, ticks still arrive back-to-back with no real
+// gap between them — that is the genuine, unavoidable shape of running
+// in-process on one thread, not a design compromise made here.
 
 import { randomBytes } from "crypto";
 import { parseItinerary } from "../parse/parseItinerary";
@@ -28,6 +38,7 @@ import { matrixForDay, settingsOf, solveWithPreparedMatrices } from "../planEngi
 import { validManualOrder } from "../planShared";
 import { persistPlanned } from "../planStore";
 import { parseGoogleHours } from "../maps/openingHours";
+import { progressChannel } from "./progressChannel";
 import type { TripDoc, TripDay, TripStop } from "../store/types";
 import type { DayPlan } from "../schedule/types";
 import type { EffectiveMatrix } from "../solver/types";
@@ -566,26 +577,56 @@ export async function* runPipeline(
 
     // -------------------------------------------------------------- solve
     // E5b: one whole-trip engine call, not one per day — see this file's
-    // header comment for why matrix/solve are no longer interleaved, and
-    // planEngine.ts's SolveWithPreparedOptions for why the engine's own
-    // progress ticks are captured here and re-yielded rather than streamed
-    // live (the call is synchronous/CPU-bound; nothing can interleave with
-    // it on Node's single thread regardless of how the callback is wired).
+    // header comment for why matrix/solve are no longer interleaved.
+    // E6a: ticks now stream LIVE via progressChannel (see this file's header)
+    // instead of being captured into an array and replayed after the solve
+    // settles. The channel is drained CONCURRENTLY with awaiting the solve's
+    // own result (not after it), so a tick pushed from a worker "message"
+    // event reaches this generator's `yield` — and therefore the SSE
+    // route — the moment it actually arrives.
     stage = "solve";
     yield { stage: "solve", pct: 85, detail: "Cooking the best order…" };
 
-    const solveTicks: PipelineProgress[] = [];
-    const result = await solveWithPreparedMatrices(
-      doc,
-      { matrices, rejectedMessages, manualOrders },
-      {
-        onSolveProgress: (p) => {
-          const pct = Math.round(85 + Math.max(0, Math.min(100, p.pct)) * 0.15);
-          solveTicks.push({ stage: "solve", pct, detail: solveDetailFor(p.phase) });
-        },
+    const channel = progressChannel<PipelineProgress>();
+    let solveResult: Awaited<ReturnType<typeof solveWithPreparedMatrices>> | undefined;
+    // Drives the solve concurrently with `channel.drain()` below — the whole
+    // point of the split (see this stage's header comment). Closes the
+    // channel with the error on failure so `drain()` re-throws it AFTER
+    // yielding every tick that arrived before the failure (a genuine
+    // improvement over the old capture-then-replay shape, which discarded
+    // every tick on a throw since none had been yielded yet).
+    const solvePromise = (async () => {
+      try {
+        solveResult = await solveWithPreparedMatrices(
+          doc,
+          { matrices, rejectedMessages, manualOrders },
+          {
+            onSolveProgress: (p) => {
+              const pct = Math.round(85 + Math.max(0, Math.min(100, p.pct)) * 0.15);
+              channel.push({ stage: "solve", pct, detail: solveDetailFor(p.phase) });
+            },
+          }
+        );
+      } catch (e) {
+        channel.close(e);
+        return;
       }
-    );
-    for (const tick of solveTicks) yield tick;
+      channel.close();
+    })();
+
+    for await (const tick of channel.drain()) yield tick;
+    // `solvePromise` never rejects (its own try/catch reports failure via
+    // `channel.close(e)` instead — see above); this await is reached only on
+    // the success path (a failure path already threw out of the loop above)
+    // and is here purely so nothing floats un-awaited past this point.
+    await solvePromise;
+    if (!solveResult) {
+      // Unreachable in practice: the catch above always closes the channel
+      // WITH the error, which makes drain() throw before control reaches
+      // here — kept as a defensive invariant check rather than a silent `!`.
+      throw new Error("solve stage ended without a result or a reported error");
+    }
+    const result = solveResult;
 
     // E4 — persist the plan just computed above (never recompute: it was
     // already paid for) so the doc lands WITH its plan instead of the old

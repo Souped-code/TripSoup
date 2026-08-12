@@ -24,6 +24,11 @@ const ROUTE_LIMITS: Record<string, number> = {
   // normal editing session (E5b audit F12). Separate, roomier bucket.
   "plan-put": 60,
   pipeline: 10,
+  // E6b — decorative prose explaining trade-off cards (GET /api/trips/[id]/
+  // explain). One billed Haiku call per fetch when the LLM provider is
+  // selected; fixture mode is $0. Same ceiling as DEFAULT_LIMIT, named
+  // explicitly so the budget is visible here rather than an implicit fallback.
+  prose: 20,
 };
 
 export async function checkRateLimit(

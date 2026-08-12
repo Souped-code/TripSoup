@@ -7,7 +7,7 @@
 // plays the pencil-scribble sfx and re-sketches on its own whenever the
 // orderedIds prop changes — this component never triggers either directly.
 
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   DndContext,
   KeyboardSensor,
@@ -27,8 +27,10 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import type { TripDay, TripDoc, TripStop } from "@/lib/store/types";
 import type { DayPlan, PlanEntry, PlanLeg } from "@/lib/schedule/types";
+import type { Conflict, Proposal } from "@/lib/engine/types";
 import { WashiTag, type WashiTone } from "@/ui/journal/WashiTag";
 import { InkButton } from "@/ui/journal/InkButton";
+import { TradeOffCard } from "./TradeOffCard";
 import { fmtTime } from "@/ui/time";
 import "./reveal.css";
 
@@ -102,16 +104,27 @@ export function AnchorGlyph() {
 
 type PlannerSettings = TripDoc["settings"];
 
+// E6b — one visible card = one conflict + the (already dismissal-filtered)
+// proposals that resolve it. Computed by RevealClient (it owns `doc`, which
+// is what dismissal-keying and day-scope filtering both need — see
+// src/lib/planShared.ts); this component only renders what it's given.
+export type TradeOffCardEntry = { conflict: Conflict; proposals: Proposal[] };
+
 export interface JournalSidebarProps {
   tripId: string;
+  dayIndex: number;
   day: TripDay;
   plan: DayPlan;
   orderedIds: string[];
   busy: boolean;
   actionError: string | null;
   settings: PlannerSettings;
+  tradeOffCards: TradeOffCardEntry[];
   onReorder: (nextOrder: string[]) => void;
-  onReoptimize: () => void;
+  onReoptimizeDay: () => void;
+  onRecookTrip: () => void;
+  onAcceptProposal: (proposal: Proposal) => void;
+  onDismissConflict: (conflict: Conflict) => void;
   onRemoveStop: (stopId: string) => void;
   onToggleLeg: (fromId: string, toId: string, mode: "walk" | "drive") => void;
   onSettingsChange: (settings: PlannerSettings) => void;
@@ -119,19 +132,58 @@ export interface JournalSidebarProps {
 
 export function JournalSidebar({
   tripId,
+  dayIndex,
   day,
   plan,
   orderedIds,
   busy,
   actionError,
   settings,
+  tradeOffCards,
   onReorder,
-  onReoptimize,
+  onReoptimizeDay,
+  onRecookTrip,
+  onAcceptProposal,
+  onDismissConflict,
   onRemoveStop,
   onToggleLeg,
   onSettingsChange,
 }: JournalSidebarProps) {
   const clipPath = useMemo(tornEdgeClipPath, []);
+  const [recookTripConfirming, setRecookTripConfirming] = useState(false);
+  useEffect(() => setRecookTripConfirming(false), [dayIndex]);
+
+  // E6b — decorative prose (src/lib/prose/explainTradeoffs.ts), fetched
+  // lazily ONLY when there are cards to explain, cached per (day, card set) so
+  // an unrelated re-render never re-fetches. Silent on failure: `prose` just
+  // stays null and the cards render exactly as fully without it (brief:
+  // "decorative; structured cards always render even if the call fails").
+  const cardsKey = tradeOffCards.map((c) => c.conflict.id).sort().join("|");
+  const [prose, setProse] = useState<string | null>(null);
+  const fetchedKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (cardsKey === "") {
+      setProse(null);
+      fetchedKeyRef.current = null;
+      return;
+    }
+    const key = `${dayIndex}:${cardsKey}`;
+    if (fetchedKeyRef.current === key) return;
+    fetchedKeyRef.current = key;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/trips/${tripId}/explain?day=${dayIndex}`);
+        const body = await res.json().catch(() => null);
+        if (!cancelled && res.ok) setProse((body as { prose: string | null } | null)?.prose ?? null);
+      } catch {
+        // decorative — silent, cards render without it
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tripId, dayIndex, cardsKey]);
   const timesAvailable = plan.status === "ok";
   const entriesById = useMemo(() => {
     const map = new Map<string, PlanEntry>();
@@ -216,15 +268,86 @@ export function JournalSidebar({
         )}
 
         {plan.status === "ok" && plan.quality === "manual" && (
-          <div className="reveal-quality">
-            <span>Your order — Gracie&rsquo;s re-timed it.</span>
-            <InkButton variant="secondary" data-testid="sidebar-reoptimize" onClick={onReoptimize} disabled={busy}>
-              Re-optimize
-            </InkButton>
-          </div>
+          <p className="reveal-quality">Your order — Gracie&rsquo;s re-timed it.</p>
         )}
         {plan.status === "ok" && plan.quality === "heuristic" && (
           <p className="reveal-quality">Big day — this is Gracie&rsquo;s best quick route.</p>
+        )}
+
+        {/* E5c/E6b — explicit re-cook: day-scoped is the general-purpose
+            control (absorbs the old manual-order-only "Re-optimize" button —
+            same testid, same handler, now always offered whenever the day has
+            stops to reorder, not just after a drag); trip-scope is a smaller,
+            confirm-gated affordance since it reshuffles every day at once. */}
+        {rows.length > 0 && (
+          <div className="reveal-recook">
+            <InkButton
+              variant="secondary"
+              data-testid="sidebar-reoptimize"
+              onClick={onReoptimizeDay}
+              disabled={busy}
+            >
+              Re-cook this day
+            </InkButton>
+            {!recookTripConfirming ? (
+              <button
+                type="button"
+                className="reveal-recook-trip"
+                data-testid="sidebar-recook-trip"
+                disabled={busy}
+                onClick={() => setRecookTripConfirming(true)}
+              >
+                Re-cook whole trip
+              </button>
+            ) : (
+              <span className="reveal-recook-trip__confirm">
+                This reshuffles every day — sure?
+                <button
+                  type="button"
+                  data-testid="sidebar-recook-trip-confirm"
+                  disabled={busy}
+                  onClick={() => {
+                    setRecookTripConfirming(false);
+                    onRecookTrip();
+                  }}
+                >
+                  Yes, reshuffle
+                </button>
+                <button
+                  type="button"
+                  data-testid="sidebar-recook-trip-cancel"
+                  disabled={busy}
+                  onClick={() => setRecookTripConfirming(false)}
+                >
+                  Never mind
+                </button>
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* E6b — trade-off cards: one per active conflict on this day (plus
+            any trip-level ones — RevealClient's filtering), each with
+            proposal chips (accept) and a dismiss action. Decorative prose
+            above them when it's arrived (never blocks the cards). */}
+        {tradeOffCards.length > 0 && (
+          <div className="reveal-tradeoffs" data-testid="sidebar-tradeoffs">
+            {prose && (
+              <p className="reveal-tradeoffs__prose" data-testid="sidebar-tradeoffs-prose">
+                {prose}
+              </p>
+            )}
+            {tradeOffCards.map(({ conflict, proposals }) => (
+              <TradeOffCard
+                key={conflict.id}
+                conflict={conflict}
+                proposals={proposals}
+                busy={busy}
+                onAccept={onAcceptProposal}
+                onDismiss={onDismissConflict}
+              />
+            ))}
+          </div>
         )}
 
         {marginMessage && (

@@ -11,9 +11,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { TripDoc } from "@/lib/store/types";
 import type { DayPlan } from "@/lib/schedule/types";
-import { validManualOrder } from "@/lib/planShared";
+import type { Conflict, Proposal } from "@/lib/engine/types";
+import { applyDocPatch, dismissalKeyForConflict, isConflictDismissed, validManualOrder } from "@/lib/planShared";
 import { RevealMap, type RevealStop } from "./RevealMap";
-import { JournalSidebar } from "./JournalSidebar";
+import { JournalSidebar, type TradeOffCardEntry } from "./JournalSidebar";
 import { WashiTag, type WashiTone } from "@/ui/journal/WashiTag";
 import "./reveal.css";
 
@@ -60,6 +61,30 @@ async function recookDayDoc(tripId: string, dayIndex: number): Promise<TripDoc> 
     throw new Error(msg);
   }
   return (body as { doc: TripDoc }).doc;
+}
+
+// E6b — whole-trip re-cook: the same {recook:{scope:"trip"}} POST recookDayDoc
+// uses for scope "day", just the trip-scope body. One joint whole-trip solve
+// (src/lib/planStore.ts's recookTrip) — the only place cross-day moveDay
+// proposals can surface.
+async function recookTripDoc(tripId: string): Promise<TripDoc> {
+  const res = await fetch(`/api/trips/${tripId}/plan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ recook: { scope: "trip" } }),
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok || !body) {
+    const msg = (body && (body as { error?: string }).error) ?? `re-cook failed: ${res.status}`;
+    throw new Error(msg);
+  }
+  return (body as { doc: TripDoc }).doc;
+}
+
+async function fetchDoc(tripId: string): Promise<TripDoc | null> {
+  const res = await fetch(`/api/trips/${tripId}`);
+  if (!res.ok) return null;
+  return (await res.json()) as TripDoc;
 }
 
 export function RevealClient({
@@ -109,6 +134,25 @@ export function RevealClient({
     [tripDay.stops]
   );
   const bookedId = tripDay.stops.find((s) => s.anchor)?.id ?? null;
+
+  // E6b — visible trade-off cards for the active day: this day's conflicts
+  // PLUS any dayIndex-less (trip-level) ones (defensive — today every
+  // conflict carries a dayIndex, per STATE.md's E5c note), minus whatever is
+  // currently dismissed (src/lib/planShared.ts's isConflictDismissed keys the
+  // dismissal to the conflict's OWN day hash, so an edit to that day silently
+  // expires it). One card per conflict; its chips are the proposals whose
+  // `resolves` includes that conflict's id.
+  const tradeOffCards: TradeOffCardEntry[] = useMemo(() => {
+    const allConflicts = doc.plan?.conflicts ?? [];
+    const allProposals = doc.plan?.proposals ?? [];
+    return allConflicts
+      .filter((c) => c.dayIndex === activeDay || c.dayIndex === undefined)
+      .filter((c) => !isConflictDismissed(doc, c))
+      .map((conflict) => ({
+        conflict,
+        proposals: allProposals.filter((p) => p.resolves.includes(conflict.id)),
+      }));
+  }, [doc, activeDay]);
 
   // Every mutation follows the same shape: build the next doc, PUT it (the
   // server re-plans EVERY day and returns the planned doc in that one
@@ -176,6 +220,79 @@ export function RevealClient({
       }
     })();
   }, [busy, doc.tripId, activeDay]);
+
+  // E6b — whole-trip re-cook: a real confirm gate lives in JournalSidebar
+  // (inline, journal-styled — not a native browser dialog); this handler only
+  // runs once that's been cleared. Same busy/optimistic/error shape as
+  // handleReoptimize, just the trip-scope POST body.
+  const handleRecookTrip = useCallback(() => {
+    if (busy) return;
+    setBusy(true);
+    setActionError(null);
+    void (async () => {
+      try {
+        const savedDoc = await recookTripDoc(doc.tripId);
+        setDoc(savedDoc);
+        setPlans(savedDoc.plan!.days);
+        setPendingOrder(null);
+      } catch (e) {
+        setPendingOrder(null);
+        const msg = e instanceof Error ? e.message : String(e);
+        setActionError(`Re-cooking the trip didn't stick — ${msg}. Try again?`);
+      } finally {
+        setBusy(false);
+      }
+    })();
+  }, [busy, doc.tripId]);
+
+  // E6b — accept a trade-off proposal: apply its DocPatch CLIENT-SIDE first
+  // (src/lib/planShared.ts's applyDocPatch — validates as it goes), then hand
+  // the resulting doc through the ordinary PUT/re-plan round-trip. A stale
+  // patch (the stop/day it targets already changed) is NEVER PUT — it shows a
+  // margin error and refreshes the doc from the server instead, per the
+  // brief's "never a misapply".
+  const handleAcceptProposal = useCallback(
+    (proposal: Proposal) => {
+      if (busy) return;
+      const result = applyDocPatch(doc, proposal.patch);
+      if (!result.ok) {
+        setActionError(`That trade-off couldn't be applied — ${result.reason} Refreshing…`);
+        void (async () => {
+          const fresh = await fetchDoc(doc.tripId);
+          if (fresh) {
+            setDoc(fresh);
+            if (fresh.plan) setPlans(fresh.plan.days);
+          }
+        })();
+        return;
+      }
+      const patched = result.doc;
+      void runMutation(() => patched, "That trade-off didn't stick");
+    },
+    [busy, doc, runMutation]
+  );
+
+  // E6b — dismiss a trade-off card. Card-level, not per-chip (see
+  // src/lib/store/types.ts's `dismissedProposals` doc comment): keyed to the
+  // conflict's OWN day's CURRENT hash, so it rides through the cheap toggle
+  // fast path (dismissedProposals isn't in solveProjection) rather than
+  // forcing a real re-plan, and auto-expires the moment that day changes.
+  const handleDismissConflict = useCallback(
+    (conflict: Conflict) => {
+      void runMutation((d) => {
+        const key = dismissalKeyForConflict(d, conflict);
+        if (key === null) return d; // no stored plan to key against — nothing to dismiss yet
+        return {
+          ...d,
+          dismissedProposals: [
+            ...(d.dismissedProposals ?? []).filter((x) => x.id !== conflict.id),
+            { id: conflict.id, dayHash: key },
+          ],
+        };
+      }, "That dismiss didn't stick");
+    },
+    [runMutation]
+  );
 
   // T7 — §2 LOCKED surface: per-leg mode toggle. Same upsert shape as the old
   // board's toggleLeg (src/ui/board/TripBoard.tsx): drop any existing override
@@ -275,14 +392,19 @@ export function RevealClient({
 
         <JournalSidebar
           tripId={doc.tripId}
+          dayIndex={activeDay}
           day={tripDay}
           plan={plan}
           orderedIds={orderedIds}
           busy={busy}
           actionError={actionError}
           settings={doc.settings}
+          tradeOffCards={tradeOffCards}
           onReorder={handleReorder}
-          onReoptimize={handleReoptimize}
+          onReoptimizeDay={handleReoptimize}
+          onRecookTrip={handleRecookTrip}
+          onAcceptProposal={handleAcceptProposal}
+          onDismissConflict={handleDismissConflict}
           onRemoveStop={handleRemoveStop}
           onToggleLeg={handleToggleLeg}
           onSettingsChange={handleSettingsChange}

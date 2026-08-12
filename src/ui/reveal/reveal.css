@@ -276,6 +276,102 @@
   color: var(--ink);
 }
 
+/* E6b — trade-off cards (§between the quality banner and the pocket) -------- */
+.reveal-tradeoffs {
+  margin: 6px 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.reveal-tradeoff-card {
+  background: var(--paper);
+  border: 1px dashed var(--ink-soft);
+  border-radius: 4px 8px 5px 7px;
+  padding: 10px 12px;
+  box-shadow: var(--shadow-paper-lift);
+}
+.reveal-tradeoff-card__what {
+  font-family: var(--font-body);
+  color: var(--ink);
+  font-weight: 700;
+  margin: 0 0 3px;
+}
+.reveal-tradeoff-card__who {
+  font-family: var(--font-body);
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+  margin: 0 0 8px;
+}
+.reveal-tradeoff-card__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.reveal-tradeoff-chip {
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.reveal-tradeoff-chip:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.reveal-tradeoff-card__dismiss {
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  background: none;
+  border: none;
+  padding: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.reveal-tradeoff-card__dismiss:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.reveal-tradeoffs__prose {
+  font-family: var(--font-display);
+  color: var(--ink-soft);
+  font-size: 1rem;
+  line-height: 1.4;
+  margin: 0 0 4px;
+}
+
+/* E6b — re-cook affordances: day-scoped (general, always available while the
+ * day has stops) + a smaller, confirm-gated whole-trip reshuffle. */
+.reveal-recook {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 4px 0 14px;
+}
+.reveal-recook-trip {
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  background: none;
+  border: none;
+  padding: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.reveal-recook-trip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.reveal-recook-trip__confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  color: var(--danger);
+}
+
 /* Phase A (2026-07-08) — phone density: tighter stack gap + sidebar padding so
  * the sidebar under the (now taller) mobile map doesn't feel cavernous. */
 @media (max-width: 640px) {

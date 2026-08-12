@@ -79,6 +79,17 @@ function malformed(doc: TripDoc, id: string): string | null {
       return "override shape";
     if (o.mode !== "walk" && o.mode !== "drive") return "override mode";
   }
+  // E6b — additive/optional (src/lib/store/types.ts). Reject a hand-crafted
+  // or corrupted dismissal list at the boundary, same philosophy as `hours`
+  // above, rather than let a malshaped entry reach JournalSidebar's filter.
+  if (doc.dismissedProposals !== undefined) {
+    if (!Array.isArray(doc.dismissedProposals)) return "dismissedProposals";
+    for (const d of doc.dismissedProposals) {
+      if (!d || typeof d.id !== "string" || typeof d.dayHash !== "string") {
+        return "dismissedProposals entry";
+      }
+    }
+  }
   return null;
 }
 
