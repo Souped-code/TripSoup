@@ -54,31 +54,59 @@ export type SolveProjection = {
   settings: { walkMax: number; driveOverheadMin: number };
 };
 
+function projectDay(day: TripDay): SolveProjectionDay {
+  return {
+    date: day.date,
+    dayStartMin: day.dayStartMin,
+    dayEndMin: day.dayEndMin,
+    stops: day.stops.map((s) => ({
+      id: s.id,
+      location: s.location,
+      durationMin: s.durationMin,
+      ...(s.anchor ? { anchor: s.anchor } : {}),
+      ...(s.hours ? { hours: s.hours } : {}),
+    })),
+    ...(day.precedence ? { precedence: day.precedence } : {}),
+    ...(day.manualOrder ? { manualOrder: day.manualOrder } : {}),
+  };
+}
+
+function projectSettings(doc: TripDoc): SolveProjection["settings"] {
+  return { walkMax: doc.settings.walkMax, driveOverheadMin: doc.settings.driveOverheadMin };
+}
+
 // canonicalJson (stableHash's backbone) rejects `undefined` outright, so
 // optional fields are spread in only when present — never assigned undefined.
 export function solveProjection(doc: TripDoc): SolveProjection {
   return {
-    days: doc.days.map((day) => ({
-      date: day.date,
-      dayStartMin: day.dayStartMin,
-      dayEndMin: day.dayEndMin,
-      stops: day.stops.map((s) => ({
-        id: s.id,
-        location: s.location,
-        durationMin: s.durationMin,
-        ...(s.anchor ? { anchor: s.anchor } : {}),
-        ...(s.hours ? { hours: s.hours } : {}),
-      })),
-      ...(day.precedence ? { precedence: day.precedence } : {}),
-      ...(day.manualOrder ? { manualOrder: day.manualOrder } : {}),
-    })),
-    settings: {
-      walkMax: doc.settings.walkMax,
-      driveOverheadMin: doc.settings.driveOverheadMin,
-    },
+    days: doc.days.map(projectDay),
+    settings: projectSettings(doc),
   };
 }
 
 export function computeSolveHash(doc: TripDoc): string {
   return stableHash(solveProjection(doc));
+}
+
+// ---------------------------------------------------------------------------
+// E5c — per-day projection/hash. A day's solve-relevant slice PLUS
+// doc.settings (settings affect every day's solve, so a settings edit must
+// stale every day's hash too — see planStore.ts's incremental savePlanned).
+// Deliberately excludes every OTHER day's content: an edit to day 5 must not
+// change day 2's projection, hash, or (via planEngine.ts's seedForDay) seed —
+// that's the whole point of day-scoped solving (STATE.md's E5c decisions).
+// ---------------------------------------------------------------------------
+
+export type DayProjection = SolveProjectionDay & { settings: SolveProjection["settings"] };
+
+export function dayProjection(doc: TripDoc, dayIndex: number): DayProjection {
+  return { ...projectDay(doc.days[dayIndex]), settings: projectSettings(doc) };
+}
+
+export function computeDayHash(doc: TripDoc, dayIndex: number): string {
+  return stableHash(dayProjection(doc, dayIndex));
+}
+
+export function computeDayHashes(doc: TripDoc): string[] {
+  return doc.days.map((_, i) => computeDayHash(doc, i));
 }

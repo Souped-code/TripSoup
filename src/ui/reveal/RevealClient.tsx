@@ -43,6 +43,25 @@ async function putDoc(doc: TripDoc): Promise<TripDoc> {
   return (body as { doc: TripDoc }).doc;
 }
 
+// E5c — Re-optimize now calls the explicit, day-scoped re-cook operation
+// (src/lib/planStore.ts's recookDay via app/api/trips/[id]/plan's POST):
+// clears this day's manualOrder and force-solves it fresh, leaving every
+// other day untouched. Same response shape as putDoc ({ doc }), so the caller
+// commits it identically.
+async function recookDayDoc(tripId: string, dayIndex: number): Promise<TripDoc> {
+  const res = await fetch(`/api/trips/${tripId}/plan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ recook: { scope: "day", dayIndex } }),
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok || !body) {
+    const msg = (body && (body as { error?: string }).error) ?? `re-cook failed: ${res.status}`;
+    throw new Error(msg);
+  }
+  return (body as { doc: TripDoc }).doc;
+}
+
 export function RevealClient({
   initialDoc,
   initialPlans,
@@ -133,17 +152,30 @@ export function RevealClient({
     [busy, runMutation, activeDay]
   );
 
+  // E5c — day-scoped explicit re-cook (src/lib/planStore.ts's recookDay), not
+  // a PUT: the server clears this day's manualOrder AND force-solves it
+  // fresh even if nothing's hash-stale (an already-auto-solved day still
+  // gets a genuine new solve on request). Every OTHER day is left exactly as
+  // stored. Mirrors runMutation's busy/optimistic/error shape.
   const handleReoptimize = useCallback(() => {
-    void runMutation((d) => ({
-      ...d,
-      days: d.days.map((day, i) => {
-        if (i !== activeDay) return day;
-        const next = { ...day };
-        delete next.manualOrder;
-        return next;
-      }),
-    }), "Re-optimizing didn't stick");
-  }, [runMutation, activeDay]);
+    if (busy) return;
+    setBusy(true);
+    setActionError(null);
+    void (async () => {
+      try {
+        const savedDoc = await recookDayDoc(doc.tripId, activeDay);
+        setDoc(savedDoc);
+        setPlans(savedDoc.plan!.days);
+        setPendingOrder(null);
+      } catch (e) {
+        setPendingOrder(null); // revert to the pre-mutation order
+        const msg = e instanceof Error ? e.message : String(e);
+        setActionError(`Re-optimizing didn't stick — ${msg}. Try again?`);
+      } finally {
+        setBusy(false);
+      }
+    })();
+  }, [busy, doc.tripId, activeDay]);
 
   // T7 — §2 LOCKED surface: per-leg mode toggle. Same upsert shape as the old
   // board's toggleLeg (src/ui/board/TripBoard.tsx): drop any existing override

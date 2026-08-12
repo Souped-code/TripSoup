@@ -203,6 +203,76 @@ test("a flagged duplicate stop shows a remove note, and removing it drops it fro
   expect(savedDoc.days[0].stops.some((s) => s.id === dupId)).toBe(false);
 });
 
+// E5c — day-scoped solving: an edit to one day must not touch another day's
+// stored plan at all. Two days, both with their own auto-solved plan; drag
+// reorder on day 1, save, then check day 2's rendered times are BYTE-IDENTICAL
+// to what they were before the edit — proof the round-trip never re-solved
+// (let alone reshuffled) day 2.
+async function createTwoDayTrip(page: Page): Promise<TripDoc> {
+  const created = await page.request.post("/api/trips");
+  expect(created.ok()).toBeTruthy();
+  const doc = (await created.json()) as TripDoc;
+  doc.days[0].stops = [
+    { id: A.id, name: A.name, location: A.location, durationMin: 30 },
+    { id: B.id, name: B.name, location: B.location, durationMin: 30, anchor: { startMin: 720 } },
+    { id: C.id, name: C.name, location: C.location, durationMin: 30 },
+  ];
+  // Harbour cluster — a different fixture cluster, kept small and unanchored
+  // so its auto plan is unambiguous and fast.
+  const [, , , , D, E] = FIXTURE_STOPS; // fx-05, fx-06
+  doc.days.push({
+    date: doc.days[0].date,
+    dayStartMin: doc.days[0].dayStartMin,
+    dayEndMin: doc.days[0].dayEndMin,
+    stops: [
+      { id: D.id, name: D.name, location: D.location, durationMin: 30 },
+      { id: E.id, name: E.name, location: E.location, durationMin: 30 },
+    ],
+  });
+  const put = await page.request.put(`/api/trips/${doc.tripId}`, { data: doc });
+  expect(put.ok()).toBeTruthy();
+  return ((await put.json()) as { doc: TripDoc }).doc;
+}
+
+test("dragging day 1 leaves day 2's rendered times unchanged after the save round-trip (E5c day scoping)", async ({
+  page,
+}) => {
+  await stubTiles(page);
+  const doc = await createTwoDayTrip(page);
+  await page.goto(`/trip/${doc.tripId}`);
+  const map = await expectPainted(page);
+
+  // Capture day 2's plan BEFORE touching day 1 at all.
+  await page.getByTestId("day-tab-1").click();
+  const day2OrderBefore = (await map.getAttribute("data-order"))!.split("|");
+  const day2TimesBefore: Record<string, string> = {};
+  for (const id of day2OrderBefore) {
+    day2TimesBefore[id] = (await page.getByTestId(`sidebar-time-${id}`).textContent())!;
+  }
+
+  // Drag-reorder on day 1.
+  await page.getByTestId("day-tab-0").click();
+  const day1Order = (await map.getAttribute("data-order"))!.split("|");
+  await keyboardDragOneSlotDown(page, `sidebar-handle-${day1Order[0]}`);
+  // The mutation round-trip landed (day 1 now shows a manual pin).
+  await expect(page.getByTestId("sidebar-reoptimize")).toBeVisible({ timeout: 15000 });
+
+  // Day 2's rendered times, after the save, are UNCHANGED.
+  await page.getByTestId("day-tab-1").click();
+  const day2OrderAfter = (await map.getAttribute("data-order"))!.split("|");
+  expect(day2OrderAfter).toEqual(day2OrderBefore);
+  for (const id of day2OrderAfter) {
+    await expect(page.getByTestId(`sidebar-time-${id}`)).toHaveText(day2TimesBefore[id]);
+  }
+
+  // And it's not just a client-side fiction: the persisted doc's day 2 has
+  // no manualOrder (day 1's drag never touched it).
+  const saved = await page.request.get(`/api/trips/${doc.tripId}`);
+  const savedDoc = (await saved.json()) as TripDoc;
+  expect(savedDoc.days[0].manualOrder).toBeDefined();
+  expect(savedDoc.days[1].manualOrder).toBeUndefined();
+});
+
 test("the reveal page has no automatically detectable accessibility violations", async ({ page }) => {
   await stubTiles(page);
   const doc = await createSidebarTrip(page);

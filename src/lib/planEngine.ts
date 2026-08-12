@@ -28,7 +28,7 @@
 import { getMapsProvider } from "./config";
 import { DEFAULT_SETTINGS, type Settings } from "./maps/types";
 import { intersectHoursWithWeekday } from "./maps/openingHours";
-import { compileFromDoc } from "./constraints/compile";
+import { compileFromDoc, stopKeys } from "./constraints/compile";
 import {
   buildProblem,
   alnsEngine,
@@ -38,7 +38,7 @@ import {
   type Proposal,
 } from "./engine";
 import { hoursNoteFor } from "./plan/hoursAdvisory";
-import { solveProjection } from "./plan/solveProjection";
+import { dayProjection, solveProjection } from "./plan/solveProjection";
 import { validManualOrder } from "./planShared";
 import { buildEffectiveMatrix } from "./solver/effectiveMatrix";
 import { applyLegModes, rescheduleDay } from "./schedule/schedule";
@@ -132,12 +132,24 @@ export function iterCapFor(n: number, budgetMs: number): number {
 // cycle risk.
 // ---------------------------------------------------------------------------
 
-export function seedFor(doc: TripDoc): number {
-  const hex = stableHash(solveProjection(doc));
+function truncateSeed(hex: string): number {
   // Truncate to 32 bits: an 8-hex-digit prefix of a sha256 hex digest, read as
   // an unsigned 32-bit int (>>> 0). createRng (util/rng.ts) coerces its seed
   // to a 32-bit int internally anyway, so this loses nothing meaningful.
   return parseInt(hex.slice(0, 8), 16) >>> 0;
+}
+
+export function seedFor(doc: TripDoc): number {
+  return truncateSeed(stableHash(solveProjection(doc)));
+}
+
+// E5c decision 2 — a day-scoped solve seeds from THAT DAY's own content hash
+// only, so an edit to any other day can never reseed (and hence never
+// reshuffle) this one — churn confinement by construction. Used by
+// solveDayWithEngine below; the whole-doc `seedFor` above stays what a
+// trip-scope re-cook uses (planStore.ts's recookTrip) for its one joint solve.
+export function seedForDay(doc: TripDoc, dayIndex: number): number {
+  return truncateSeed(stableHash(dayProjection(doc, dayIndex)));
 }
 
 // ---------------------------------------------------------------------------
@@ -272,13 +284,55 @@ function conflictNotesForDay(conflicts: readonly Conflict[], dayIndex: number, n
     });
 }
 
-// The old solver's cross-day-precedence wording style (schedule.ts's planDay),
-// reused for every kind of soft violation now that there is more than one.
+// Non-precedence soft violations (pace, today) get their own prefix. THREE
+// distinct note prefixes exist on purpose (E5c audit F1 + the prefix collision
+// it exposed): each class has a different lifecycle across retimes/day-solves,
+// and the strip-and-re-derive logic tells them apart ONLY by prefix:
+//   "Heads up — "     hours advisories — re-derived from the retimed schedule
+//   "Worth noting — " cross-day precedence — re-derived from the doc (below)
+//   "Pace check — "   engine pace findings — carried verbatim (day content
+//                     unchanged on a kept day means they remain valid)
 function softViolationNotesForDay(
   violations: EnginePlanResult["softViolations"],
   dayIndex: number
 ): string[] {
-  return violations.filter((v) => v.dayIndex === dayIndex).map((v) => `Heads up — ${v.detail}.`);
+  return violations
+    .filter((v) => v.dayIndex === dayIndex && v.code !== "precedence")
+    .map((v) => `Pace check — ${v.detail}.`);
+}
+
+/**
+ * Cross-day precedence advisories, derived from the FULL doc — the single
+ * source of truth for this note class in EVERY solve path (E5c audit F1: the
+ * day-scoped solve empties other days, compileFromDoc drops the now-dangling
+ * pair, and the note silently vanished; deriving from the doc instead of the
+ * engine's soft violations makes the note's existence independent of solve
+ * scope). Decidable without the engine because pins are hard: the wish is
+ * violated iff the before-endpoint's day comes after the after-endpoint's.
+ * Attached to the BEFORE endpoint's day, matching the engine's own convention.
+ */
+export function crossDayPrecedenceNotes(doc: TripDoc, dayIndex: number): string[] {
+  const dayOf = new Map<string, number>();
+  doc.days.forEach((d, i) => {
+    for (const s of d.stops) if (!dayOf.has(s.id)) dayOf.set(s.id, i);
+  });
+  const nameOf = (id: string): string =>
+    doc.days.flatMap((d) => d.stops).find((s) => s.id === id)?.name ?? id;
+
+  const notes: string[] = [];
+  for (const d of doc.days) {
+    for (const pair of d.precedence ?? []) {
+      const bd = dayOf.get(pair.beforeId);
+      const ad = dayOf.get(pair.afterId);
+      if (bd === undefined || ad === undefined || bd === ad) continue; // same-day or dangling
+      if (bd <= ad) continue; // wish satisfied by the day assignment
+      if (bd !== dayIndex) continue; // note lives on the before-endpoint's day
+      notes.push(
+        `Worth noting — "${nameOf(pair.beforeId)}" was meant to come before "${nameOf(pair.afterId)}".`
+      );
+    }
+  }
+  return notes;
 }
 
 function withMarginNotes(plan: DayPlan, notes: readonly string[]): DayPlan {
@@ -433,10 +487,13 @@ export async function solveWithPreparedMatrices(
       // the engine's own wording and once in Gracie's.
       const { marginNotes: _engineNotes, ...cleanPlan } = enginePlan;
       const withOverrides = applyOverridesToPlan(doc, i, day, cleanPlan, matrices[i], settings);
-      const withConflictNotes = withMarginNotes(
-        withOverrides,
-        [...conflictNotesForDay(solution.conflicts, i, nameOf), ...softViolationNotesForDay(solution.softViolations, i)]
-      );
+      const withConflictNotes = withMarginNotes(withOverrides, [
+        ...conflictNotesForDay(solution.conflicts, i, nameOf),
+        ...softViolationNotesForDay(solution.softViolations, i),
+        // Cross-day precedence: from the DOC, not the engine's violations —
+        // identical in every solve scope (audit F1; helper doc comment).
+        ...crossDayPrecedenceNotes(doc, i),
+      ]);
       return applyHoursAdvisoryToDay(doc, i, withConflictNotes);
     })
   );
@@ -471,6 +528,144 @@ export async function planTripWithEngine(
 ): Promise<EnginePlanResult> {
   const prepared = await prepareDayMatrices(doc);
   return solveWithPreparedMatrices(doc, prepared, opts);
+}
+
+// ---------------------------------------------------------------------------
+// E5c — day-scoped solve. planStore.ts's incremental savePlanned calls this
+// once per STALE day (never for a day whose stored plan is being kept
+// verbatim); planStore.ts's recookDay forces exactly one call here too,
+// ignoring whether the day's hash actually changed. Same "other days emptied"
+// trick as solveWithPreparedMatrices's excluded-day handling above, just
+// carried to its limit: every day except `dayIndex` is emptied, so the
+// problem the engine sees reduces to EXACTLY that day's slice — launch mode
+// hard-pins every stop to its own day, so that slice IS that day's slice of
+// the whole-trip solve (STATE.md's E5c decision 1). Cross-day proposals
+// (moveDay) cannot arise here by construction: every OTHER day contributes
+// zero nodes, so there is nothing to propose moving a stop to/from.
+// ---------------------------------------------------------------------------
+
+export type DaySolveResult = {
+  day: DayPlan;
+  conflicts: Conflict[];
+  proposals: Proposal[];
+  softViolations: EnginePlanResult["softViolations"];
+};
+
+export async function solveDayWithEngine(
+  doc: TripDoc,
+  dayIndex: number,
+  opts: SolveWithPreparedOptions = {}
+): Promise<DaySolveResult> {
+  const settings = settingsOf(doc);
+  const tripDay = doc.days[dayIndex];
+  const { matrix, rejectedMessage } = await matrixForDay(tripDay, settings);
+  if (rejectedMessage) {
+    return { day: { status: "rejected", message: rejectedMessage }, conflicts: [], proposals: [], softViolations: [] };
+  }
+
+  const day = toLegacyDay(tripDay);
+  const manualOrder = validManualOrder(
+    tripDay.manualOrder,
+    tripDay.stops.map((s) => s.id)
+  );
+  if (manualOrder) {
+    const plan = rescheduleDay(day, manualOrder, matrix, settings, "manual");
+    if (plan.status !== "ok") return { day: plan, conflicts: [], proposals: [], softViolations: [] };
+    const withOverrides = applyOverridesToPlan(doc, dayIndex, day, plan, matrix, settings);
+    return {
+      day: applyHoursAdvisoryToDay(doc, dayIndex, withOverrides),
+      conflicts: [],
+      proposals: [],
+      softViolations: [],
+    };
+  }
+
+  const excluded = new Set(doc.days.map((_, i) => i).filter((i) => i !== dayIndex));
+  const engineDoc: TripDoc = {
+    ...doc,
+    days: doc.days.map((d, i) => (i === dayIndex ? d : { ...d, stops: [] })),
+  };
+  const set = compileFromDoc(engineDoc);
+  const matrices = doc.days.map((_, i) => (i === dayIndex ? matrix : {}));
+  const problem = buildProblem(engineDoc, set, matrices);
+
+  // Per-day seed (E5c decision 2) — see seedForDay's own doc comment.
+  const seed = seedForDay(doc, dayIndex);
+  const timeBudgetMs = engineBudgetMs();
+
+  const solution = await alnsEngine.solve(problem, {
+    seed,
+    timeBudgetMs,
+    ...(opts.wallClockOnly ? {} : { iterCap: iterCapFor(problem.nodes.length, timeBudgetMs) }),
+    hardStopMs: opts.wallClockOnly ? timeBudgetMs * 1.5 : timeBudgetMs * 3,
+    onProgress: opts.onSolveProgress,
+  });
+
+  const nameOf = (key: string): string => problem.nodes.find((n) => n.key === key)?.name ?? key;
+
+  const enginePlan = solution.days[dayIndex];
+  if (enginePlan.status !== "ok") {
+    return { day: enginePlan, conflicts: [], proposals: [], softViolations: [] }; // defensive: the engine never returns this
+  }
+  const { marginNotes: _engineNotes, ...cleanPlan } = enginePlan;
+  const withOverrides = applyOverridesToPlan(doc, dayIndex, day, cleanPlan, matrix, settings);
+
+  // F4 (E5c audit): stopKeys is DOC-GLOBAL, so a cross-day repeat that keys
+  // `id@dN` in a trip-scope solve keys BARE `id` here (earlier days emptied).
+  // Schedules and patches are safe (they use bare stopId + dayIndex), but
+  // persisted Conflict keys/ids must be scope-independent — E6's dismissal
+  // keying depends on "same breach = same id". Remap this solve's occurrence
+  // keys to the FULL doc's, positionally (same day, same stop index).
+  const keyMap = new Map<string, string>();
+  const emptiedKeys = stopKeys(engineDoc);
+  const fullKeys = stopKeys(doc);
+  emptiedKeys[dayIndex].forEach((k, j) => {
+    const full = fullKeys[dayIndex][j];
+    if (k !== full) keyMap.set(k, full);
+  });
+  const remapKey = (k: string): string => keyMap.get(k) ?? k;
+  const remapConflict = (c: Conflict): Conflict => {
+    if (keyMap.size === 0) return c;
+    let { id, constraintRef } = c;
+    for (const [from, to] of keyMap) {
+      id = id.split(from).join(to);
+      constraintRef = { ...constraintRef, path: constraintRef.path.split(from).join(to) };
+    }
+    return { ...c, id, constraintRef, stopIds: c.stopIds.map(remapKey) };
+  };
+
+  const conflicts = solution.conflicts.filter((c) => c.dayIndex === dayIndex).map(remapConflict);
+  const keptConflictIds = new Set(
+    solution.conflicts.filter((c) => c.dayIndex === dayIndex).map((c) => c.id)
+  );
+  const proposals = solution.proposals
+    .map((p) => ({
+      ...p,
+      resolves: p.resolves.filter((id) => keptConflictIds.has(id)).map((id) => {
+        let out = id;
+        for (const [from, to] of keyMap) out = out.split(from).join(to);
+        return out;
+      }),
+    }))
+    .filter((p) => p.resolves.length > 0 && !proposalTouchesExcludedDay(p.patch, excluded));
+  const softViolations = solution.softViolations
+    .filter((v) => v.dayIndex === dayIndex)
+    .map((v) => (keyMap.size === 0 ? v : { ...v, stopIds: v.stopIds.map(remapKey) }));
+
+  const withConflictNotes = withMarginNotes(withOverrides, [
+    ...conflictNotesForDay(solution.conflicts, dayIndex, nameOf),
+    ...softViolationNotesForDay(solution.softViolations, dayIndex),
+    // Cross-day precedence: from the DOC — identical in every solve scope
+    // (audit F1; see crossDayPrecedenceNotes).
+    ...crossDayPrecedenceNotes(doc, dayIndex),
+  ]);
+
+  return {
+    day: applyHoursAdvisoryToDay(doc, dayIndex, withConflictNotes),
+    conflicts,
+    proposals,
+    softViolations,
+  };
 }
 
 function proposalTouchesExcludedDay(patch: DocPatch, excluded: ReadonlySet<number>): boolean {

@@ -5,12 +5,12 @@
 import * as os from "os";
 import * as fs from "fs";
 import * as path from "path";
-import { savePlanned, readPlanned, stampPlan, persistPlanned } from "../planStore";
-import { solveProjection, computeSolveHash } from "../plan/solveProjection";
+import { savePlanned, readPlanned, stampPlan, persistPlanned, recookDay, recookTrip } from "../planStore";
+import { solveProjection, computeSolveHash, computeDayHash } from "../plan/solveProjection";
 import * as planServiceModule from "../planService";
 import * as planEngineModule from "../planEngine";
 import { seedFor } from "../planEngine";
-import { ENGINE_NAME, ENGINE_VERSION } from "../engine";
+import { ENGINE_NAME, ENGINE_VERSION, alnsEngine } from "../engine";
 import { getTripStore } from "../config";
 import type { TripDoc, TripStop } from "../store/types";
 import { FIXTURE_STOPS } from "../maps/fixtureCity";
@@ -201,9 +201,15 @@ describe("planStore (E4)", () => {
     };
     fs.writeFileSync(path.join(tmpDir, "t-rej-aged.json"), JSON.stringify(rejected));
 
-    const spy = jest.spyOn(planEngineModule, "planTripWithEngine");
+    // E5c: the retry is now DAY-SCOPED (solveIncremental sees a hash match
+    // but a non-"ok" stored status, and solves just that day via
+    // planEngine.solveDayWithEngine) rather than a whole-trip
+    // planTripWithEngine call — pin the new call site, not the old one.
+    const spy = jest.spyOn(planEngineModule, "solveDayWithEngine");
+    const wholeTripSpy = jest.spyOn(planEngineModule, "planTripWithEngine");
     const read = await readPlanned("t-rej-aged");
-    expect(spy).toHaveBeenCalled(); // aged rejection: retried
+    expect(spy).toHaveBeenCalledTimes(1); // aged rejection: retried, scoped to the one day
+    expect(wholeTripSpy).not.toHaveBeenCalled();
     expect(read!.plan!.days[0].status).toBe("ok"); // fixture solve succeeds now
     // ...and the heal persisted (subsequent read is quiet).
     spy.mockClear();
@@ -611,5 +617,348 @@ describe("toggle fast path (E5b)", () => {
       expect(day0.order).not.toEqual(["nope", "nope", "nope"]);
       expect(day0.order.length).toBe(4);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// E5c — day-scoped solving (STATE.md's "CHRIS DECISIONS on the E5b product
+// flags"): an ordinary edit re-solves ONLY the day it touched; a settings
+// edit stales every day but each still solves day-scoped, independently;
+// explicit re-cook (day/trip scope) is the only place a fresh solve happens
+// without a hash mismatch driving it.
+// ---------------------------------------------------------------------------
+describe("day-scoped solving (E5c)", () => {
+  let tmpDir: string;
+  let prevMapsProvider: string | undefined;
+  let prevTripsDir: string | undefined;
+
+  beforeEach(() => {
+    prevMapsProvider = process.env.MAPS_PROVIDER;
+    prevTripsDir = process.env.TRIPS_DIR;
+    process.env.MAPS_PROVIDER = "fixture";
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "planstore-dayscope-"));
+    process.env.TRIPS_DIR = tmpDir;
+  });
+
+  afterEach(() => {
+    if (prevMapsProvider === undefined) delete process.env.MAPS_PROVIDER;
+    else process.env.MAPS_PROVIDER = prevMapsProvider;
+    if (prevTripsDir === undefined) delete process.env.TRIPS_DIR;
+    else process.env.TRIPS_DIR = prevTripsDir;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    jest.restoreAllMocks();
+  });
+
+  // A 3-day doc, two stops each, from three different (mutually feasible —
+  // the fixture city's drive matrix is total) fixture clusters, so each
+  // day's engine problem is small, fast, and easy to tell apart by node count.
+  const threeDayDoc = (tripId: string): TripDoc => ({
+    tripId,
+    days: [
+      { date: "2026-07-05", dayStartMin: 540, dayEndMin: 1320, stops: [stop("fx-01"), stop("fx-02")] },
+      { date: "2026-07-06", dayStartMin: 540, dayEndMin: 1320, stops: [stop("fx-05"), stop("fx-06")] },
+      { date: "2026-07-07", dayStartMin: 540, dayEndMin: 1320, stops: [stop("fx-09"), stop("fx-10")] },
+    ],
+    settings: { walkMax: 10, driveOverheadMin: 10 },
+    legOverrides: [],
+  });
+
+  it("editing day 1 (0-indexed 0) of a 3-day doc re-solves ONLY that day", async () => {
+    const doc = threeDayDoc("t-scope-edit");
+    const saved = await savePlanned(doc);
+    expect(saved.plan!.days.every((d) => d.status === "ok")).toBe(true);
+
+    // Solve-relevant edit confined to day 0 (a duration bump).
+    const edited: TripDoc = {
+      ...saved,
+      days: saved.days.map((d, i) =>
+        i === 0 ? { ...d, stops: d.stops.map((s, j) => (j === 0 ? { ...s, durationMin: s.durationMin + 15 } : s)) } : d
+      ),
+    };
+    // Only day 0's own projection/hash may change.
+    expect(computeDayHash(edited, 0)).not.toBe(computeDayHash(saved, 0));
+    expect(computeDayHash(edited, 1)).toBe(computeDayHash(saved, 1));
+    expect(computeDayHash(edited, 2)).toBe(computeDayHash(saved, 2));
+
+    const solveSpy = jest.spyOn(alnsEngine, "solve");
+    const resaved = await savePlanned(edited);
+
+    expect(solveSpy).toHaveBeenCalledTimes(1); // exactly one engine call
+    const problemArg = solveSpy.mock.calls[0][0];
+    expect(problemArg.nodes.length).toBe(2); // ONLY day 0's 2 stops reached the engine
+
+    // Days 2 and 3 (untouched) are the SAME stored DayPlan objects, not
+    // recomputed — reference-equal, which also proves deep-equal.
+    expect(resaved.plan!.days[1]).toEqual(saved.plan!.days[1]);
+    expect(resaved.plan!.days[2]).toEqual(saved.plan!.days[2]);
+    expect(resaved.plan!.days[0]).not.toEqual(saved.plan!.days[0]);
+  });
+
+  it("a settings change stales every day but solves each one day-scoped (not one joint call)", async () => {
+    const doc = threeDayDoc("t-scope-settings");
+    const saved = await savePlanned(doc);
+
+    const edited: TripDoc = { ...saved, settings: { ...saved.settings, walkMax: saved.settings.walkMax + 1 } };
+    for (let i = 0; i < 3; i++) {
+      expect(computeDayHash(edited, i)).not.toBe(computeDayHash(saved, i));
+    }
+
+    const solveSpy = jest.spyOn(alnsEngine, "solve");
+    const resaved = await savePlanned(edited);
+
+    // Three SEPARATE day-scoped calls, not one joint whole-trip call — each
+    // problem argument only ever contains ONE day's worth of nodes (2).
+    expect(solveSpy).toHaveBeenCalledTimes(3);
+    for (const call of solveSpy.mock.calls) {
+      expect(call[0].nodes.length).toBe(2);
+    }
+    expect(resaved.plan!.days.every((d) => d.status === "ok")).toBe(true);
+  });
+
+  it("a pure legOverrides toggle stays on the fast path — no engine call at all", async () => {
+    const doc = threeDayDoc("t-scope-toggle");
+    const saved = await savePlanned(doc);
+
+    const toggled: TripDoc = {
+      ...saved,
+      legOverrides: [{ dayIndex: 0, fromId: "fx-01", toId: "fx-02", mode: "drive" }],
+    };
+    const solveSpy = jest.spyOn(alnsEngine, "solve");
+    const resaved = await savePlanned(toggled);
+
+    expect(solveSpy).not.toHaveBeenCalled();
+    expect(resaved.plan!.solveHash).toBe(saved.plan!.solveHash); // legOverrides isn't in the projection
+  });
+
+  it("recookDay clears a manual order and hands that day back to a fresh engine solve", async () => {
+    const doc = threeDayDoc("t-recook-manual");
+    const withManual: TripDoc = {
+      ...doc,
+      days: doc.days.map((d, i) => (i === 0 ? { ...d, manualOrder: ["fx-02", "fx-01"] } : d)),
+    };
+    const saved = await savePlanned(withManual);
+    expect(saved.plan!.days[0]).toMatchObject({ status: "ok", quality: "manual", order: ["fx-02", "fx-01"] });
+
+    const solveSpy = jest.spyOn(alnsEngine, "solve");
+    const recooked = await recookDay(saved, 0);
+
+    expect(recooked.days[0].manualOrder).toBeUndefined(); // cleared on the DOC itself
+    expect(solveSpy).toHaveBeenCalledTimes(1); // handed back to the engine
+    expect(recooked.plan!.days[0].status).toBe("ok");
+    if (recooked.plan!.days[0].status === "ok") {
+      expect(recooked.plan!.days[0].quality).not.toBe("manual");
+    }
+    // Other days untouched — same stored DayPlan objects.
+    expect(recooked.plan!.days[1]).toEqual(saved.plan!.days[1]);
+    expect(recooked.plan!.days[2]).toEqual(saved.plan!.days[2]);
+  });
+
+  it("recookDay force-solves even when nothing changed — ignores an already-matching hash", async () => {
+    const doc = threeDayDoc("t-recook-force");
+    const saved = await savePlanned(doc);
+    expect(saved.plan!.days[0].status).toBe("ok");
+
+    const solveSpy = jest.spyOn(alnsEngine, "solve");
+    const recooked = await recookDay(saved, 0);
+
+    // day 0's hash is UNCHANGED (nothing was edited) — a plain incremental
+    // save would have kept it verbatim and never called the engine at all.
+    expect(computeDayHash(recooked, 0)).toBe(computeDayHash(saved, 0));
+    expect(solveSpy).toHaveBeenCalledTimes(1); // forced anyway
+    expect(recooked.plan!.days[1]).toEqual(saved.plan!.days[1]);
+    expect(recooked.plan!.days[2]).toEqual(saved.plan!.days[2]);
+  });
+
+  it("recookTrip clears every manual order and runs one joint whole-trip solve", async () => {
+    const doc = threeDayDoc("t-recook-trip");
+    const withManual: TripDoc = {
+      ...doc,
+      days: doc.days.map((d, i) => (i !== 1 ? { ...d, manualOrder: [...d.stops].reverse().map((s) => s.id) } : d)),
+    };
+    const saved = await savePlanned(withManual);
+    expect(saved.days[0].manualOrder).toBeDefined();
+    expect(saved.days[2].manualOrder).toBeDefined();
+
+    const solveSpy = jest.spyOn(alnsEngine, "solve");
+    const recooked = await recookTrip(saved);
+
+    expect(solveSpy).toHaveBeenCalledTimes(1); // ONE joint call, not one per day
+    const problemArg = solveSpy.mock.calls[0][0];
+    expect(problemArg.nodes.length).toBe(6); // every day's stops in play at once
+    expect(recooked.days.every((d) => d.manualOrder === undefined)).toBe(true);
+    expect(recooked.plan!.days.every((d) => d.status === "ok")).toBe(true);
+  });
+
+  it("a tampered SINGLE day in a multi-day doc heals just that day", async () => {
+    const doc = threeDayDoc("t-heal-single");
+    const saved = await savePlanned(doc);
+
+    const tampered: TripDoc = {
+      ...saved,
+      days: saved.days.map((d, i) =>
+        i === 1 ? { ...d, stops: d.stops.map((s, j) => (j === 0 ? { ...s, durationMin: 999 } : s)) } : d
+      ),
+    };
+    fs.writeFileSync(path.join(tmpDir, "t-heal-single.json"), JSON.stringify(tampered));
+
+    const spy = jest.spyOn(planEngineModule, "solveDayWithEngine");
+    const wholeTripSpy = jest.spyOn(planEngineModule, "planTripWithEngine");
+    const healed = await readPlanned("t-heal-single");
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(wholeTripSpy).not.toHaveBeenCalled();
+    expect(healed!.plan!.days[0]).toEqual(saved.plan!.days[0]);
+    expect(healed!.plan!.days[2]).toEqual(saved.plan!.days[2]);
+    expect(healed!.plan!.days[1].status).toBe("ok");
+    expect(healed!.plan!.solveHash).toBe(computeSolveHash(tampered));
+  });
+
+  // ------------------------------------------------------ fileStore invariant
+
+  it("fileStore.put throws when dayHashes is present but the wrong length", async () => {
+    const doc = threeDayDoc("t-invariant-length");
+    const saved = await savePlanned(doc);
+    const bad: TripDoc = { ...saved, plan: { ...saved.plan!, dayHashes: saved.plan!.dayHashes!.slice(0, 2) } };
+    await expect(getTripStore().put(bad)).rejects.toThrow(/dayHashes/);
+  });
+
+  it("fileStore.put throws when a dayHash doesn't match the recomputed value", async () => {
+    const doc = threeDayDoc("t-invariant-mismatch");
+    const saved = await savePlanned(doc);
+    const bad: TripDoc = {
+      ...saved,
+      plan: {
+        ...saved.plan!,
+        dayHashes: saved.plan!.dayHashes!.map((h, i) => (i === 1 ? "deadbeef" : h)),
+      },
+    };
+    await expect(getTripStore().put(bad)).rejects.toThrow(/dayHashes/);
+  });
+
+  it("fileStore.put allows a doc whose dayHashes are absent (pre-E5c shape)", async () => {
+    const doc = threeDayDoc("t-invariant-legacy-shape");
+    const saved = await savePlanned(doc);
+    const { dayHashes: _drop, ...planWithoutDayHashes } = saved.plan!;
+    const legacyShaped: TripDoc = { ...saved, plan: planWithoutDayHashes as TripDoc["plan"] };
+    await expect(getTripStore().put(legacyShaped)).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// E5c audit F1 + F2 — both repro'd by the auditor, pinned here.
+// ---------------------------------------------------------------------------
+describe("E5c audit regressions", () => {
+  let tmpDir: string;
+  let prevMapsProvider: string | undefined;
+  let prevTripsDir: string | undefined;
+
+  beforeEach(() => {
+    prevMapsProvider = process.env.MAPS_PROVIDER;
+    prevTripsDir = process.env.TRIPS_DIR;
+    process.env.MAPS_PROVIDER = "fixture";
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "planstore-e5c-audit-"));
+    process.env.TRIPS_DIR = tmpDir;
+  });
+
+  afterEach(() => {
+    if (prevMapsProvider === undefined) delete process.env.MAPS_PROVIDER;
+    else process.env.MAPS_PROVIDER = prevMapsProvider;
+    if (prevTripsDir === undefined) delete process.env.TRIPS_DIR;
+    else process.env.TRIPS_DIR = prevTripsDir;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    jest.restoreAllMocks();
+  });
+
+  // F1: the auditor's exact repro — fx-05 (day 1) wished before fx-01 (day 0).
+  const crossDayDoc = (tripId: string): TripDoc => ({
+    tripId,
+    days: [
+      {
+        date: "2026-07-05",
+        dayStartMin: 540,
+        dayEndMin: 1320,
+        stops: [stop("fx-01"), stop("fx-02")],
+      },
+      {
+        date: "2026-07-06",
+        dayStartMin: 540,
+        dayEndMin: 1320,
+        stops: [stop("fx-05"), stop("fx-06")],
+        precedence: [{ beforeId: "fx-05", afterId: "fx-01" }],
+      },
+    ],
+    settings: { walkMax: 10, driveOverheadMin: 10 },
+    legOverrides: [],
+  });
+
+  it("F1: the cross-day precedence note survives a day-scoped incremental save", async () => {
+    const doc = crossDayDoc("t-f1-note");
+    const saved = await savePlanned(doc);
+
+    const noteOn = (d: TripDoc, i: number): string[] => {
+      const day = d.plan!.days[i];
+      return day.status === "ok" ? (day.marginNotes ?? []) : [];
+    };
+    // The wish (day-1 stop before day-0 stop) is violated by the day
+    // assignment; the note lives on the BEFORE endpoint's day (day 1).
+    expect(noteOn(saved, 1).some((n) => n.startsWith("Worth noting — "))).toBe(true);
+
+    // Edit day 0 (duration change) → day-scoped save; the note must SURVIVE.
+    const edited: TripDoc = {
+      ...saved,
+      days: [
+        { ...saved.days[0], stops: saved.days[0].stops.map((s) => ({ ...s, durationMin: 45 })) },
+        saved.days[1],
+      ],
+    };
+    const resaved = await savePlanned(edited);
+    expect(noteOn(resaved, 1).some((n) => n.startsWith("Worth noting — "))).toBe(true);
+
+    // Remove the wish → the note disappears (not carried stale).
+    const { precedence: _drop, ...day1NoPrec } = resaved.days[1];
+    const satisfied: TripDoc = { ...resaved, days: [resaved.days[0], day1NoPrec] };
+    const resatisfied = await savePlanned(satisfied);
+    expect(noteOn(resatisfied, 1).some((n) => n.startsWith("Worth noting — "))).toBe(false);
+  });
+
+  it("F2: a toggle is honoured even when another day's stored plan is rejected", async () => {
+    // Two walkable old-town stops -> at least one eligible walk leg.
+    const doc = baseDoc("t-f2-toggle");
+    const saved = await savePlanned(doc);
+    const day0 = saved.plan!.days[0];
+    if (day0.status !== "ok") throw new Error("expected ok");
+    const walkLeg = day0.legs.find((l) => l.mode === "walk");
+    expect(walkLeg).toBeDefined();
+
+    // Mark a phantom second day rejected in the stored plan (declines the
+    // toggle fast path), matching hashes for day 0.
+    const twoDay: TripDoc = {
+      ...saved,
+      days: [saved.days[0], { date: "2026-07-06", dayStartMin: 540, dayEndMin: 1320, stops: [] }],
+    };
+    const restamped = await savePlanned(twoDay);
+    const broken: TripDoc = {
+      ...restamped,
+      plan: {
+        ...restamped.plan!,
+        days: [restamped.plan!.days[0], { status: "rejected", message: "transient blip" }],
+      },
+    };
+    fs.writeFileSync(path.join(tmpDir, "t-f2-toggle.json"), JSON.stringify(broken));
+
+    // Toggle the walk leg to drive. Fast path declines (rejected day) — the
+    // kept day must STILL be retimed with the new override.
+    const toggled: TripDoc = {
+      ...broken,
+      legOverrides: [{ dayIndex: 0, fromId: walkLeg!.fromId, toId: walkLeg!.toId, mode: "drive" }],
+    };
+    const resaved = await savePlanned(toggled);
+    const resavedDay0 = resaved.plan!.days[0];
+    if (resavedDay0.status !== "ok") throw new Error("expected ok");
+    const leg = resavedDay0.legs.find(
+      (l) => l.fromId === walkLeg!.fromId && l.toId === walkLeg!.toId
+    );
+    expect(leg?.mode).toBe("drive");
+    expect(leg?.chosenBy).toBe("user");
   });
 });

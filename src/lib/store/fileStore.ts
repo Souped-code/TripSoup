@@ -2,7 +2,7 @@
 
 import { mkdir, readFile, writeFile } from "fs/promises";
 import * as path from "path";
-import { computeSolveHash } from "../plan/solveProjection";
+import { computeSolveHash, computeDayHashes } from "../plan/solveProjection";
 import type { TripDoc, TripStore } from "./types";
 
 export function createFileStore(dir: string): TripStore {
@@ -34,6 +34,22 @@ export function createFileStore(dir: string): TripStore {
           `fileStore.put: doc.plan.solveHash is stale for trip "${doc.tripId}" — ` +
             "plans must be written via planStore.savePlanned/persistPlanned, not put() directly."
         );
+      }
+      // E5c: dayHashes is additive/optional (absent on pre-E5c docs, allowed
+      // through unchecked below), but when PRESENT it must be complete and
+      // correct — same loud-failure spirit as the solveHash check above.
+      // Cheap at test/dev sizes (full recompute per put).
+      if (doc.plan?.dayHashes) {
+        const expected = computeDayHashes(doc);
+        const mismatched =
+          doc.plan.dayHashes.length !== expected.length ||
+          doc.plan.dayHashes.some((h, i) => h !== expected[i]);
+        if (mismatched) {
+          throw new Error(
+            `fileStore.put: doc.plan.dayHashes is stale/malformed for trip "${doc.tripId}" — ` +
+              "plans must be written via planStore.savePlanned/persistPlanned, not put() directly."
+          );
+        }
       }
       await mkdir(dir, { recursive: true });
       await writeFile(fileOf(doc.tripId), JSON.stringify(doc, null, 2), "utf8");

@@ -99,6 +99,15 @@ export type TripDoc = {
     // stableHash (../util/stableHash) of solveProjection(doc) — see
     // ../plan/solveProjection.ts for exactly what this covers/excludes.
     solveHash: string;
+    // E5c — additive/optional, absent on pre-E5c docs. One stableHash per
+    // day (../plan/solveProjection.ts's `computeDayHash`/`computeDayHashes`),
+    // same length/order as `days` below. Lets planStore.ts's savePlanned
+    // detect staleness PER DAY instead of only for the doc as a whole:
+    // dayHashes[i] mismatch (or this array missing/wrong length, which means
+    // treat every day as stale — the one-time heal for every pre-E5c doc)
+    // is what "day i needs re-solving" means. solveHash above stays too —
+    // cheap, and still catches purely-structural changes (day add/remove).
+    dayHashes?: string[];
     days: DayPlan[]; // one per doc day, same DayPlan union as ../schedule/types
     // E5b — additive/optional, absent on pre-E5b docs (and on the "manual
     // order"/"toggle-only fast path" writes that don't recompute them; see

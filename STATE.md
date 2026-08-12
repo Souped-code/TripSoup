@@ -2189,3 +2189,146 @@ the exhaustive floor makes this ~instant), re-cook API {scope: day|trip} (trip s
 engine solve incl. proposals; re-cook clears manualOrder within its scope, subsuming the old
 re-optimize semantics). Toggle fast path unchanged. Seeds become per-day content hashes — churn
 confined to the edited day by construction.
+
+## E5c — DAY-SCOPED SOLVING + EXPLICIT RE-COOK (2026-08-12)
+
+**Built:**
+- `src/lib/plan/solveProjection.ts`: `dayProjection(doc, i)` (that day's fields + `doc.settings`,
+  since a settings edit must stale every day) and `computeDayHash`/`computeDayHashes`, alongside
+  the unchanged whole-doc `solveProjection`/`computeSolveHash`.
+- `src/lib/store/types.ts`: `plan.dayHashes?: string[]` — additive, same length/order as
+  `plan.days`. `src/lib/store/fileStore.ts`'s dev/test invariant extended: `put()` throws when
+  `dayHashes` is present but wrong-length or any entry mismatches the recomputed value (absent is
+  fine — pre-E5c docs pass through untouched).
+- `src/lib/planEngine.ts`: `seedForDay(doc, i)` (32-bit truncation of `dayProjection(doc,i)`'s
+  hash — an edit to day 5 cannot reseed day 2) and `solveDayWithEngine(doc, i, opts)`, the
+  day-scoped counterpart to `solveWithPreparedMatrices`: every OTHER day is emptied (the existing
+  positional-alignment trick, carried to its limit), so the engine's problem reduces to exactly
+  that day's slice — launch mode hard-pins every stop to its day, so that slice IS that day's
+  slice of the whole-trip solve. Classifies matrix-incomplete -> rejected and manualOrder ->
+  bypass exactly like the whole-trip path; conflicts/proposals/margin notes scoped to the one day.
+- `src/lib/planStore.ts`: `savePlanned` is now INCREMENTAL. `staleDayIndices` marks a day stale
+  when the stored plan can't be trusted to cover it at all (missing/wrong-length `dayHashes`, a
+  day-count mismatch, or a different production engine — "structural", every day goes stale, the
+  one-time heal every pre-E5c doc gets), OR its own content hash changed, OR its stored status
+  isn't `"ok"` (a rejected day always retries). `solveIncremental` keeps every non-stale day's
+  `DayPlan` verbatim (same object, not recomputed) and solves each stale day independently via
+  `solveDayWithEngine` inside its own try/catch (one day's failure can't take another down —
+  strictly finer-grained than the pre-E5c whole-trip catch). Conflicts/proposals: stored ones kept
+  for days that stayed kept (dayIndex-filtered; an undefined-dayIndex conflict is dropped rather
+  than guessed at — documented judgment call), fresh ones from each solved day. New
+  `recookDay(doc, i)` (clears that day's `manualOrder`, force-solves it via a `forceStale` flag
+  that bypasses the hash-match check — so re-cooking an already-fresh day still runs a real solve,
+  not a no-op) and `recookTrip(doc)` (clears every `manualOrder`, one joint whole-trip
+  `planTripWithEngine` call — the only place cross-day `moveDay` proposals or the whole-doc seed
+  still apply). `readPlanned`'s heal gate now also requires `dayHashes` structurally fresh before
+  trusting a hash match, so a legacy doc reliably heals through the (now-incremental) `savePlanned`
+  instead of short-circuiting past it.
+- `app/api/trips/[id]/plan/route.ts`: POST gains `{ recook: {scope:"day", dayIndex} |
+  {scope:"trip"} }`, returning `{ doc }` (matches the PUT route's shape). The legacy `{ dayIndex }`
+  body is unchanged byte-for-byte (still returns a bare `DayPlan`) — `src/ui/board/TripBoard.tsx`'s
+  "Optimize" button needed zero changes and is now incidentally cheaper (a same-doc re-POST after
+  its own PUT hits every day's kept-verbatim path). Rate-limit bucket unchanged ("plan").
+- `src/ui/reveal/RevealClient.tsx`: `handleReoptimize` now POSTs `{recook:{scope:"day",
+  dayIndex:activeDay}}` instead of PUTting a manualOrder-stripped doc — same busy/optimistic/error
+  shape as `runMutation`, day-scoped re-cook under the hood.
+
+**Deviations / judgment calls (none conflict with the frozen design; all are gaps the design left
+implicit):**
+1. A hash-matching-but-rejected day is treated as stale on EVERY `savePlanned` call (PUT included),
+   not just after `readPlanned`'s age window — matches pre-E5c behaviour (every save always retried
+   a rejected day) and keeps the age-window gate doing exactly what it always did: throttle
+   READ-triggered heals, not explicit saves. `readPlanned`'s own gate is what scopes an aged retry
+   down to just the rejected day(s), via this same rule.
+2. A stored plan's `engine.name` mismatching the current engine forces EVERY day stale (mirrors the
+   toggle fast path's own `engine.name` check) — otherwise a legacy-engine-stamped, hash-matching
+   plan would never restamp under the current engine, which the pre-existing
+   `toggleFastPath`-bypass test relies on.
+3. `recookDay` falls back to `solveIncremental`'s normal structural-all-stale behaviour when the
+   stored plan can't be trusted at all (missing/legacy/day-count-mismatched) — there's no honest
+   "other days as stored" to preserve in that case either, so it heals everything instead of
+   silently under-covering the doc.
+4. Conflicts with no `dayIndex` (trip-global) are dropped on an incremental save rather than kept
+   or guessed at; a real trip-scope re-cook is what recomputes those honestly. Not observed to occur
+   in practice (day-scoped/day-window/pace conflicts all carry a `dayIndex`) but the code is
+   defensive about it.
+5. `plan.engine` stays a single top-level record (name/version/seed), always stamped with the
+   CURRENT engine identity on every `savePlanned`/`recook*` call, even when every day was kept
+   verbatim — safe because a day is only ever kept when its stored plan's engine name already
+   matches (judgment call 2), so the field is never dishonest, just occasionally not "what actually
+   ran this time" for `seed` specifically (seed is per-day now; the top-level field is informational
+   only and nothing reads it for reproducibility — confirmed by grep across `src/`/`app/`).
+
+**Verified and how (tool output this session):**
+- `npx tsc --noEmit` -> **exit 0**.
+- `npx jest` -> **42 suites, 379/379 passed** (baseline 369 + 10 new in
+  `src/lib/__tests__/planStore.test.ts`'s new "day-scoped solving (E5c)" describe block: an edit to
+  day 1 of a 3-day doc calls the engine exactly once, with a problem containing ONLY that day's 2
+  nodes, while days 2-3 are deep-equal to the prior stored `DayPlan`s and their `dayProjection`
+  hashes are byte-unchanged; a settings edit stales all 3 days but makes 3 SEPARATE day-scoped
+  engine calls, never one joint call; a pure `legOverrides` toggle makes zero engine calls;
+  `recookDay` clears a manual order and hands it to a fresh solve, AND separately force-solves an
+  already-fresh day (hash unchanged) to prove the "ignore matching hash" behaviour, in both cases
+  leaving the other two days untouched; `recookTrip` clears every manual order and makes exactly
+  ONE engine call whose problem contains all 6 nodes across both re-cooked days; a single tampered
+  day in a 3-day doc heals via `solveDayWithEngine` (spied, called once) and NOT
+  `planTripWithEngine` (spied, never called), with the other two days deep-equal to the prior
+  stored plan; the fileStore invariant throws on a wrong-length or any-mismatched `dayHashes`, and
+  allows one with `dayHashes` entirely absent). One pre-existing test
+  (`planStore.test.ts`'s "a stored plan with a rejected day HEALS once it has aged past the retry
+  window") updated with justification: it pinned a whole-trip `planTripWithEngine` call for an aged
+  rejected-day retry, which is now correctly `solveDayWithEngine` scoped to the one rejected day —
+  the assertion was rewritten to pin the new (also spied-and-asserted-absent old) call site, not
+  the outcome, which is unchanged.
+- `npm run build` -> **exit 0**, 0 type errors, all 15 routes/pages build.
+- `npx playwright test` -> **32/32 passed** — baseline 31 unchanged (including
+  `sidebar.spec.ts`'s existing re-optimize test, which independently re-proves determinism: the
+  day-scoped, content-hash seed reproduces the EXACT pre-drag auto order after re-cook, since
+  clearing `manualOrder` restores the identical `dayProjection` and therefore the identical seed)
+  plus one new: a 2-day trip, drag-reorder on day 1, then day 2's rendered order AND every stop's
+  rendered time text are asserted byte-identical before/after the save round-trip, and the
+  persisted doc shows `manualOrder` set on day 1 only — proof positive, at the UI/API layer, of
+  "other days not even touched."
+
+**Honest gaps / not done here (explicitly out of scope per the brief):**
+- No new re-cook UI (a trip-scope re-cook button/control) — E6 owns that; the API + store support
+  is in place and exercised only by tests + the existing day-scoped RevealClient re-optimize button.
+- Per-day `engine`/seed provenance isn't persisted per day (judgment call 5) — if a future need
+  arises to show "this day was last solved by seed X" in a UI, that's a schema addition, not
+  something this session's `dayHashes` addition already carries.
+- `app/api/trips/[id]/route.ts` (PUT) and `src/ui/board/TripBoard.tsx` needed NO changes — PUT's
+  existing call into `savePlanned` inherits day-scoping for free, and TripBoard's "Optimize" button
+  (POST `{dayIndex}`) keeps its exact legacy contract. Not a gap, but flagged since the brief's file
+  list named both as read-first material.
+
+E5c COMPLETE. NEXT: E6 (trade-off cards + explain prose), now also owning re-cook UI (day/trip
+scope control) and the worker-thread live progress folded in from Chris's flag-3 decision.
+
+### E5c gate audit (Fable·xhigh): COMMIT-READY-WITH-FIXES → all fixed pre-commit
+
+Verdict: DEPLOY-READY only with F1+F2 fixed — both were repro'd instances of the hunted
+kept-day-staleness class, neither caught by the 380 tests. **All fixed in the E5c commit:**
+- **F1 [MAJOR]:** cross-day precedence advisories silently vanished on every day-scoped solve
+  (emptied days → dangling pair → compileFromDoc drops it → note never synthesized), walking
+  back an explicit E5b commitment. Root fix: `crossDayPrecedenceNotes(doc, dayIndex)` derives
+  the note from the FULL doc — decidable without the engine since pins are hard — and is now
+  the single source in EVERY path (trip solve, day solve, retime). This also exposed a prefix
+  collision (engine soft-violation notes shared "Heads up — " with hours advisories, so the
+  toggle path's strip-and-re-derive would eat them): three prefix classes now — "Heads up — "
+  (hours, re-derived from schedule), "Worth noting — " (cross-day precedence, re-derived from
+  doc), "Pace check — " (carried verbatim).
+- **F2 [MAJOR]:** a walk/drive toggle was silently ignored whenever any other day's stored plan
+  was rejected (fast path declines; kept days carried verbatim without override retiming, and
+  dayProjection deliberately excludes legOverrides). Fix: kept days now pass through the same
+  shared `retimeStoredDay` carry the toggle path uses — O(stops) with a cached matrix.
+- F3: conflicts/proposals now flatten in day-index order, not Promise.all completion order.
+- F4: day-scoped solves remap occurrence keys to the FULL doc's stopKeys (cross-day repeats
+  keyed `id@dN` in trip scope but bare in day scope → persisted conflict ids/paths could
+  diverge across scopes, breaking E6's "same breach = same id" dismissal keying).
+- F5: recookDay's comment corrected — unrelated stale/rejected days ARE re-solved on the same
+  pass, deliberately (serving a knowingly-stale day to honour scope wording would be worse).
+- F6a correction to the entry above: an all-ok legacy doc heals via the TOGGLE fast path
+  (solveHash matches) — an 11ms retime stamping dayHashes, zero churn; only legacy docs with a
+  rejected day pay real day-scoped solves.
++2 regression tests (the auditor's own repros, verbatim). Perf (audit-measured): ~0.4s/day at
+3s budget; a 7-day settings edit ≈ one E5b whole-trip solve — no deploy regression.
