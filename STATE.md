@@ -2173,3 +2173,19 @@ persists, share link instant on second visit; an edit re-plans; a walk/drive tog
 E5 COMPLETE (E5a 546d1d9 + E5b 5989496). NEXT: E6 (trade-off cards + explain prose) — but the
 plan's CHRIS CHECKPOINT sits after E6, and the three product flags above genuinely shape E6's
 design. Session pauses here for Chris.
+
+## CHRIS DECISIONS on the E5b product flags (2026-08-12) → E5c scope
+
+1. **Flag 1 = hybrid A+B.** Cheap/instant handling for common edits AND an explicit re-cook.
+2. **Flag 2 = DAY-SCOPED SOLVING (the big one).** An edit affects ONLY the edited day — other
+   days' stored plans are not even recomputed. Full reshuffle/reoptimise happens ONLY on an
+   explicit user re-cook, and re-cook is scopeable: one day or the whole trip. (Whole-trip
+   re-cook is also where cross-day moveDay proposals belong — they need the cross-day view.)
+3. **Flag 3 = C.** Worker thread for honest live solve progress — folded into E6.
+
+**E5c (new, before E6): edit scoping.** Per-day staleness (plan gains per-day hashes; a day edit
+stales only that day), day-scoped savePlanned (solve just the stale day(s); at typical day sizes
+the exhaustive floor makes this ~instant), re-cook API {scope: day|trip} (trip scope = the full
+engine solve incl. proposals; re-cook clears manualOrder within its scope, subsuming the old
+re-optimize semantics). Toggle fast path unchanged. Seeds become per-day content hashes — churn
+confined to the edited day by construction.
