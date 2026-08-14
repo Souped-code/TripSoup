@@ -15,6 +15,7 @@ import type { Conflict, Proposal } from "@/lib/engine/types";
 import { applyDocPatch, dismissalKeyForConflict, isConflictDismissed, validManualOrder } from "@/lib/planShared";
 import { RevealMap, type RevealStop } from "./RevealMap";
 import { JournalSidebar, type TradeOffCardEntry } from "./JournalSidebar";
+import { TradeOffModal } from "./TradeOffModal";
 import { WashiTag, type WashiTone } from "@/ui/journal/WashiTag";
 import "./reveal.css";
 
@@ -153,6 +154,67 @@ export function RevealClient({
         proposals: allProposals.filter((p) => p.resolves.includes(conflict.id)),
       }));
   }, [doc, activeDay]);
+
+  // E6c — the decision modal (Chris, 2026-08-14). Auto-pops ONCE per new
+  // issue set: the set's signature is the sorted visible conflict ids;
+  // "decide later" records it in localStorage (a capped list, so revisiting
+  // day 1 after deciding-later on day 2 doesn't nag again) and the sidebar
+  // banner reopens the modal on demand. Accepting/dismissing changes the set,
+  // so a genuinely new situation pops again — an already-seen one never does.
+  const [decisionsOpen, setDecisionsOpen] = useState(false);
+  const [decisionIndex, setDecisionIndex] = useState(0);
+  const decisionKey = useMemo(
+    () =>
+      tradeOffCards.length === 0
+        ? null
+        : tradeOffCards
+            .map((c) => c.conflict.id)
+            .sort()
+            .join("|"),
+    [tradeOffCards]
+  );
+  const seenStorageKey = `ts-decisions-seen-${doc.tripId}`;
+  const readSeenKeys = useCallback((): string[] => {
+    try {
+      const raw = JSON.parse(localStorage.getItem(seenStorageKey) ?? "[]");
+      return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : [];
+    } catch {
+      return [];
+    }
+  }, [seenStorageKey]);
+
+  useEffect(() => {
+    if (decisionKey === null) {
+      setDecisionsOpen(false);
+      setDecisionIndex(0);
+      return;
+    }
+    if (!readSeenKeys().includes(decisionKey)) setDecisionsOpen(true);
+  }, [decisionKey, readSeenKeys]);
+
+  // Clamp the spotlight as accepts/dismisses shrink the queue.
+  useEffect(() => {
+    setDecisionIndex((i) => Math.min(i, Math.max(0, tradeOffCards.length - 1)));
+  }, [tradeOffCards.length]);
+
+  const handleOpenDecisions = useCallback(() => {
+    setDecisionIndex(0);
+    setDecisionsOpen(true);
+  }, []);
+  const handleNextDecision = useCallback(() => {
+    setDecisionIndex((i) => (tradeOffCards.length === 0 ? 0 : (i + 1) % tradeOffCards.length));
+  }, [tradeOffCards.length]);
+  const handleDecideLater = useCallback(() => {
+    setDecisionsOpen(false);
+    if (decisionKey !== null) {
+      try {
+        const seen = [...readSeenKeys().filter((k) => k !== decisionKey), decisionKey];
+        localStorage.setItem(seenStorageKey, JSON.stringify(seen.slice(-20)));
+      } catch {
+        // storage off — the modal will pop again next load; harmless
+      }
+    }
+  }, [decisionKey, readSeenKeys, seenStorageKey]);
 
   // Every mutation follows the same shape: build the next doc, PUT it (the
   // server re-plans EVERY day and returns the planned doc in that one
@@ -294,6 +356,24 @@ export function RevealClient({
     [runMutation]
   );
 
+  // E6c — set/override/clear the trip's home base (already resolved by the
+  // pocket's fetch through the metered boundary; this only persists it).
+  // Source is always "user" here — paste detection writes its own record in
+  // the pipeline. homeBase is not solve-relevant yet (solveProjection.ts's
+  // E6c note), so this PUT rides the cheap no-day-stale path.
+  const handleSetHomeBase = useCallback(
+    (base: { id: string; name: string; location: { lat: number; lng: number } } | null) => {
+      void runMutation((d) => {
+        if (base === null) {
+          const { homeBase: _dropped, ...rest } = d;
+          return rest;
+        }
+        return { ...d, homeBase: { ...base, source: "user" as const } };
+      }, "That home base didn't stick");
+    },
+    [runMutation]
+  );
+
   // T7 — §2 LOCKED surface: per-leg mode toggle. Same upsert shape as the old
   // board's toggleLeg (src/ui/board/TripBoard.tsx): drop any existing override
   // for this day+leg, append the new pick; planService re-times the fixed
@@ -403,13 +483,26 @@ export function RevealClient({
           onReorder={handleReorder}
           onReoptimizeDay={handleReoptimize}
           onRecookTrip={handleRecookTrip}
-          onAcceptProposal={handleAcceptProposal}
-          onDismissConflict={handleDismissConflict}
+          onOpenDecisions={handleOpenDecisions}
+          homeBase={doc.homeBase}
+          onSetHomeBase={handleSetHomeBase}
           onRemoveStop={handleRemoveStop}
           onToggleLeg={handleToggleLeg}
           onSettingsChange={handleSettingsChange}
         />
       </div>
+
+      {decisionsOpen && tradeOffCards.length > 0 && (
+        <TradeOffModal
+          cards={tradeOffCards}
+          index={decisionIndex}
+          busy={busy}
+          onAccept={handleAcceptProposal}
+          onDismiss={handleDismissConflict}
+          onNext={handleNextDecision}
+          onDecideLater={handleDecideLater}
+        />
+      )}
     </div>
   );
 }

@@ -79,6 +79,15 @@ function malformed(doc: TripDoc, id: string): string | null {
       return "override shape";
     if (o.mode !== "walk" && o.mode !== "drive") return "override mode";
   }
+  // E6c — additive/optional home base (src/lib/store/types.ts): same
+  // boundary philosophy as `hours`/`dismissedProposals` below.
+  if (doc.homeBase !== undefined) {
+    const hb = doc.homeBase;
+    if (!hb || typeof hb.id !== "string" || typeof hb.name !== "string") return "homeBase";
+    if (!hb.location || !isNum(hb.location.lat) || !isNum(hb.location.lng))
+      return "homeBase location";
+    if (hb.source !== "paste" && hb.source !== "user") return "homeBase source";
+  }
   // E6b — additive/optional (src/lib/store/types.ts). Reject a hand-crafted
   // or corrupted dismissal list at the boundary, same philosophy as `hours`
   // above, rather than let a malshaped entry reach JournalSidebar's filter.

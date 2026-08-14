@@ -60,6 +60,12 @@ export const ParsedItinerarySchema = z.object({
   items: z.array(ParsedItemSchema),
   days: z.array(ParsedDaySchema),
   splitGroups: z.array(SplitGroupSchema),
+  // E6c — index into `items` of the line that names where the user SLEEPS
+  // ("staying at…", the hotel/airbnb, "drop bags at…"). The item itself still
+  // resolves like any other place; this ref is what lets the pipeline set
+  // TripDoc.homeBase from it. Only the LLM adapter (and the fixture adapter's
+  // keyword mirror) ever emit it — the heuristic/free path stays unchanged.
+  accommodationRef: z.number().int().min(0).optional(),
 });
 
 export type ParsedItem = z.infer<typeof ParsedItemSchema>;

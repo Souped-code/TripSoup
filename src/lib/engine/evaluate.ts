@@ -43,6 +43,7 @@
 //     two equally-violating candidates; that tiebreak is search-internal and
 //     deliberately absent here, exactly as the spike's breach pricing was.
 
+import { formatDuration } from "../util/duration";
 import type {
   ConstraintRef,
   EngineDay,
@@ -67,7 +68,7 @@ export const WEIGHT_COMPRESSION = 0.5;
 // which ceils `violatedByMin`. Clock times wrap past midnight like
 // hoursAdvisory's fmtHM.
 // ---------------------------------------------------------------------------
-const mins = (m: number): string => `${Math.ceil(Math.max(0, m))} min`;
+const mins = (m: number): string => formatDuration(m);
 const hhmm = (min: number): string => {
   const wrapped = ((Math.round(min) % 1440) + 1440) % 1440;
   return `${String(Math.floor(wrapped / 60)).padStart(2, "0")}:${String(wrapped % 60).padStart(2, "0")}`;
@@ -95,6 +96,8 @@ export type EngineViolation = {
   hard: boolean;
   weight: number;
   ref: ConstraintRef;
+  /** hours violations only — see Conflict.closedDay (engine/types.ts). */
+  closedDay?: boolean;
 };
 
 export type EngineEvaluation = {
@@ -234,7 +237,7 @@ export function evaluate(problem: EngineProblem, schedule: EngineSchedule): Engi
     if (actual < minMin || actual > maxMin) {
       push({
         code: "duration-range",
-        detail: `"${node.name}" gets ${mins(actual)} — it needs ${minMin}–${maxMin} min`,
+        detail: `"${node.name}" gets ${mins(actual)} — it needs ${mins(minMin)}–${mins(maxMin)}`,
         stopKeys: [v.key],
         dayIndex: v.dayIndex,
         byMin: actual < minMin ? minMin - actual : actual - maxMin,
@@ -363,6 +366,7 @@ export function evaluate(problem: EngineProblem, schedule: EngineSchedule): Engi
           if (!fits) {
             push({
               code: "hours",
+              ...(open.length === 0 ? { closedDay: true } : {}),
               detail:
                 open.length === 0
                   ? day.weekday === null
@@ -402,7 +406,7 @@ export function evaluate(problem: EngineProblem, schedule: EngineSchedule): Engi
     if (span > pace.value.maxActiveMin) {
       push({
         code: "pace-active",
-        detail: `${dayName(dayIndex)} runs ${mins(span)}, over the ${pace.value.maxActiveMin} min pace budget`,
+        detail: `${dayName(dayIndex)} runs ${mins(span)}, over the ${mins(pace.value.maxActiveMin)} pace budget`,
         stopKeys: [],
         dayIndex,
         byMin: span - pace.value.maxActiveMin,
@@ -434,7 +438,7 @@ export function evaluate(problem: EngineProblem, schedule: EngineSchedule): Engi
         if (gap < need) {
           push({
             code: "pace-gap",
-            detail: `only ${mins(gap)} between two stops, under the ${pace.value.minGapMin} min breathing room`,
+            detail: `only ${mins(gap)} between two stops, under the ${mins(pace.value.minGapMin)} breathing room`,
             stopKeys: [v.key],
             dayIndex,
             byMin: need - gap,

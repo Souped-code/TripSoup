@@ -31,6 +31,7 @@ export function deriveConflicts(
       code: v.code,
       stopIds: [...v.stopKeys],
       ...(v.dayIndex === undefined ? {} : { dayIndex: v.dayIndex }),
+      ...(v.closedDay ? { closedDay: true } : {}),
       violatedByMin: v.byMin,
       constraintRef: v.ref,
       message: v.detail,

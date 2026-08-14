@@ -28,9 +28,9 @@ import { CSS } from "@dnd-kit/utilities";
 import type { TripDay, TripDoc, TripStop } from "@/lib/store/types";
 import type { DayPlan, PlanEntry, PlanLeg } from "@/lib/schedule/types";
 import type { Conflict, Proposal } from "@/lib/engine/types";
+import { formatDuration } from "@/lib/util/duration";
 import { WashiTag, type WashiTone } from "@/ui/journal/WashiTag";
 import { InkButton } from "@/ui/journal/InkButton";
-import { TradeOffCard } from "./TradeOffCard";
 import { fmtTime } from "@/ui/time";
 import "./reveal.css";
 
@@ -123,8 +123,14 @@ export interface JournalSidebarProps {
   onReorder: (nextOrder: string[]) => void;
   onReoptimizeDay: () => void;
   onRecookTrip: () => void;
-  onAcceptProposal: (proposal: Proposal) => void;
-  onDismissConflict: (conflict: Conflict) => void;
+  /** E6c — opens the decision modal (RevealClient owns it, along with the
+   * accept/dismiss callbacks that used to come through here); the sidebar
+   * only shows the slim "N things need a decision" banner. */
+  onOpenDecisions: () => void;
+  /** E6c — where the trip sleeps (TripDoc.homeBase); shown + edited in the
+   * planner's pocket. null clears it. */
+  homeBase: TripDoc["homeBase"];
+  onSetHomeBase: (base: { id: string; name: string; location: { lat: number; lng: number } } | null) => void;
   onRemoveStop: (stopId: string) => void;
   onToggleLeg: (fromId: string, toId: string, mode: "walk" | "drive") => void;
   onSettingsChange: (settings: PlannerSettings) => void;
@@ -143,8 +149,9 @@ export function JournalSidebar({
   onReorder,
   onReoptimizeDay,
   onRecookTrip,
-  onAcceptProposal,
-  onDismissConflict,
+  onOpenDecisions,
+  homeBase,
+  onSetHomeBase,
   onRemoveStop,
   onToggleLeg,
   onSettingsChange,
@@ -326,27 +333,22 @@ export function JournalSidebar({
           </div>
         )}
 
-        {/* E6b — trade-off cards: one per active conflict on this day (plus
-            any trip-level ones — RevealClient's filtering), each with
-            proposal chips (accept) and a dismiss action. Decorative prose
-            above them when it's arrived (never blocks the cards). */}
+        {/* E6c — the card stack became a slim banner (Chris, 2026-08-14): the
+            decisions themselves live in RevealClient's TradeOffModal, which
+            auto-pops once per new issue set; this banner is the persistent
+            way back in. Decorative prose doubles as the banner copy when it
+            has arrived (never blocks the count). */}
         {tradeOffCards.length > 0 && (
-          <div className="reveal-tradeoffs" data-testid="sidebar-tradeoffs">
-            {prose && (
-              <p className="reveal-tradeoffs__prose" data-testid="sidebar-tradeoffs-prose">
-                {prose}
-              </p>
-            )}
-            {tradeOffCards.map(({ conflict, proposals }) => (
-              <TradeOffCard
-                key={conflict.id}
-                conflict={conflict}
-                proposals={proposals}
-                busy={busy}
-                onAccept={onAcceptProposal}
-                onDismiss={onDismissConflict}
-              />
-            ))}
+          <div className="reveal-decision-banner" data-testid="sidebar-tradeoffs">
+            <p className="reveal-decision-banner__text" data-testid="sidebar-tradeoffs-prose">
+              {prose ??
+                (tradeOffCards.length === 1
+                  ? "One thing needs a decision."
+                  : `${tradeOffCards.length} things need a decision.`)}
+            </p>
+            <InkButton data-testid="tradeoff-banner-open" onClick={onOpenDecisions} disabled={busy}>
+              Decide now
+            </InkButton>
           </div>
         )}
 
@@ -370,6 +372,7 @@ export function JournalSidebar({
         {/* T7 — §2 LOCKED surface: the planner's notes pocket. */}
         <details className="reveal-pocket" data-testid="sidebar-pocket">
           <summary>planner&rsquo;s notes</summary>
+          <HomeBasePocket tripId={tripId} homeBase={homeBase} busy={busy} onSetHomeBase={onSetHomeBase} />
           <PocketForm settings={settings} busy={busy} onApply={onSettingsChange} />
         </details>
 
@@ -446,8 +449,8 @@ function SidebarRow({
             </span>
             <span data-testid="sidebar-leg-times">
               {leg.walkMin !== null
-                ? `walk ${Math.round(leg.walkMin)} min · drive ${Math.round(leg.driveMin)} min`
-                : `drive ${Math.round(leg.driveMin)} min`}
+                ? `walk ${formatDuration(leg.walkMin)} · drive ${formatDuration(leg.driveMin)}`
+                : `drive ${formatDuration(leg.driveMin)}`}
               {leg.chosenBy === "user" ? " — your pick" : ""}
             </span>
             {leg.walkMin !== null && (
@@ -479,7 +482,7 @@ function SidebarRow({
           </span>
         </div>
         {timesAvailable && entry && entry.waitMin > 0 && (
-          <div className="reveal-row__wait">waits {Math.round(entry.waitMin)} min</div>
+          <div className="reveal-row__wait">waits {formatDuration(entry.waitMin)}</div>
         )}
         {stop.duplicateOf && (
           <div className="reveal-row__dup" data-testid={`sidebar-dup-note-${stop.id}`}>
@@ -503,6 +506,132 @@ function SidebarRow({
 // T7 — the planner's notes form. Local drafts commit on Apply (not per
 // keystroke: every apply is a PUT + a re-plan of EVERY day, so it should be
 // one deliberate action). Drafts re-seed whenever the saved settings change.
+// E6c — the "staying at" row in the planner's pocket. Detection from the
+// paste fills this automatically; here the user can set/override/clear it.
+// Resolution goes through the same metered, rate-limited server boundary
+// every other place lookup uses (POST /api/trips/[id]/resolve — key never on
+// the client, one billed lookup per set).
+function HomeBasePocket({
+  tripId,
+  homeBase,
+  busy,
+  onSetHomeBase,
+}: {
+  tripId: string;
+  homeBase: TripDoc["homeBase"];
+  busy: boolean;
+  onSetHomeBase: (base: { id: string; name: string; location: { lat: number; lng: number } } | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [query, setQuery] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    const q = query.trim();
+    if (!q || pending) return;
+    setPending(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/trips/${tripId}/resolve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inputs: [q] }),
+      });
+      const body = (await res.json().catch(() => null)) as {
+        stops?: Array<{ id: string; name: string; location: { lat: number; lng: number } }>;
+      } | null;
+      const stop = res.ok ? body?.stops?.[0] : undefined;
+      if (!stop) {
+        setError("Couldn't find that place — try its full name?");
+        return;
+      }
+      onSetHomeBase({ id: stop.id, name: stop.name, location: stop.location });
+      setEditing(false);
+      setQuery("");
+    } catch {
+      setError("Couldn't find that place — try again?");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <div className="reveal-homebase" data-testid="sidebar-homebase">
+      <span className="reveal-homebase__label">staying at</span>
+      {homeBase && !editing ? (
+        <>
+          <span className="reveal-homebase__name" data-testid="sidebar-homebase-name">
+            {homeBase.name}
+          </span>
+          <button
+            type="button"
+            className="reveal-homebase__link"
+            data-testid="sidebar-homebase-change"
+            disabled={busy}
+            onClick={() => {
+              setQuery(homeBase.name);
+              setEditing(true);
+            }}
+          >
+            change
+          </button>
+          <button
+            type="button"
+            className="reveal-homebase__link"
+            data-testid="sidebar-homebase-clear"
+            disabled={busy}
+            onClick={() => onSetHomeBase(null)}
+          >
+            clear
+          </button>
+        </>
+      ) : (
+        <>
+          <input
+            className="reveal-homebase__input"
+            data-testid="sidebar-homebase-input"
+            placeholder="hotel, airbnb…"
+            value={query}
+            disabled={busy || pending}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void submit();
+            }}
+          />
+          <button
+            type="button"
+            className="reveal-homebase__link"
+            data-testid="sidebar-homebase-set"
+            disabled={busy || pending || query.trim() === ""}
+            onClick={() => void submit()}
+          >
+            {pending ? "finding…" : "set"}
+          </button>
+          {homeBase && (
+            <button
+              type="button"
+              className="reveal-homebase__link"
+              disabled={busy || pending}
+              onClick={() => {
+                setEditing(false);
+                setError(null);
+              }}
+            >
+              cancel
+            </button>
+          )}
+        </>
+      )}
+      {error && (
+        <span className="reveal-homebase__error" data-testid="sidebar-homebase-error">
+          {error}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function PocketForm({
   settings,
   busy,

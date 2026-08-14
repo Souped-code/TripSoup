@@ -33,7 +33,8 @@ const SYSTEM_PROMPT = `You convert a raw pasted travel itinerary (plain text, po
     }
   ],
   "days": [ { "dateHint": string?, "itemRefs": number[] } ],   // itemRefs are indices into "items"
-  "splitGroups": [ { "name": string, "itemRefs": number[] } ]  // itemRefs are indices into "items"
+  "splitGroups": [ { "name": string, "itemRefs": number[] } ], // itemRefs are indices into "items"
+  "accommodationRef": number?  // index into "items" of where the user SLEEPS — see rule 11
 }
 
 Rules (do not deviate):
@@ -50,7 +51,8 @@ Rules (do not deviate):
    - Take the city/region from anywhere in the paste (a heading, another line, a link). If the paste genuinely gives no location context, emit the bare place name rather than guessing a city.
    - OMIT "placeQuery" entirely for anything that is not a lookupable place: notes, reminders, travel time, budgets, general activities ("swim", "pack bags"), and any line whose place is already given by a URL on that same item.
    - "placeQuery" is a search query; "label" stays the human-readable display text. They are different fields and may differ. Never copy a whole sentence into "placeQuery".
-10. Order intent matters: when the itinerary implies items should happen in a particular sequence — "cable car first, then the beach", "check in before dinner", a numbered list — capture it with "orderConstraint" per rule 4. Honour the user's stated intent; do not reorder items yourself and do not invent constraints that the text does not imply.`;
+10. Order intent matters: when the itinerary implies items should happen in a particular sequence — "cable car first, then the beach", "check in before dinner", a numbered list — capture it with "orderConstraint" per rule 4. Honour the user's stated intent; do not reorder items yourself and do not invent constraints that the text does not imply.
+11. "accommodationRef": when a line names where the user STAYS overnight — "staying at X", "our hotel is X", "check in at X", "drop bags at X", an airbnb/hostel/hotel name in that role — set "accommodationRef" to that item's index. The item itself is still a normal entry in "items" (with "placeQuery"/"url" as usual). At most one; omit when nothing names the accommodation. Never guess one from a mere visit to a hotel bar/restaurant.`;
 
 export class ParseValidationError extends Error {
   constructor(message: string) {

@@ -276,50 +276,135 @@
   color: var(--ink);
 }
 
-/* E6b — trade-off cards (§between the quality banner and the pocket) -------- */
-.reveal-tradeoffs {
+/* E6c — decision banner (sidebar) + decision modal (Chris, 2026-08-14:
+ * "like picking a perk in TFT"). The banner is the persistent, slim trace of
+ * pending decisions; the modal is the spotlight moment. ---------------------- */
+.reveal-decision-banner {
   margin: 6px 0 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.reveal-tradeoff-card {
+  padding: 10px 12px;
   background: var(--paper);
   border: 1px dashed var(--ink-soft);
   border-radius: 4px 8px 5px 7px;
-  padding: 10px 12px;
   box-shadow: var(--shadow-paper-lift);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
-.reveal-tradeoff-card__what {
-  font-family: var(--font-body);
-  color: var(--ink);
-  font-weight: 700;
-  margin: 0 0 3px;
+.reveal-decision-banner__text {
+  font-family: var(--font-display);
+  color: var(--ink-soft);
+  font-size: 1rem;
+  line-height: 1.4;
+  margin: 0;
+  flex: 1 1 12em;
 }
-.reveal-tradeoff-card__who {
-  font-family: var(--font-body);
+
+.reveal-decision-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  /* paper wash, not a black scrim — the journal never goes dark */
+  background: color-mix(in srgb, var(--paper) 72%, transparent);
+  backdrop-filter: blur(2px);
+}
+.reveal-decision-panel {
+  width: min(720px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  background: var(--paper);
+  border: 1px solid var(--ink-soft);
+  border-radius: 5px 9px 6px 8px;
+  box-shadow: var(--shadow-paper-lift);
+  padding: 22px 26px 18px;
+  text-align: center;
+}
+.reveal-decision-panel__count {
+  font-family: var(--font-display);
   color: var(--ink-soft);
   font-size: 0.85rem;
-  margin: 0 0 8px;
+  margin: 0 0 6px;
 }
-.reveal-tradeoff-card__chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 6px;
+.reveal-decision-panel__what {
+  font-family: var(--font-display);
+  color: var(--ink);
+  font-size: 1.35rem;
+  line-height: 1.3;
+  margin: 0 0 4px;
 }
-.reveal-tradeoff-chip {
+.reveal-decision-panel__who {
   font-family: var(--font-body);
-  font-size: 0.82rem;
-  cursor: pointer;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  margin: 0 0 18px;
 }
-.reveal-tradeoff-chip:disabled {
+.reveal-decision-picks {
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.reveal-decision-pick {
+  flex: 1 1 160px;
+  max-width: 200px;
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 14px 12px;
+  background: var(--paper-shade);
+  border: 1px solid var(--ink-soft);
+  border-radius: 4px 7px 5px 8px;
+  box-shadow: var(--shadow-paper-lift);
+  font-family: var(--font-body);
+  color: var(--ink);
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+}
+.reveal-decision-pick:hover:not(:disabled),
+.reveal-decision-pick:focus-visible {
+  transform: translateY(-4px) rotate(0deg) !important;
+  border-color: var(--action);
+  box-shadow: 0 6px 14px rgba(43, 38, 32, 0.18);
+  outline: none;
+}
+.reveal-decision-pick:disabled {
   opacity: 0.55;
   cursor: default;
 }
-.reveal-tradeoff-card__dismiss {
+.reveal-decision-pick__kind {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  color: var(--action);
+}
+.reveal-decision-pick__message {
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+.reveal-decision-pick__cost {
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+}
+.reveal-decision-none {
   font-family: var(--font-body);
-  font-size: 0.8rem;
+  color: var(--ink-soft);
+  margin: 0 0 18px;
+}
+.reveal-decision-actions {
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.reveal-decision-link {
+  font-family: var(--font-body);
+  font-size: 0.82rem;
   color: var(--ink-soft);
   background: none;
   border: none;
@@ -327,16 +412,56 @@
   text-decoration: underline;
   cursor: pointer;
 }
-.reveal-tradeoff-card__dismiss:disabled {
+.reveal-decision-link--later {
+  color: var(--ink);
+}
+.reveal-decision-link:disabled {
   opacity: 0.5;
   cursor: default;
 }
-.reveal-tradeoffs__prose {
-  font-family: var(--font-display);
+
+/* E6c — "staying at" row in the planner's pocket ---------------------------- */
+.reveal-homebase {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 4px 0 10px;
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+}
+.reveal-homebase__label {
   color: var(--ink-soft);
-  font-size: 1rem;
-  line-height: 1.4;
-  margin: 0 0 4px;
+}
+.reveal-homebase__name {
+  color: var(--ink);
+  font-weight: 700;
+}
+.reveal-homebase__input {
+  flex: 1 1 10em;
+  font: inherit;
+  padding: 2px 6px;
+  background: var(--paper);
+  border: 1px solid var(--ink-soft);
+  border-radius: 3px;
+  color: var(--ink);
+}
+.reveal-homebase__link {
+  font: inherit;
+  color: var(--action);
+  background: none;
+  border: none;
+  padding: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.reveal-homebase__link:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.reveal-homebase__error {
+  flex-basis: 100%;
+  color: var(--ink-soft);
 }
 
 /* E6b — re-cook affordances: day-scoped (general, always available while the

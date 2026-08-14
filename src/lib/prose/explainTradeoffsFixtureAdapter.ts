@@ -3,6 +3,7 @@
 // e2e exercise. No model call, no randomness — same input always produces the
 // same output, which is what lets a jest/playwright assertion pin exact text.
 
+import { formatDuration } from "../util/duration";
 import { capProse, type ProseInput, type ProseProvider } from "./types";
 
 function kindPhrase(kind: string): string {
@@ -49,8 +50,8 @@ export function createExplainTradeoffsFixtureAdapter(): ProseProvider {
         cheapest.costDeltaMin === 0
           ? "about the same either way"
           : cheapest.costDeltaMin < 0
-            ? `saves around ${Math.round(Math.abs(cheapest.costDeltaMin))} min`
-            : `costs about ${Math.round(cheapest.costDeltaMin)} extra min`;
+            ? `saves around ${formatDuration(Math.abs(cheapest.costDeltaMin))}`
+            : `costs about ${formatDuration(cheapest.costDeltaMin)} extra`;
 
       return capProse(`${opener} ${kindPhrase(cheapest.kind)} is the easiest way out — ${delta}.${tail}`);
     },

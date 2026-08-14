@@ -22,6 +22,7 @@
 // is capped. A 40-stop trip in trouble must not turn proposal generation into a
 // second solve.
 
+import { formatDuration } from "../util/duration";
 import { evaluate } from "./evaluate";
 import { deriveConflicts } from "./conflicts";
 import { applyPatchToProblem } from "./patch";
@@ -100,7 +101,7 @@ export function deriveProposals(
               stopId: node.stopId,
               durationMin: dur.minMin,
             },
-            message: `Shorten ${node.name} to ${dur.minMin} min.`,
+            message: `Shorten ${node.name} to ${formatDuration(dur.minMin)}.`,
           },
           [conflict.id]
         );
@@ -168,7 +169,7 @@ export function deriveProposals(
                 stopId: node.stopId,
                 durationMin: node.duration.value.minMin,
               },
-              message: `Shorten ${node.name} to ${node.duration.value.minMin} min.`,
+              message: `Shorten ${node.name} to ${formatDuration(node.duration.value.minMin)}.`,
             },
             [conflict.id]
           );
@@ -182,7 +183,7 @@ export function deriveProposals(
                 dayIndex: conflict.dayIndex,
                 endMin: day.window.value.endMin + Math.ceil(conflict.violatedByMin),
               },
-              message: `Run day ${conflict.dayIndex + 1} ${Math.ceil(conflict.violatedByMin)} min later.`,
+              message: `Run day ${conflict.dayIndex + 1} ${formatDuration(conflict.violatedByMin)} later.`,
             },
             [conflict.id]
           );

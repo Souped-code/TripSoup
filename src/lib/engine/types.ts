@@ -252,6 +252,12 @@ export type Conflict = {
   readonly constraintRef: ConstraintRef;
   /** Journal-voice one-liner. Decorative; the structured fields are the API. */
   readonly message: string;
+  /** `hours` conflicts only: the stop has NO open interval at all on this day
+   * (closed weekday or closedDates hit), as opposed to a schedulable-but-missed
+   * window. The machine-readable form of "no amount of shuffling fixes it" —
+   * planEngine's closed-day auto-relocation keys on this, never on message
+   * text. */
+  readonly closedDay?: boolean;
 };
 
 /** A minimal, typed description of a change an E6 UI can apply.

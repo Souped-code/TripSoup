@@ -83,16 +83,35 @@ test.describe("trade-off cards (E6b)", () => {
     await pasteMondayClosedTrip(page);
     await expect(firstCard(page)).toBeVisible({ timeout: 15000 });
 
+    // E6c: the decision modal overlays the journal — put it away first. This
+    // also marks the current issue set as SEEN, which is what the tail of
+    // this test verifies survives the re-cook.
+    await page.getByTestId("tradeoff-decide-later").click();
+    await expect(page.getByTestId("decision-modal")).toHaveCount(0);
+
     await page.getByTestId("sidebar-reoptimize").click();
 
     // Still a real, rendered plan (never a blank/error state) — the closed
     // stop's conflict is unrelated to the button and survives the re-cook.
     await expect(page.getByTestId("journal-sidebar")).not.toContainText("couldn't be cooked");
-    await expect(firstCard(page)).toBeVisible({ timeout: 15000 });
+
+    // Same conflict set after the re-cook (conflict ids are content-derived):
+    // already seen, so it must NOT auto-pop again — the banner owns it and
+    // reopens the modal on demand.
+    await expect(page.getByTestId("sidebar-tradeoffs")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("decision-modal")).toHaveCount(0);
+    await page.getByTestId("tradeoff-banner-open").click();
+    await expect(firstCard(page)).toBeVisible();
   });
 
   test("re-cook whole trip requires confirmation before it runs", async ({ page }) => {
     await pasteMondayClosedTrip(page);
+
+    // E6c: the auto-popped decision modal overlays the sidebar — close it
+    // before driving the re-cook affordances underneath.
+    await expect(firstCard(page)).toBeVisible({ timeout: 15000 });
+    await page.getByTestId("tradeoff-decide-later").click();
+    await expect(page.getByTestId("decision-modal")).toHaveCount(0);
 
     await page.getByTestId("sidebar-recook-trip").click();
     await expect(page.getByTestId("sidebar-recook-trip-confirm")).toBeVisible();

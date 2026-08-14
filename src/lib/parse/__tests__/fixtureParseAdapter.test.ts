@@ -65,4 +65,16 @@ describe("fixture parse adapter — placeQuery emission", () => {
     const b = await adapter.parse(blob);
     expect(JSON.stringify(a)).toBe(JSON.stringify(b));
   });
+
+  // E6c — mirror of the LLM prompt's rule 11: a line that names where the
+  // user SLEEPS earns accommodationRef (the item still parses normally).
+  it("flags an accommodation line via accommodationRef; none when nothing names one", async () => {
+    const parsed = await adapter.parse(["Day 1", "staying at Market Hall", "Riverside Cafe"].join("\n"));
+    expect(parsed.accommodationRef).toBeDefined();
+    expect(parsed.items[parsed.accommodationRef!].raw).toBe("staying at Market Hall");
+    expect(parsed.items[parsed.accommodationRef!].placeQuery).toBe("Market Hall, Casterbridge");
+
+    const none = await adapter.parse(["Day 1", "Market Hall", "Riverside Cafe"].join("\n"));
+    expect(none.accommodationRef).toBeUndefined();
+  });
 });

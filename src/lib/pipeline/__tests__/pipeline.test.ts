@@ -156,6 +156,13 @@ describe("runPipeline", () => {
     expect(result.doc.days[0].precedence).toEqual([
       expect.objectContaining({ beforeId: "fx-04", afterId: "fx-01" }),
     ]);
+
+    // --- E6c: "Drop bags at Riverside Cafe" also names where the trip
+    // sleeps — the fixture parse adapter mirrors the LLM prompt's rule 11,
+    // and the pipeline sets homeBase from the RESOLVED stop, source "paste".
+    // The stop itself still sits in the day (the errand is still an errand).
+    expect(result.doc.homeBase).toMatchObject({ id: "fx-04", source: "paste" });
+    expect(reread?.homeBase).toEqual(result.doc.homeBase);
   });
 
   // E3 — hours threaded end to end through the REAL parser: fixtureAdapter.ts

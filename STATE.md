@@ -2447,3 +2447,78 @@ data for it evidently says open — data, not code).
 the old raw strings until its next re-plan; any re-cook regenerates them in the new copy.
 
 Gates: tsc 0 · jest 436/436 (46 suites) · reveal + tradeoffs e2e 10/10.
+
+## E6c — DECISION MODAL + CLOSED-DAY AUTO-MOVE + HOME BASE (2026-08-14, Fable session)
+
+Four Chris directives from the live verify session, decided via AskUserQuestion (trigger =
+auto-pop once per new issue set; sidebar stack -> slim banner; scope = modal + home base;
+home base = paste-detect + editable field) plus two mid-turn additions ("2h 28min" duration
+format; closed-day stops auto-move when not explicitly committed).
+
+**1. Durations.** `src/lib/util/duration.ts` — one `formatDuration` (CEIL, "45 min" / "2h" /
+"2h 28min") swapped into every user surface: evaluate.ts details, TradeOffModal
+by-how-much/cost chips, proposals messages, planEngine shortReason, sidebar walk/drive/waits,
+fixture prose. CEIL everywhere so headline and "off by N" always agree.
+
+**2. Decision modal (TFT-style).** TradeOffCard.tsx retired -> TradeOffModal.tsx: full-screen
+paper-wash overlay, ONE conflict spotlighted (header top-middle: message + provenance +
+by-how-much), up to 3 priced pick-cards (proposals already sorted cheapest-first), "leave it"
+(the old persisted dismiss), "next issue", "decide later" (Esc/backdrop too). RevealClient
+owns the queue + auto-pop: issue-set signature = sorted visible conflict ids; "decide later"
+records it in a capped localStorage list keyed per trip; a NEW set auto-pops once, a seen set
+never re-pops — the sidebar's slim banner ("N things need a decision" / prose line + Decide
+now) is the way back in. Testids tradeoff-card-*/accept-*/dismiss-* carried over so the e2e
+exercises identical semantics; tradeoffs.spec re-cook tests now close the modal first and
+verify the banner-reopen + no-re-pop behaviour explicitly.
+
+**3. Closed-day auto-relocation.** Chris: "if ford factory is closed monday… immediately put
+on other days if user didn't explicitly state to do on monday, then heads-up the user."
+Engine: evaluate/conflicts gained machine-readable `closedDay` on `hours` conflicts (open
+intervals empty — never message-text matching). planEngine.autoRelocateClosedDayStops: for
+each closedDay conflict — skip if the stop is ANCHORED (booked = explicitly committed -> the
+modal asks, unchanged) or the conflict is dismissed — take the engine's own cheapest moveDay
+proposal that RESOLVES it (deriveProposals already proved it creates no new conflict),
+applyDocPatch onto the doc; caller re-solves ONCE and annotateAutoMoves writes "Heads up —"
+notes on BOTH days (origin: "Gracie moved X to day N: Google says it's closed on Mondays";
+destination mirror). Wired into the ONLY two whole-trip paths: pipeline initial cook and
+planStore.recookTrip. Safe by construction: day membership on a closed day can only come from
+the paste (accepting a moveDay to a closed day is impossible — conflict-creating candidates
+are filtered), so auto-move never overrides a user decision; day-scoped solves can't move
+cross-day at all. e2e tradeoffs trips are single-day (no target day) — the cards there ARE
+the no-moveDay branch. Tests: autoRelocate.test.ts (recookTrip integration on a 2-day
+fixture trip: membership moved + both notes + conflict genuinely gone; anchored stays with
+conflict intact; pure-selection guards; annotate unit).
+
+**4. Home base — model/parse/UI layer SHIPPED, depot semantics DEFERRED with a design.**
+- TripDoc.homeBase {id,name,location,source:"paste"|"user"} (+ PUT boundary validation).
+- Parse: ParsedItinerary.accommodationRef + LLM prompt rule 11 ("staying at X", "drop bags
+  at X"…); fixtureParseAdapter keyword mirror; heuristic/free path unchanged. Pipeline sets
+  homeBase from the RESOLVED item (duplicate-suffix stripped), source "paste"; the stop stays
+  in its day (an errand is still an errand).
+- UI: planner's pocket "staying at" row — set/change/clear; resolution through the SAME
+  metered POST /api/trips/[id]/resolve (one billed lookup per set); persists source "user"
+  via the ordinary PUT (rides the cheap no-day-stale path).
+- DEFERRED (next engine block, needs its own audit): base travel in each day's first/last
+  legs. Analysis done this session: the insertion points are search.ts evalDay (first-stop
+  `earliest = DAY_START[d]` -> + base->s travel; day-end fit must add last->base), plus
+  exhaustive floor cost, solve.ts legacyWalk, evaluate.ts (first-arrival + day-end checks +
+  travel term), assemble/UI lead legs, matrixForDay gaining a reserved `__home-base__` point,
+  patch.ts, and schedule.ts's legacy manualOrder retime. No-base behaviour must stay
+  byte-identical (quality/differential/determinism harnesses pin it). homeBase joins
+  solveProjection in the SAME commit the engine starts reading it (deliberately NOT included
+  now — hashing an unread field would re-seed and reshuffle every day for zero semantic
+  reason; note in solveProjection.ts).
+- REJECTED this session: post-solve day-orientation flip. With a symmetric matrix and a
+  return-to-base day, d(base,first)+d(last,base) is invariant under reversal — the flip is a
+  cost-neutral placebo. The real fix IS the depot block. (If Chris wants a "mornings start
+  near the hotel" asymmetric preference instead, that's a product call — flag it.)
+
+**Gates:** tsc 0 · jest 441/441 (47 suites, +autoRelocate +parse/pipeline homeBase cases) ·
+full e2e 39/39 (12 specs, +homebase.spec; tradeoffs re-cook tests updated for the modal).
+
+**CHRIS-VERIFY (prod, after deploy):** re-paste the SG trip fresh -> Tian Tian + Ford Factory
+should now be AUTO-MOVED off Monday with "Heads up — Gracie moved…" notes on both days
+(Odette keeps its card if Google says closed — it's booked/anchored -> modal asks); the
+decision modal should pop once with readable copy ("2h 28min", "day 1", weekday names),
+banner reopens it, decide-later doesn't re-pop after a re-cook; pocket shows "staying at
+Marina Bay Sands" from the paste; change/clear it and reload.

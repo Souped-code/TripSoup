@@ -103,7 +103,7 @@ describe("explainTradeoffsFixtureAdapter — deterministic template prose", () =
       proposals: [{ ...oneConflict.proposals[0], costDeltaMin: 12 }],
     };
     const prose = await adapter.explain(costly);
-    expect(prose).toMatch(/costs about 12 extra min/);
+    expect(prose).toMatch(/costs about 12 min extra/);
   });
 
   it("handles a conflict with zero resolving proposals without throwing", async () => {

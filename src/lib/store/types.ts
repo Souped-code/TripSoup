@@ -83,6 +83,20 @@ export type TripDoc = {
   tripId: string;
   days: TripDay[];
   settings: { walkMax: number; driveOverheadMin: number };
+  // E6c (2026-08-14) — where the trip sleeps. Detected from the paste (the LLM
+  // adapter's `accommodationRef`) or set/overridden in the sidebar pocket;
+  // `source` records which, so a user edit is distinguishable from detection.
+  // Part of the solve projection (solveProjection.ts) — changing it stales
+  // every day's hash. Today it drives base-aware day ORIENTATION
+  // (planEngine's orientDaysToBase); full depot semantics (base travel in the
+  // schedule's first/last legs) are the designed next engine block — see
+  // STATE.md's E6c entry.
+  homeBase?: {
+    id: string;
+    name: string;
+    location: { lat: number; lng: number };
+    source: "paste" | "user";
+  };
   legOverrides: LegOverride[];
   plan?: {
     version: 1;

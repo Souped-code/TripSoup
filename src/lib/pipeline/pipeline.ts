@@ -34,7 +34,14 @@ import { randomBytes } from "crypto";
 import { parseItinerary } from "../parse/parseItinerary";
 import { getMapsProvider, getTripStore } from "../config";
 import { getEntitlements, type Entitlements } from "../entitlements/entitlements";
-import { matrixForDay, settingsOf, solveWithPreparedMatrices } from "../planEngine";
+import {
+  annotateAutoMoves,
+  autoRelocateClosedDayStops,
+  matrixForDay,
+  prepareDayMatrices,
+  settingsOf,
+  solveWithPreparedMatrices,
+} from "../planEngine";
 import { validManualOrder } from "../planShared";
 import { persistPlanned } from "../planStore";
 import { parseGoogleHours } from "../maps/openingHours";
@@ -532,10 +539,32 @@ export async function* runPipeline(
       }
     }
 
+    // E6c — home base from the paste: the LLM (or fixture) adapter flagged
+    // which item names where the user sleeps; if that item RESOLVED, its
+    // canonical place becomes the trip's home base. The stop itself stays
+    // wherever the paste put it (a "drop bags" errand is still an errand).
+    // `duplicateOf` strips any markDuplicateStops suffix (that mutation ran
+    // above, on these same object references) so homeBase.id is always the
+    // bare place id.
+    const accommodationStop =
+      parsed.accommodationRef === undefined
+        ? undefined
+        : resolvedByItemIndex.get(parsed.accommodationRef);
+
     const doc: TripDoc = {
       tripId,
       days,
       settings: { walkMax: 10, driveOverheadMin: 10 },
+      ...(accommodationStop
+        ? {
+            homeBase: {
+              id: accommodationStop.duplicateOf ?? accommodationStop.id,
+              name: accommodationStop.name,
+              location: accommodationStop.location,
+              source: "paste" as const,
+            },
+          }
+        : {}),
       legOverrides: [],
     };
 
@@ -628,6 +657,25 @@ export async function* runPipeline(
     }
     const result = solveResult;
 
+    // Closed-day auto-relocation (Chris, 2026-08-14) — whole-trip solves
+    // only: the paste is the only thing that can land a stop on a closed day
+    // (accepting a moveDay proposal to one is impossible — proposals that
+    // create conflicts are filtered), so moving it now never overrides a user
+    // decision. Full rationale on planEngine's autoRelocateClosedDayStops.
+    // One pass, one re-solve; matrices re-prepared because day membership
+    // changed (the cache makes that cheap — only genuinely new pairs fetch).
+    let finalDoc = doc;
+    let finalDays = result.days;
+    let finalResult = result;
+    const relocated = autoRelocateClosedDayStops(doc, result);
+    if (relocated) {
+      yield { stage: "solve", pct: 99, detail: "Moving closed stops to open days…" };
+      finalDoc = relocated.doc;
+      const reprepared = await prepareDayMatrices(finalDoc);
+      finalResult = await solveWithPreparedMatrices(finalDoc, reprepared);
+      finalDays = annotateAutoMoves(finalResult.days, relocated.moves);
+    }
+
     // E4 — persist the plan just computed above (never recompute: it was
     // already paid for) so the doc lands WITH its plan instead of the old
     // compute-then-discard-then-recompute-on-first-read pattern. plannedDoc
@@ -637,16 +685,16 @@ export async function* runPipeline(
     // FIRST solve, so it gets the same E3 hours-advisory + E5b conflict
     // margin-note treatment every later re-plan gets — both already applied
     // inside solveWithPreparedMatrices, per day.
-    const plannedDoc = await persistPlanned(doc, result.days, result.engineMeta, {
-      conflicts: result.conflicts,
-      proposals: result.proposals,
+    const plannedDoc = await persistPlanned(finalDoc, finalDays, finalResult.engineMeta, {
+      conflicts: finalResult.conflicts,
+      proposals: finalResult.proposals,
     });
 
     return {
       status: "ok",
       tripId,
       doc: plannedDoc,
-      plans: result.days,
+      plans: finalDays,
       failures: resolveResult.failures,
     };
   } catch (err) {

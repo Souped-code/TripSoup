@@ -54,6 +54,14 @@ export type SolveProjection = {
   settings: { walkMax: number; driveOverheadMin: number };
 };
 
+// E6c note — TripDoc.homeBase is DELIBERATELY absent from this projection:
+// the engine does not read it yet, and hashing what the solve doesn't read
+// would make "set home base" stale (and re-seed, and reshuffle) every day for
+// zero semantic reason. When the depot block lands (base travel in each day's
+// first/last legs — STATE.md E6c entry), homeBase joins the settings slice in
+// the SAME commit the engine starts reading it, so staleness and effect
+// arrive together.
+
 function projectDay(day: TripDay): SolveProjectionDay {
   return {
     date: day.date,

@@ -37,6 +37,8 @@ import { planTripDay } from "./planService";
 import {
   applyHoursAdvisoryToDay,
   applyOverridesToPlan,
+  annotateAutoMoves,
+  autoRelocateClosedDayStops,
   crossDayPrecedenceNotes,
   matrixForDay,
   planTripWithEngine,
@@ -382,8 +384,19 @@ export async function recookDay(doc: TripDoc, dayIndex: number): Promise<TripDoc
 export async function recookTrip(doc: TripDoc): Promise<TripDoc> {
   const cleared: TripDoc = { ...doc, days: doc.days.map(withoutManualOrder) };
   try {
-    const result = await planTripWithEngine(cleared);
-    return persistPlanned(cleared, result.days, result.engineMeta, {
+    let target = cleared;
+    let result = await planTripWithEngine(target);
+    let days = result.days;
+    // Closed-day auto-relocation (Chris, 2026-08-14) — whole-trip solves only;
+    // see planEngine's autoRelocateClosedDayStops doc comment for why this can
+    // never override a user decision. One pass, one re-solve, by design.
+    const relocated = autoRelocateClosedDayStops(target, result);
+    if (relocated) {
+      target = relocated.doc;
+      result = await planTripWithEngine(target);
+      days = annotateAutoMoves(result.days, relocated.moves);
+    }
+    return persistPlanned(target, days, result.engineMeta, {
       conflicts: result.conflicts,
       proposals: result.proposals,
     });

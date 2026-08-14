@@ -53,6 +53,11 @@ function findNamedPlace(line: string): string | null {
   return null;
 }
 
+// Mirror of the LLM prompt's rule 11 ("staying at…"), keyword-matched the way
+// this whole adapter mirrors rule 9: enough for tests to exercise the
+// homeBase path end to end at $0.
+const ACCOMMODATION_CUE = /staying at|our hotel|check(?:\s|-)?in at|drop (?:our |the |my )?bags at|airbnb|hostel/i;
+
 export function createFixtureParseAdapter(): ParseProvider {
   const heuristic = createHeuristicAdapter();
 
@@ -60,8 +65,13 @@ export function createFixtureParseAdapter(): ParseProvider {
     async parse(text: string): Promise<ParsedItinerary> {
       const parsed = await heuristic.parse(text);
 
+      const accommodationIdx = parsed.items.findIndex(
+        (item) => ACCOMMODATION_CUE.test(item.raw) && findNamedPlace(item.raw) !== null
+      );
+
       return {
         ...parsed,
+        ...(accommodationIdx >= 0 ? { accommodationRef: accommodationIdx } : {}),
         items: parsed.items.map((item) => {
           // An item that already carries a URL resolves through that URL —
           // adding a placeQuery would create a second, competing source for

@@ -44,8 +44,9 @@ import {
 // identical either way solve actually ran.
 import { runSolve } from "./engineWorker/host";
 import { hoursNoteFor } from "./plan/hoursAdvisory";
+import { formatDuration } from "./util/duration";
 import { dayProjection, solveProjection } from "./plan/solveProjection";
-import { validManualOrder } from "./planShared";
+import { applyDocPatch, validManualOrder } from "./planShared";
 import { buildEffectiveMatrix } from "./solver/effectiveMatrix";
 import { applyLegModes, rescheduleDay } from "./schedule/schedule";
 import { stableHash } from "./util/stableHash";
@@ -265,9 +266,9 @@ function shortReason(c: Conflict): string {
     case "dropped-must":
       return "it didn't fit the day";
     case "anchor-start":
-      return `it would land ${Math.ceil(c.violatedByMin)} min after its booked time`;
+      return `it would land ${formatDuration(c.violatedByMin)} after its booked time`;
     case "day-window":
-      return `the day runs ${Math.ceil(c.violatedByMin)} min over`;
+      return `the day runs ${formatDuration(c.violatedByMin)} over`;
     case "precedence":
       return "the order it was meant to follow got tangled";
     case "pace-active":
@@ -368,6 +369,114 @@ export function applyHoursAdvisoryToDay(doc: TripDoc, dayIndex: number, plan: Da
     if (note) notes.push(note);
   }
   return withMarginNotes(plan, notes);
+}
+
+// ---------------------------------------------------------------------------
+// Closed-day auto-relocation (Chris, 2026-08-14): a stop whose hours say it is
+// CLOSED on the day the paste assigned it — and that the user hasn't
+// explicitly committed to that day (no anchor/booking) — should not become a
+// decision card; Gracie puts it on a day that works and says so in the
+// margin. Runs ONLY after whole-trip solves (initial cook + re-cook trip):
+// day membership on a closed day can only come from the paste, because the
+// one cross-day move a user can make — accepting a moveDay proposal — can
+// never target a closed day (deriveProposals filters any candidate that
+// creates a new conflict). Anchored stops keep asking via the cards, exactly
+// as before. Selection reuses the engine's own priced proposals: the cheapest
+// moveDay that RESOLVES the closed-day conflict (proposals are already sorted
+// by costDeltaMin, and pricing already proved it creates no new conflict).
+// ---------------------------------------------------------------------------
+
+const WEEKDAY_PLURAL = [
+  "Mondays",
+  "Tuesdays",
+  "Wednesdays",
+  "Thursdays",
+  "Fridays",
+  "Saturdays",
+  "Sundays",
+] as const;
+
+export type AutoMove = {
+  stopId: string;
+  stopName: string;
+  fromDayIndex: number;
+  toDayIndex: number;
+  /** "Mondays" — or "that day" when the closure came from closedDates rather
+   * than a weekday pattern (or the weekday is somehow unknowable). */
+  closedOn: string;
+};
+
+export type AutoRelocateOutcome = { doc: TripDoc; moves: AutoMove[] };
+
+/** Pure selection + doc application; the CALLER re-solves the returned doc
+ * (matrices change when day membership does) and annotates the fresh plans
+ * with `autoMoveNotes`. Returns null when nothing is auto-movable. */
+export function autoRelocateClosedDayStops(
+  doc: TripDoc,
+  result: EnginePlanResult
+): AutoRelocateOutcome | null {
+  const dismissedIds = new Set((doc.dismissedProposals ?? []).map((d) => d.id));
+  const moves: AutoMove[] = [];
+  let nextDoc = doc;
+
+  for (const conflict of result.conflicts) {
+    if (conflict.code !== "hours" || !conflict.closedDay) continue;
+    if (conflict.dayIndex === undefined) continue;
+    if (dismissedIds.has(conflict.id)) continue; // the user already said "leave it"
+
+    // Cheapest moveDay that provably fixes this conflict. Proposal patches
+    // carry doc-level stop ids (not node keys), so no key mapping is needed.
+    const proposal = result.proposals.find(
+      (p) => p.kind === "moveDay" && p.patch.op === "moveStop" && p.resolves.includes(conflict.id)
+    );
+    if (!proposal || proposal.patch.op !== "moveStop") continue;
+    const { stopId, fromDayIndex, toDayIndex } = proposal.patch;
+
+    const fromDay = nextDoc.days[fromDayIndex];
+    const stop = fromDay?.stops.find((s) => s.id === stopId);
+    if (!stop) continue; // already moved by an earlier conflict this pass
+    if (stop.anchor) continue; // booked = explicitly committed → card, not auto-move
+
+    const applied = applyDocPatch(nextDoc, proposal.patch);
+    if (!applied.ok) continue; // stale against an earlier move — leave as a card
+
+    const weekday = fromDay === undefined ? null : isoWeekdayOfDay(fromDay);
+    nextDoc = applied.doc;
+    moves.push({
+      stopId,
+      stopName: stop.name,
+      fromDayIndex,
+      toDayIndex,
+      closedOn: weekday === null ? "that day" : WEEKDAY_PLURAL[weekday],
+    });
+  }
+
+  return moves.length === 0 ? null : { doc: nextDoc, moves };
+}
+
+/** Margin notes for a completed auto-move pass, appended to the RE-SOLVED
+ * plans: one on the origin day (where the user will look for the stop) and
+ * one on the destination (why it appeared). "Heads up — " class on purpose:
+ * planStore strips-and-re-derives that prefix on the next re-plan, so the
+ * notice lives exactly until the user next touches the trip. */
+export function annotateAutoMoves(days: DayPlan[], moves: readonly AutoMove[]): DayPlan[] {
+  if (moves.length === 0) return days;
+  return days.map((plan, i) => {
+    const notes: string[] = [];
+    for (const m of moves) {
+      if (i === m.fromDayIndex) {
+        notes.push(
+          `Heads up — Gracie moved ${m.stopName} to day ${m.toDayIndex + 1}: Google says it's closed on ${m.closedOn}.`
+        );
+      }
+      if (i === m.toDayIndex) {
+        notes.push(
+          `Heads up — ${m.stopName} moved here from day ${m.fromDayIndex + 1}: Google says it's closed on ${m.closedOn} there.`
+        );
+      }
+    }
+    return withMarginNotes(plan, notes);
+  });
 }
 
 // ---------------------------------------------------------------------------
