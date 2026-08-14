@@ -152,3 +152,43 @@ test("M2 geometry: proxy failure settles on the hand-sketch fallback", async ({ 
   const map = await expectPainted(page);
   await expect(map).toHaveAttribute("data-geometry", "sketch", { timeout: 15000 });
 });
+
+test("day-tab switch replays the full reveal: the new day's clouds part too", async ({ page }) => {
+  // REAL motion, overriding the beforeEach: the bug lived in the choreography
+  // handoff. A day switch fired the driver effect against the STALE committed
+  // "ready" phase (its orderSig dep changed in the same commit that scheduled
+  // the phase reset), the one-shot "initial" ran while the clouds div wasn't
+  // mounted, and the real post-build run downgraded to "resketch" — so the new
+  // day's clouds never parted (Chris, live paste 2026-08-14). Reduced motion
+  // skips clouds entirely and cannot see any of this.
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await stubTiles(page);
+
+  const doc = await createRevealTrip(page);
+  const [, , , D, E] = FIXTURE_STOPS;
+  doc.days.push({
+    ...doc.days[0],
+    stops: [
+      { id: D.id, name: D.name, location: D.location, durationMin: 30 },
+      { id: E.id, name: E.name, location: E.location, durationMin: 30 },
+    ],
+  });
+  const put = await page.request.put(`/api/trips/${doc.tripId}`, { data: doc });
+  expect(put.ok()).toBeTruthy();
+
+  await page.goto(`/trip/${doc.tripId}`);
+  const map = page.getByTestId("reveal-map");
+  await expect(map).toHaveAttribute("data-phase", "ready", { timeout: 30000 });
+  await expect(page.getByTestId("reveal-clouds")).toHaveCount(0, { timeout: 30000 });
+  await expect(map).toHaveAttribute("data-anim", "done", { timeout: 45000 });
+
+  await page.getByTestId("day-tab-1").click();
+  await expect(map).toHaveAttribute("data-phase", "ready", { timeout: 30000 });
+  // the new day's reveal is cloud-gated again — mounted at ready…
+  await expect(page.getByTestId("reveal-clouds")).toBeVisible();
+  // …and parted by its own "initial" run. The bug left them mounted forever.
+  await expect(page.getByTestId("reveal-clouds")).toHaveCount(0, { timeout: 30000 });
+  await expect(map).toHaveAttribute("data-anim", "done", { timeout: 45000 });
+  const order = (await map.getAttribute("data-order"))!;
+  expect(order.split("|").sort()).toEqual([D.id, E.id].sort());
+});

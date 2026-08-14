@@ -57,6 +57,32 @@ export const WEIGHT_TRAVEL = 1.0;
 export const WEIGHT_WAIT = 0.3;
 export const WEIGHT_COMPRESSION = 0.5;
 
+// ---------------------------------------------------------------------------
+// Detail-string formatting. `detail` is USER-FACING copy — E6 renders it
+// verbatim as the trade-off card headline, planEngine persists it into journal
+// margin notes ("Pace check — …"), and the prose adapters quote it — so the
+// schedule math's fractional minutes, `[a, b]` interval notation and 0-based
+// day indexes must never leak through here (live-paste finding, 2026-08-14).
+// Overruns CEIL so the headline agrees with the card's "off by N min" line,
+// which ceils `violatedByMin`. Clock times wrap past midnight like
+// hoursAdvisory's fmtHM.
+// ---------------------------------------------------------------------------
+const mins = (m: number): string => `${Math.ceil(Math.max(0, m))} min`;
+const hhmm = (min: number): string => {
+  const wrapped = ((Math.round(min) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(wrapped / 60)).padStart(2, "0")}:${String(wrapped % 60).padStart(2, "0")}`;
+};
+const dayName = (dayIndex: number): string => `day ${dayIndex + 1}`;
+const WEEKDAY_PLURAL = [
+  "Mondays",
+  "Tuesdays",
+  "Wednesdays",
+  "Thursdays",
+  "Fridays",
+  "Saturdays",
+  "Sundays",
+] as const;
+
 export type EngineViolation = {
   code: string;
   detail: string;
@@ -184,7 +210,7 @@ export function evaluate(problem: EngineProblem, schedule: EngineSchedule): Engi
     if (v && v.dayIndex !== node.pinnedDay.value) {
       push({
         code: "pin-violated",
-        detail: `"${node.name}" is pinned to day ${node.pinnedDay.value} but scheduled on day ${v.dayIndex}`,
+        detail: `"${node.name}" is pinned to ${dayName(node.pinnedDay.value)} but scheduled on ${dayName(v.dayIndex)}`,
         stopKeys: [node.key],
         dayIndex: v.dayIndex,
         byMin: 0,
@@ -208,7 +234,7 @@ export function evaluate(problem: EngineProblem, schedule: EngineSchedule): Engi
     if (actual < minMin || actual > maxMin) {
       push({
         code: "duration-range",
-        detail: `"${node.name}" scheduled for ${actual}min, outside [${minMin}, ${maxMin}]`,
+        detail: `"${node.name}" gets ${mins(actual)} — it needs ${minMin}–${maxMin} min`,
         stopKeys: [v.key],
         dayIndex: v.dayIndex,
         byMin: actual < minMin ? minMin - actual : actual - maxMin,
@@ -223,7 +249,10 @@ export function evaluate(problem: EngineProblem, schedule: EngineSchedule): Engi
       if (v.startMin < w.startMin || v.startMin > w.endMin) {
         push({
           code: node.isAnchor ? "anchor-start" : "window",
-          detail: `"${node.name}" starts at ${v.startMin}, outside [${w.startMin}, ${w.endMin}]`,
+          detail:
+            w.startMin === w.endMin
+              ? `"${node.name}" starts at ${hhmm(v.startMin)} — it's booked for ${hhmm(w.startMin)}`
+              : `"${node.name}" starts at ${hhmm(v.startMin)}, outside its ${hhmm(w.startMin)}–${hhmm(w.endMin)} window`,
           stopKeys: [v.key],
           dayIndex: v.dayIndex,
           byMin: v.startMin < w.startMin ? w.startMin - v.startMin : v.startMin - w.endMin,
@@ -262,7 +291,7 @@ export function evaluate(problem: EngineProblem, schedule: EngineSchedule): Engi
     if (first.arriveMin < dw.value.startMin) {
       push({
         code: "day-window",
-        detail: `day ${dayIndex} starts ${dw.value.startMin - first.arriveMin}min before its window opens`,
+        detail: `${dayName(dayIndex)} starts ${mins(dw.value.startMin - first.arriveMin)} before its window opens`,
         stopKeys: [first.key],
         dayIndex,
         byMin: dw.value.startMin - first.arriveMin,
@@ -276,7 +305,7 @@ export function evaluate(problem: EngineProblem, schedule: EngineSchedule): Engi
         const node = nodeByKey.get(v.key)!;
         push({
           code: "day-window",
-          detail: `"${node.name}" runs ${v.departMin - dw.value.endMin}min past the end of the day`,
+          detail: `"${node.name}" runs ${mins(v.departMin - dw.value.endMin)} past the end of the day`,
           stopKeys: [v.key],
           dayIndex,
           byMin: v.departMin - dw.value.endMin,
@@ -309,7 +338,7 @@ export function evaluate(problem: EngineProblem, schedule: EngineSchedule): Engi
       if (v.startMin < prev.departMin + need) {
         push({
           code: "travel-underrun",
-          detail: `"${node.name}" starts ${prev.departMin + need - v.startMin}min before the previous stop's travel allows`,
+          detail: `"${node.name}" starts ${mins(prev.departMin + need - v.startMin)} before the previous stop's travel allows`,
           stopKeys: [v.key],
           dayIndex,
           byMin: prev.departMin + need - v.startMin,
@@ -336,7 +365,9 @@ export function evaluate(problem: EngineProblem, schedule: EngineSchedule): Engi
               code: "hours",
               detail:
                 open.length === 0
-                  ? `"${node.name}" is closed that day`
+                  ? day.weekday === null
+                    ? `"${node.name}" is closed that day`
+                    : `"${node.name}" is closed on ${WEEKDAY_PLURAL[day.weekday]}`
                   : `"${node.name}" is scheduled outside its opening hours`,
               stopKeys: [v.key],
               dayIndex,
@@ -353,7 +384,7 @@ export function evaluate(problem: EngineProblem, schedule: EngineSchedule): Engi
         if (v.startMin >= block.value.startMin && v.startMin < block.value.endMin) {
           push({
             code: "meal-block",
-            detail: `"${node.name}" starts inside a held block [${block.value.startMin}, ${block.value.endMin})`,
+            detail: `"${node.name}" starts during a held ${hhmm(block.value.startMin)}–${hhmm(block.value.endMin)} block`,
             stopKeys: [v.key],
             dayIndex,
             byMin: block.value.endMin - v.startMin,
@@ -371,7 +402,7 @@ export function evaluate(problem: EngineProblem, schedule: EngineSchedule): Engi
     if (span > pace.value.maxActiveMin) {
       push({
         code: "pace-active",
-        detail: `day ${dayIndex} runs ${span}min, over the ${pace.value.maxActiveMin}min pace budget`,
+        detail: `${dayName(dayIndex)} runs ${mins(span)}, over the ${pace.value.maxActiveMin} min pace budget`,
         stopKeys: [],
         dayIndex,
         byMin: span - pace.value.maxActiveMin,
@@ -384,7 +415,7 @@ export function evaluate(problem: EngineProblem, schedule: EngineSchedule): Engi
     if (effort > pace.value.maxEffortPoints) {
       push({
         code: "pace-effort",
-        detail: `day ${dayIndex} is ${effort} effort points, over the ${pace.value.maxEffortPoints} budget`,
+        detail: `${dayName(dayIndex)} is ${effort} effort points, over the ${pace.value.maxEffortPoints}-point budget`,
         stopKeys: [],
         dayIndex,
         byMin: 0,
@@ -403,7 +434,7 @@ export function evaluate(problem: EngineProblem, schedule: EngineSchedule): Engi
         if (gap < need) {
           push({
             code: "pace-gap",
-            detail: `only ${gap}min between two stops, under the ${pace.value.minGapMin}min breathing room`,
+            detail: `only ${mins(gap)} between two stops, under the ${pace.value.minGapMin} min breathing room`,
             stopKeys: [v.key],
             dayIndex,
             byMin: need - gap,

@@ -156,6 +156,17 @@ export function RevealMap({
   // (road-aware) scene but must NOT restart the draw — the running animation
   // adopts the new scene on its next frame. Reset on a fresh scene build.
   const roadsRenderedSig = useRef<string | null>(null);
+  // True from the moment a scene (re)build is scheduled until its scene lands.
+  // Guards a day-switch race (Chris, live paste 2026-08-14): when `stops`/`view`
+  // change, the build effect resets the one-shot choreography refs and
+  // SCHEDULES phase="sketching" — but the choreography and geometry effects,
+  // running in the same commit on a changed `orderSig`, still see the STALE
+  // committed phase "ready". The stray run consumed the "initial" reveal while
+  // the clouds div wasn't mounted (cloudsGone still true from the old day), so
+  // the real post-build run downgraded to "resketch" and the clouds never
+  // parted. Both effects now skip while a build is in flight; the build's own
+  // phase flip re-fires them at the right time.
+  const sceneBuildingRef = useRef(false);
 
   const [phase, setPhase] = useState<Phase>("sketching");
   const [errMsg, setErrMsg] = useState("");
@@ -222,7 +233,12 @@ export function RevealMap({
 
   const playScribble = useCallback(() => {
     if (muted || !gestureRef.current) return;
-    if (!audioRef.current) audioRef.current = new Audio("/sfx/pencil-scribble.mp3");
+    if (!audioRef.current) {
+      audioRef.current = new Audio("/sfx/pencil-scribble.mp3");
+      // half the element default — the full-scale mp3 was too loud over the
+      // otherwise-silent page (Chris, 2026-08-14)
+      audioRef.current.volume = 0.5;
+    }
     audioRef.current.currentTime = 0;
     audioRef.current.play().catch(() => { /* autoplay policy — stay silent */ });
   }, [muted]);
@@ -398,6 +414,7 @@ export function RevealMap({
   // order changes — the choreography/overlay paths handle those.
   useEffect(() => {
     let alive = true;
+    sceneBuildingRef.current = true;
     (async () => {
       try {
         setPhase("sketching");
@@ -442,9 +459,11 @@ export function RevealMap({
         if (!alive) return;
         sceneRef.current = scene;
         assetsRef.current = { decoded, textures, config };
+        sceneBuildingRef.current = false;
         setPhase("ready");
       } catch (e) {
         if (!alive) return;
+        sceneBuildingRef.current = false;
         setErrMsg(e instanceof Error ? e.message : String(e));
         setPhase("error");
       }
@@ -465,7 +484,7 @@ export function RevealMap({
   // Choreography driver: full reveal once the scene lands; short re-sketch on
   // order/booked changes afterwards.
   useEffect(() => {
-    if (phase !== "ready") return;
+    if (phase !== "ready" || sceneBuildingRef.current) return;
     if (!firstChoreoDoneRef.current) {
       firstChoreoDoneRef.current = true;
       void runChoreo("initial");
@@ -480,7 +499,7 @@ export function RevealMap({
   // repaint. Any failure → sketch. Stale responses (order changed while
   // fetching) are discarded.
   useEffect(() => {
-    if (phase !== "ready") return;
+    if (phase !== "ready" || sceneBuildingRef.current) return;
     const sig = orderSig;
     if (geomRef.current?.sig === sig) return;
     let alive = true;

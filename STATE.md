@@ -2397,3 +2397,53 @@ E6 CLOSED. The roadmap's core promise — infeasibility becomes visible trade-of
 decides — is now end-to-end: engine emits conflicts+proposals -> cards render them -> accept
 re-plans -> dismiss expires honestly. NEXT: the plan's CHRIS CHECKPOINT (pause for M3
 payments, or continue E7 constraint compilation -> E8 chat).
+
+## HOTFIX (2026-08-14) — E6 CHRIS-VERIFY live-paste findings (Fable session)
+
+Chris ran the verify paste on prod (3-day SG trip engineered to land two Monday-closed stops
+on Mon Aug 17). The E6 machinery held: "Google says"-provenance cards fired for both closed
+stops, day-window/anchor conflicts produced priced Move/Skip/Trim chips, the Wednesday visit
+to a Monday-closed museum correctly drew NO card, and day 3's reveal was clean. Three real
+defects surfaced; all fixed this session.
+
+**1. Evaluator `detail` strings leaked engine internals into user copy.** Cards read
+"starts at 1283.761369967584, outside [750, 750]"; margin notes read "Pace check — day 0 runs
+717.1589872040967min, over the 600min pace budget". Root cause: evaluate.ts's `detail` was
+written as a diagnostic channel, then E6 promoted it verbatim to the card headline
+(TradeOffCard), the persisted "Pace check — " notes (planEngine), and the prose adapters'
+opener — while E5's real-matrix travel times made every minute fractional. Fixed at the
+source: evaluate.ts now formats clock times as HH:MM, spans as whole minutes (CEIL, so the
+headline agrees with the card's "off by N min" line which ceils `violatedByMin`), days as
+1-based, and weekday-closed conflicts name the day ("is closed on Mondays", matching the E3
+advisory) via EngineDay.weekday. Interval notations `[a, b]` are gone from all user-reachable
+messages. No jest/e2e test pinned the old strings (verified by grep before editing).
+
+**2. Day-tab switch left the reveal clouds parked forever (Chris's "day 2 isn't
+generating").** Mechanism: switching days changes `stops`/`view`; the scene-build effect
+resets the one-shot choreography refs and SCHEDULES phase="sketching" — but the choreography
+driver effect, keyed on `orderSig`, runs in the SAME commit and still sees the stale
+committed phase "ready". That stray run consumed the "initial" reveal while the clouds div
+wasn't mounted (`cloudsGone` still true from the old day → `cloudsRef.current` null → cloud
+animation silently skipped), so the real post-build run downgraded to "resketch", which never
+parts clouds. It also explains why day 3 self-healed: switching AWAY from stuck day 2, the
+stray initial found the clouds mounted and animated them out. Fix: `sceneBuildingRef` — true
+from build scheduling until the scene lands; the choreography AND geometry effects skip while
+set (the geometry effect was also stray-firing, fetching the new day's legs against the old
+day's assets). e2e regression added (reveal.spec.ts, real motion since reduced-motion skips
+clouds): proven to FAIL with the guard reverted and pass with it.
+
+**3. Scribble sfx too loud.** Element-default volume 1.0 → 0.5 (Chris: "halve the default").
+
+**Working as designed — reported, deliberately not changed:** the infeasible-day projection
+schedules breached stops honestly (lunch at ~21:24 amid evening neighbours, Ford Factory
+22:59 past closing) with cards carrying the fixes — that IS decision 6. Flagged for later:
+the sidebar row shows only the "anchored 12:30" booked chip for a breached anchor (reads as
+misordered without the card context); first-stop "waits 182 min" idle on an infeasible day
+(solve-quality observation); "light show is 7:45pm i heard" didn't anchor (hedged phrasing —
+E7's constraint compiler is the owner); Odette drew no closed-Monday card (Google's hours
+data for it evidently says open — data, not code).
+
+**Persistence note:** conflicts/margin notes are stored on the doc — the verify trip keeps
+the old raw strings until its next re-plan; any re-cook regenerates them in the new copy.
+
+Gates: tsc 0 · jest 436/436 (46 suites) · reveal + tradeoffs e2e 10/10.
