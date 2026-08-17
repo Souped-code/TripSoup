@@ -300,6 +300,10 @@
   flex: 1 1 12em;
 }
 
+/* Layout locked to Chris's mock (2026-08-17): issue top-centre with NO panel
+ * box (the TFT augment screen), tall pick-cards flanked by prev/next arrows,
+ * one "Decide later" button bottom-centre. Still the journal's paper — the
+ * wash is heavier than a panel needs since content sits directly on it. */
 .reveal-decision-overlay {
   position: fixed;
   inset: 0;
@@ -308,59 +312,73 @@
   place-items: center;
   padding: 20px;
   /* paper wash, not a black scrim — the journal never goes dark */
-  background: color-mix(in srgb, var(--paper) 72%, transparent);
-  backdrop-filter: blur(2px);
+  background: color-mix(in srgb, var(--paper) 88%, transparent);
+  backdrop-filter: blur(3px);
 }
-.reveal-decision-panel {
-  width: min(720px, 100%);
+.reveal-decision-stage {
+  width: min(880px, 100%);
   max-height: calc(100vh - 40px);
   overflow-y: auto;
-  background: var(--paper);
-  border: 1px solid var(--ink-soft);
-  border-radius: 5px 9px 6px 8px;
-  box-shadow: var(--shadow-paper-lift);
-  padding: 22px 26px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   text-align: center;
+  gap: 22px;
+  padding: 6px;
 }
-.reveal-decision-panel__count {
+.reveal-decision-issue {
+  max-width: 620px;
+}
+.reveal-decision-issue__count {
   font-family: var(--font-display);
   color: var(--ink-soft);
   font-size: 0.85rem;
   margin: 0 0 6px;
 }
-.reveal-decision-panel__what {
+.reveal-decision-issue__what {
   font-family: var(--font-display);
   color: var(--ink);
-  font-size: 1.35rem;
+  font-size: 1.45rem;
   line-height: 1.3;
   margin: 0 0 4px;
 }
-.reveal-decision-panel__who {
+.reveal-decision-issue__who {
   font-family: var(--font-body);
   color: var(--ink-soft);
   font-size: 0.9rem;
-  margin: 0 0 18px;
+  margin: 0;
+}
+.reveal-decision-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  width: 100%;
 }
 .reveal-decision-picks {
+  /* flex: 1 — as a shrinkable auto-basis item, Chromium sizes a WRAPPABLE
+   * flex container below its single-line max-content and the cards stack;
+   * taking the row's free space keeps them side by side (probe, 2026-08-17) */
+  flex: 1 1 auto;
   display: flex;
   justify-content: center;
   align-items: stretch;
-  gap: 14px;
+  gap: 16px;
   flex-wrap: wrap;
-  margin-bottom: 18px;
 }
+/* Tall TFT proportions, journal materials. */
 .reveal-decision-pick {
-  flex: 1 1 160px;
-  max-width: 200px;
-  min-height: 150px;
+  flex: 0 1 190px;
+  min-width: 150px;
+  min-height: 240px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   justify-content: space-between;
-  padding: 14px 12px;
+  padding: 20px 14px 14px;
   background: var(--paper-shade);
   border: 1px solid var(--ink-soft);
-  border-radius: 4px 7px 5px 8px;
+  border-radius: 8px 12px 9px 11px;
   box-shadow: var(--shadow-paper-lift);
   font-family: var(--font-body);
   color: var(--ink);
@@ -369,9 +387,9 @@
 }
 .reveal-decision-pick:hover:not(:disabled),
 .reveal-decision-pick:focus-visible {
-  transform: translateY(-4px) rotate(0deg) !important;
+  transform: translateY(-6px) rotate(0deg) !important;
   border-color: var(--action);
-  box-shadow: 0 6px 14px rgba(43, 38, 32, 0.18);
+  box-shadow: 0 8px 16px rgba(43, 38, 32, 0.18);
   outline: none;
 }
 .reveal-decision-pick:disabled {
@@ -380,29 +398,58 @@
 }
 .reveal-decision-pick__kind {
   font-family: var(--font-display);
-  font-size: 1.05rem;
+  font-size: 1.1rem;
   color: var(--action);
 }
 .reveal-decision-pick__message {
+  flex: 1;
   font-size: 0.85rem;
-  line-height: 1.35;
+  line-height: 1.4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .reveal-decision-pick__cost {
   font-size: 0.78rem;
   color: var(--ink-soft);
+  border-top: 1px dashed var(--ink-soft);
+  padding-top: 8px;
+}
+/* prev/next issue — hand-drawn round buttons, wobbly on purpose */
+.reveal-decision-arrow {
+  flex: 0 0 auto;
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--ink-soft);
+  border-radius: 52% 48% 55% 45%;
+  box-shadow: var(--shadow-paper-lift);
+  cursor: pointer;
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+.reveal-decision-arrow:hover:not(:disabled) {
+  border-color: var(--action);
+  color: var(--action);
+  transform: scale(1.06);
+}
+.reveal-decision-arrow:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .reveal-decision-none {
   font-family: var(--font-body);
   color: var(--ink-soft);
-  margin: 0 0 18px;
-}
-.reveal-decision-actions {
+  margin: 0;
+  min-height: 120px;
   display: flex;
-  justify-content: center;
-  gap: 18px;
-  flex-wrap: wrap;
+  align-items: center;
 }
-.reveal-decision-link {
+.reveal-decision-leave {
   font-family: var(--font-body);
   font-size: 0.82rem;
   color: var(--ink-soft);
@@ -412,12 +459,12 @@
   text-decoration: underline;
   cursor: pointer;
 }
-.reveal-decision-link--later {
-  color: var(--ink);
-}
-.reveal-decision-link:disabled {
+.reveal-decision-leave:disabled {
   opacity: 0.5;
   cursor: default;
+}
+.reveal-decision-later {
+  min-width: 130px;
 }
 
 /* E6c — "staying at" row in the planner's pocket ---------------------------- */

@@ -204,6 +204,11 @@ export function RevealClient({
   const handleNextDecision = useCallback(() => {
     setDecisionIndex((i) => (tradeOffCards.length === 0 ? 0 : (i + 1) % tradeOffCards.length));
   }, [tradeOffCards.length]);
+  const handlePrevDecision = useCallback(() => {
+    setDecisionIndex((i) =>
+      tradeOffCards.length === 0 ? 0 : (i - 1 + tradeOffCards.length) % tradeOffCards.length
+    );
+  }, [tradeOffCards.length]);
   const handleDecideLater = useCallback(() => {
     setDecisionsOpen(false);
     if (decisionKey !== null) {
@@ -499,6 +504,7 @@ export function RevealClient({
           busy={busy}
           onAccept={handleAcceptProposal}
           onDismiss={handleDismissConflict}
+          onPrev={handlePrevDecision}
           onNext={handleNextDecision}
           onDecideLater={handleDecideLater}
         />

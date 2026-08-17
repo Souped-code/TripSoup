@@ -2522,3 +2522,24 @@ should now be AUTO-MOVED off Monday with "Heads up — Gracie moved…" notes on
 decision modal should pop once with readable copy ("2h 28min", "day 1", weekday names),
 banner reopens it, decide-later doesn't re-pop after a re-cook; pocket shows "staying at
 Marina Bay Sands" from the paste; change/clear it and reload.
+
+## E6c.1 — MODAL LAYOUT LOCKED TO CHRIS'S MOCK (2026-08-17)
+
+Chris reviewed the deployed modal against a hand mock + a TFT augment-screen reference:
+issue floats top-centre with NO panel box, tall pick-cards centred, a LEFT arrow (previous
+issue) and RIGHT arrow (next issue) flanking the card row, single "Decide later" button
+bottom-centre. Rebuilt TradeOffModal to that layout in the journal's materials (heavier
+paper wash since content sits directly on it; wobbly hand-drawn round arrow buttons;
+taller 240px cards with a dashed cost footer; InkButton for Decide later). "leave it —
+Gracie stops asking" stays as the quiet link under the cards (the mock omits it, but the
+persisted per-conflict dismiss must stay reachable). Arrows render only when >1 issue;
+ArrowLeft/ArrowRight cycle, Escape = decide later. Testids preserved
+(tradeoff-card-*/accept-*/dismiss-*/decide-later; decision-modal-prev joins
+decision-modal-next).
+
+One real CSS bug caught by screenshot + computed-style probe during the rebuild: a
+WRAPPABLE flex container sized as a shrinkable auto-basis flex item gets less than its
+single-line max-content in Chromium, so the pick cards stacked vertically;
+`.reveal-decision-picks` now takes the row's free space (`flex: 1 1 auto`) and the cards
+sit side by side. Gates: tsc 0 · tradeoffs + homebase e2e 6/6 · screenshots verified
+against the mock.
