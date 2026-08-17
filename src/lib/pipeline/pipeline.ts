@@ -32,6 +32,7 @@
 
 import { randomBytes } from "crypto";
 import { parseItinerary } from "../parse/parseItinerary";
+import { repairDayAssignments } from "../parse/repairDayAssignments";
 import { getMapsProvider, getTripStore } from "../config";
 import { getEntitlements, type Entitlements } from "../entitlements/entitlements";
 import {
@@ -302,7 +303,10 @@ export async function* runPipeline(
     yield { stage: "parse", pct: 0, detail: "Reading your links and places…" };
     // Gate 1 of 2 lives inside parseItinerary: without `interpret.names` it
     // will not select the (billed) LLM adapter at all.
-    const parsed = await parseItinerary(text, { entitlements });
+    // Positional day repair (2026-08-17): when the paste has literal date
+    // lines, an item's day is a positional fact — override any model
+    // off-by-one at day boundaries (see repairDayAssignments.ts).
+    const parsed = repairDayAssignments(await parseItinerary(text, { entitlements }), text);
     yield {
       stage: "parse",
       pct: 15,

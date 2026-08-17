@@ -471,7 +471,7 @@ export function annotateAutoMoves(days: DayPlan[], moves: readonly AutoMove[]): 
       }
       if (i === m.toDayIndex) {
         notes.push(
-          `Heads up — ${m.stopName} moved here from day ${m.fromDayIndex + 1}: Google says it's closed on ${m.closedOn} there.`
+          `Heads up — ${m.stopName} moved here from day ${m.fromDayIndex + 1}: Google says it's closed on ${m.closedOn}.`
         );
       }
     }

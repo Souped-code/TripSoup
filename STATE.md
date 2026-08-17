@@ -2543,3 +2543,36 @@ single-line max-content in Chromium, so the pick cards stacked vertically;
 `.reveal-decision-picks` now takes the row's free space (`flex: 1 1 auto`) and the cards
 sit side by side. Gates: tsc 0 · tradeoffs + homebase e2e 6/6 · screenshots verified
 against the mock.
+
+## E6c.2 — POSITIONAL DAY REPAIR (2026-08-17, prod verify round 2)
+
+Chris ran the second holistic verify paste on prod (24–26 Aug SG trip). MOST of E6c proved
+live: both unbooked Monday-closed museums (Ford Factory, Bukit Chandu) auto-moved to
+Tuesday with paired "Gracie moved…" notes and real open-hours slots; booked Tian Tian came
+to the modal instead ("decision 1 of 3", new layout + arrows, human copy); Wednesday's
+Changi Chapel control stayed silent; day-tab reveals clean; durations formatted.
+
+**One real bug found: the live LLM attached the FIRST place under each date marker to the
+PREVIOUS day** — Chinatown (pasted under 25 aug) landed on Monday, Jewel Changi (under
+26 aug) landed on Tuesday. Systematic fencepost in the model's `days[].itemRefs` at
+temp 0; the pipeline trusted it verbatim.
+
+Fix: `src/lib/parse/repairDayAssignments.ts` + call in pipeline.ts directly after
+parseItinerary. When the paste has literal day-marker lines, an item's day is a POSITIONAL
+fact — the last marker line above it — so the pass re-derives membership from the raw text
+and overrides the model's grouping. Conservative by construction: bails untouched unless
+every day's dateHint is found as a line, strictly in order; unlocatable items keep the
+model's placement; dayless items (headers, trailing notes) are NEVER pulled into a day —
+the pass corrects placement, it never invents membership. Forward line-cursor CONSUMES
+matches (found+1) so the same place recurring on two days ("Riverside Cafe" twice — the
+dedupe/fan-back shape, caught by the existing interpretation test) maps one-per-day.
+Destination auto-move note phrasing also tidied (dropped the trailing "there").
+
+Tests: 6-case unit suite (the exact prod fencepost; already-correct → same object;
+unfindable marker → untouched; single-day → untouched; no invented membership; recurring
+place). Gates: tsc 0 · jest 447/447 (48 suites) · tradeoffs/homebase/interpretation/
+fullflow e2e 9/9.
+
+Known parse-quality items deliberately NOT code (E7 territory, unchanged): hedged times
+don't anchor; "sunset" isn't a parseable time; first-stop idle waits on infeasible days
+(projection artifact, parked F-item).
