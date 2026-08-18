@@ -38,12 +38,24 @@ export function solveWithAlns(problem: EngineProblem, opts: SolveOptions): Engin
 
   const days = problem.days.map((day, dayIndex) => {
     const { order, times } = dayViewOf(schedule.visits, dayIndex);
+    // F-item closed (2026-08-18, "waits 3h 59min" artifact): on a day with a
+    // HARD timing breach, the search's right-shifted times read as absurd
+    // idle waits — the optimizer pays hours of cheap wait to shave expensive
+    // breach minutes, which is optimal under the weights and looks insane on
+    // paper. For DISPLAY, such a day re-times its SAME order with the greedy
+    // earliest walk (times omitted): early stops compact to the morning and
+    // the lateness lands on the stop that actually breaches. The conflicts
+    // (derived from the search schedule above) still carry the true story,
+    // and the order is unchanged, so the two agree on what is broken.
+    const hardTimingBreach = conflicts.some(
+      (c) => c.dayIndex === dayIndex && (c.code === "day-window" || c.code === "anchor-start")
+    );
     return assembleDay(
       problem,
       dayIndex,
       order,
       floorDays[dayIndex] ? "optimal" : "heuristic",
-      times,
+      hardTimingBreach ? undefined : times,
       marginNotesForDay(conflicts, dayIndex)
     );
   });

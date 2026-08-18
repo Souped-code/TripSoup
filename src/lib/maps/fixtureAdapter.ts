@@ -3,7 +3,7 @@
 // the fixture formula. No network, no key, no spend.
 
 import type { ResolveResult, Stop, Failure } from "../../../resolvePlaces";
-import type { MapsProvider, MatrixStop, TravelMatrix, TravelMode } from "./types";
+import { isHomeBaseMatrixId, type MapsProvider, type MatrixStop, type TravelMatrix, type TravelMode } from "./types";
 import { FIXTURE_STOPS, fixtureDriveMinutes, type FixtureStop } from "./fixtureCity";
 
 // Mirrors resolvePlaces.ts's isUrl test exactly — same test, same intent:
@@ -99,15 +99,25 @@ export function createFixtureAdapter(): MapsProvider {
 
     async getTravelMatrix(stops: MatrixStop[], _mode: TravelMode): Promise<TravelMatrix> {
       const byId = new Map(FIXTURE_STOPS.map((s) => [s.id, s]));
+      // E6d — the reserved home-base point is not a fixture stop: synthesize a
+      // record from the PASSED location (accessMin 0 — a hotel door, not an
+      // attraction queue) so base<->stop legs price by the same metric formula.
+      const recordFor = (p: MatrixStop): FixtureStop => {
+        if (isHomeBaseMatrixId(p.id)) {
+          return { id: p.id, name: "home base", location: p.location, address: "", accessMin: 0 };
+        }
+        const f = byId.get(baseFixtureId(p.id));
+        if (!f) throw new Error(`unknown fixture stop: ${p.id}`);
+        return f;
+      };
       const matrix: TravelMatrix = {};
       for (const from of stops) {
-        const f = byId.get(baseFixtureId(from.id));
-        if (!f) throw new Error(`unknown fixture stop: ${from.id}`);
+        const f = recordFor(from);
         matrix[from.id] = {};
         for (const to of stops) {
-          const t = byId.get(baseFixtureId(to.id));
-          if (!t) throw new Error(`unknown fixture stop: ${to.id}`);
-          matrix[from.id][to.id] = fixtureDriveMinutes(f, t);
+          const t = recordFor(to);
+          matrix[from.id][to.id] =
+            from.id === to.id ? 0 : fixtureDriveMinutes(f, t);
         }
       }
       return matrix;

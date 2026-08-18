@@ -252,26 +252,46 @@ export function JournalSidebar({
         {rows.length === 0 ? (
           <p className="reveal-row__wait">No stops on this day yet.</p>
         ) : (
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <SortableContext items={orderedIds} strategy={verticalListSortingStrategy}>
-              <ol className="reveal-rows" data-testid="sidebar-rows">
-                {rows.map((stop, i) => (
-                  <SidebarRow
-                    key={stop.id}
-                    stop={stop}
-                    index={i}
-                    entry={entriesById.get(stop.id)}
-                    leg={i > 0 ? (legs?.[i - 1] ?? null) : null}
-                    timesAvailable={timesAvailable}
-                    busy={busy}
-                    dupLabel={dupLabelFor(stop, orderedIds)}
-                    onRemove={onRemoveStop}
-                    onToggleLeg={onToggleLeg}
-                  />
-                ))}
-              </ol>
-            </SortableContext>
-          </DndContext>
+          <>
+            {/* E6d — the day leaves the home base and returns to it. Display
+                rows only (no drag, no toggle in v1); times come straight off
+                the plan's depot legs. Hidden when the plan predates the base
+                or the day was manually re-timed without base rows. */}
+            {plan.status === "ok" && plan.baseLegs && timesAvailable && (
+              <div className="reveal-base-leg" data-testid="sidebar-base-lead">
+                leave <strong>{plan.baseLegs.baseName}</strong>{" "}
+                {fmtTime(plan.baseLegs.lead.departMin)} — {plan.baseLegs.lead.mode}{" "}
+                {formatDuration(plan.baseLegs.lead.effectiveMin)}
+              </div>
+            )}
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={orderedIds} strategy={verticalListSortingStrategy}>
+                <ol className="reveal-rows" data-testid="sidebar-rows">
+                  {rows.map((stop, i) => (
+                    <SidebarRow
+                      key={stop.id}
+                      stop={stop}
+                      index={i}
+                      entry={entriesById.get(stop.id)}
+                      leg={i > 0 ? (legs?.[i - 1] ?? null) : null}
+                      timesAvailable={timesAvailable}
+                      busy={busy}
+                      dupLabel={dupLabelFor(stop, orderedIds)}
+                      onRemove={onRemoveStop}
+                      onToggleLeg={onToggleLeg}
+                    />
+                  ))}
+                </ol>
+              </SortableContext>
+            </DndContext>
+            {plan.status === "ok" && plan.baseLegs && timesAvailable && (
+              <div className="reveal-base-leg" data-testid="sidebar-base-back">
+                {plan.baseLegs.back.mode} {formatDuration(plan.baseLegs.back.effectiveMin)} — back
+                at <strong>{plan.baseLegs.baseName}</strong>{" "}
+                {fmtTime(plan.baseLegs.back.arriveMin)}
+              </div>
+            )}
+          </>
         )}
 
         {plan.status === "ok" && plan.quality === "manual" && (

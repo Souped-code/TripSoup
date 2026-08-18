@@ -467,6 +467,20 @@
   min-width: 130px;
 }
 
+/* E6d — depot legs: the day leaves the base and comes back ------------------ */
+.reveal-base-leg {
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  padding: 4px 0 4px 10px;
+  border-left: 2px dashed var(--ink-soft);
+  margin: 2px 0 6px;
+}
+.reveal-base-leg strong {
+  color: var(--ink);
+  font-weight: 700;
+}
+
 /* E6c — "staying at" row in the planner's pocket ---------------------------- */
 .reveal-homebase {
   display: flex;

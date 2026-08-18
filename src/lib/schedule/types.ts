@@ -50,6 +50,15 @@ export type DayPlan =
       totalTravelMin: number;
       daySlackMin: number; // day window left after the last departure
       marginNotes?: string[]; // soft advisories (e.g. cross-day precedence wishes)
+      /** E6d — depot legs when the trip has a home base: the morning lead-out
+       * from it to the first stop and the evening return from the last.
+       * Additive/optional (absent on every pre-E6d plan and on plans whose
+       * matrix predates the base). Present on engine days AND base-aware
+       * re-times (manual orders, toggles, kept days — planEngine's
+       * rescheduleDayWithBase). Lead/back use PlanLeg with the reserved
+       * `__home-base__` id on the base side; both count in `totalTravelMin`
+       * and the return counts against `daySlackMin`. */
+      baseLegs?: { baseName: string; lead: PlanLeg; back: PlanLeg };
     }
   | {
       status: "infeasible";

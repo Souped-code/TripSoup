@@ -19,6 +19,7 @@ import type { DayPlan, PlanEntry, PlanLeg } from "@/lib/schedule/types";
 import { WashiTag, type WashiTone } from "@/ui/journal/WashiTag";
 import { AnchorGlyph } from "./JournalSidebar";
 import { fmtTime } from "@/ui/time";
+import { formatDuration } from "@/lib/util/duration";
 import "./reveal.css";
 
 const TONE_CYCLE: WashiTone[] = ["coral", "sky", "pink", "leaf"];
@@ -113,6 +114,15 @@ export function ShareTimeline({ day, plan, orderedIds }: ShareTimelineProps) {
         {rows.length === 0 ? (
           <p className="reveal-row__wait">No stops on this day yet.</p>
         ) : (
+          <>
+            {/* E6d — depot lead-out, mirrored from JournalSidebar (read-only). */}
+            {plan.status === "ok" && plan.baseLegs && timesAvailable && (
+              <div className="reveal-base-leg" data-testid="share-base-lead">
+                leave <strong>{plan.baseLegs.baseName}</strong>{" "}
+                {fmtTime(plan.baseLegs.lead.departMin)} — {plan.baseLegs.lead.mode}{" "}
+                {formatDuration(plan.baseLegs.lead.effectiveMin)}
+              </div>
+            )}
           <ol className="reveal-rows" data-testid="share-rows">
             {rows.map((stop, i) => {
               const entry = entriesById.get(stop.id);
@@ -168,13 +178,21 @@ export function ShareTimeline({ day, plan, orderedIds }: ShareTimelineProps) {
                       </span>
                     </div>
                     {timesAvailable && entry && entry.waitMin > 0 && (
-                      <div className="reveal-row__wait">waits {Math.round(entry.waitMin)} min</div>
+                      <div className="reveal-row__wait">waits {formatDuration(entry.waitMin)}</div>
                     )}
                   </div>
                 </li>
               );
             })}
           </ol>
+            {plan.status === "ok" && plan.baseLegs && timesAvailable && (
+              <div className="reveal-base-leg" data-testid="share-base-back">
+                {plan.baseLegs.back.mode} {formatDuration(plan.baseLegs.back.effectiveMin)} — back
+                at <strong>{plan.baseLegs.baseName}</strong>{" "}
+                {fmtTime(plan.baseLegs.back.arriveMin)}
+              </div>
+            )}
+          </>
         )}
 
         {plan.status === "ok" && plan.quality === "manual" && (

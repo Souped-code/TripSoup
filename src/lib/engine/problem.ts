@@ -38,7 +38,7 @@ import {
 } from "../constraints/types";
 import { stopKeys } from "../constraints/compile";
 import { googleWeekdayToIso, intersectHoursWithWeekday } from "../maps/openingHours";
-import { DEFAULT_SETTINGS, type LatLng, type Settings } from "../maps/types";
+import { DEFAULT_SETTINGS, homeBaseMatrixId, type LatLng, type Settings } from "../maps/types";
 import { isWalkEligible, walkMinutes } from "../maps/walkEstimator";
 import { effectiveMinutes } from "../solver/effectiveMatrix";
 import type { EffectiveLeg, EffectiveMatrix } from "../solver/types";
@@ -46,6 +46,7 @@ import type { TripDoc, TripStop } from "../store/types";
 import type {
   ConstraintRef,
   DayConcreteHours,
+  EngineBase,
   EngineDay,
   EngineNode,
   EngineProblem,
@@ -280,6 +281,9 @@ export function buildProblem(
     days,
     relations,
     travel: buildTravel(nodes, D, matrices, settings),
+    ...(doc.homeBase
+      ? { base: buildBase(doc.homeBase, nodes, D, matrices, settings) }
+      : {}),
     pacePreset: enforce(set.trip.pacePreset, "trip.pacePreset"),
     settings,
   };
@@ -420,4 +424,54 @@ function estimateMinutes(a: LatLng, b: LatLng, settings: Settings): Minutes {
   const walk = walkMinutes(a, b, settings);
   if (isWalkEligible(walk, settings)) return walk;
   return walk / ESTIMATE_DRIVE_SPEEDUP + settings.driveOverheadMin;
+}
+
+/** E6d — depot travel rows, same read pattern as buildTravel: the day's
+ * effective matrix wins (matrixForDay includes the base under HOME_BASE_KEY
+ * when the doc has one), a straight-line estimate stands in for pairs it
+ * lacks (a cross-day moveDay costing, never an emitted plan — the null in the
+ * legs array is the marker, exactly as in EngineTravel.legsByDay). */
+function buildBase(
+  homeBase: NonNullable<TripDoc["homeBase"]>,
+  nodes: readonly EngineNode[],
+  D: number,
+  matrices: readonly EffectiveMatrix[],
+  settings: Settings
+): EngineBase {
+  const n = nodes.length;
+  const outByDay: Float64Array[] = [];
+  const backByDay: Float64Array[] = [];
+  const outLegsByDay: (EffectiveLeg | null)[][] = [];
+  const backLegsByDay: (EffectiveLeg | null)[][] = [];
+
+  const baseId = homeBaseMatrixId(homeBase.id);
+  for (let d = 0; d < D; d++) {
+    const matrix = matrices[d] ?? {};
+    const out = new Float64Array(n);
+    const back = new Float64Array(n);
+    const outLegs: (EffectiveLeg | null)[] = new Array(n).fill(null);
+    const backLegs: (EffectiveLeg | null)[] = new Array(n).fill(null);
+    for (let i = 0; i < n; i++) {
+      const outLeg = matrix[baseId]?.[nodes[i].stopId];
+      if (outLeg) {
+        outLegs[i] = outLeg;
+        out[i] = effectiveMinutes(outLeg, settings);
+      } else {
+        out[i] = estimateMinutes(homeBase.location, nodes[i].location, settings);
+      }
+      const backLeg = matrix[nodes[i].stopId]?.[baseId];
+      if (backLeg) {
+        backLegs[i] = backLeg;
+        back[i] = effectiveMinutes(backLeg, settings);
+      } else {
+        back[i] = estimateMinutes(nodes[i].location, homeBase.location, settings);
+      }
+    }
+    outByDay.push(out);
+    backByDay.push(back);
+    outLegsByDay.push(outLegs);
+    backLegsByDay.push(backLegs);
+  }
+
+  return { name: homeBase.name, location: homeBase.location, outByDay, backByDay, outLegsByDay, backLegsByDay };
 }

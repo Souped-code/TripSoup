@@ -26,7 +26,7 @@
 // `doc.days` throughout — no dayIndex remapping anywhere in this file.
 
 import { getMapsProvider } from "./config";
-import { DEFAULT_SETTINGS, type Settings } from "./maps/types";
+import { DEFAULT_SETTINGS, HOME_BASE_KEY, homeBaseMatrixId, type Settings } from "./maps/types";
 import { intersectHoursWithWeekday } from "./maps/openingHours";
 import { compileFromDoc, stopKeys } from "./constraints/compile";
 import {
@@ -47,7 +47,7 @@ import { hoursNoteFor } from "./plan/hoursAdvisory";
 import { formatDuration } from "./util/duration";
 import { dayProjection, solveProjection } from "./plan/solveProjection";
 import { applyDocPatch, validManualOrder } from "./planShared";
-import { buildEffectiveMatrix } from "./solver/effectiveMatrix";
+import { buildEffectiveMatrix, effectiveMinutes } from "./solver/effectiveMatrix";
 import { applyLegModes, rescheduleDay } from "./schedule/schedule";
 import { stableHash } from "./util/stableHash";
 import type { EffectiveMatrix } from "./solver/types";
@@ -194,15 +194,21 @@ function firstMissingPair(stops: readonly TripStop[], matrix: EffectiveMatrix): 
 
 export type DayMatrixResult = { matrix: EffectiveMatrix; rejectedMessage: string | null };
 
-export async function matrixForDay(tripDay: TripDay, settings: Settings): Promise<DayMatrixResult> {
+export async function matrixForDay(
+  tripDay: TripDay,
+  settings: Settings,
+  /** E6d — the trip's home base. When present, the day's matrix also carries
+   * base<->stop legs under the reserved HOME_BASE_KEY (same metered call,
+   * same cache — base pairs dedupe across days like any other pair). */
+  homeBase?: TripDoc["homeBase"]
+): Promise<DayMatrixResult> {
   if (tripDay.stops.length === 0) return { matrix: {}, rejectedMessage: null };
   const provider = getMapsProvider();
   try {
-    const driveMatrix = await provider.getTravelMatrix(
-      tripDay.stops.map((s) => ({ id: s.id, location: s.location })),
-      "driving"
-    );
-    const locations = Object.fromEntries(tripDay.stops.map((s) => [s.id, s.location]));
+    const points = tripDay.stops.map((s) => ({ id: s.id, location: s.location }));
+    if (homeBase) points.push({ id: homeBaseMatrixId(homeBase.id), location: homeBase.location });
+    const driveMatrix = await provider.getTravelMatrix(points, "driving");
+    const locations = Object.fromEntries(points.map((p) => [p.id, p.location]));
     const matrix = buildEffectiveMatrix(driveMatrix, locations, settings);
     const missing = firstMissingPair(tripDay.stops, matrix);
     if (missing) {
@@ -218,6 +224,89 @@ export async function matrixForDay(tripDay: TripDay, settings: Settings): Promis
       rejectedMessage: "This day's plan couldn't be cooked — " + (e instanceof Error ? e.message : String(e)),
     };
   }
+}
+
+// ---------------------------------------------------------------------------
+// E6d — base-aware fixed-order re-time. Every non-engine timing path (manual
+// orders, leg-toggle re-times, kept days on incremental saves) walks through
+// `rescheduleDay`, which knows nothing of the home base — so without this
+// wrapper, one toggle would silently strip depot timing from every kept day.
+// The trick: shift the day's OPEN by the lead-out travel (so the first
+// arrival lands where the engine's own walk would put it), then re-attach the
+// depot legs and totals. The day END is deliberately NOT shrunk here (v1):
+// the engine flags a late return as a conflict-with-a-plan, and this legacy
+// path has no conflict channel — degrading a stored day to `infeasible` over
+// the return leg on a mere toggle would be worse than an unflagged overrun.
+// A day WITHOUT a base (or with no stops) goes through rescheduleDay
+// untouched, byte-identically.
+// ---------------------------------------------------------------------------
+
+export function rescheduleDayWithBase(
+  doc: TripDoc,
+  day: Day,
+  order: string[],
+  matrix: EffectiveMatrix,
+  settings: Settings,
+  quality: "optimal" | "heuristic" | "manual"
+): DayPlan {
+  const hb = doc.homeBase;
+  if (!hb || order.length === 0) return rescheduleDay(day, order, matrix, settings, quality);
+  const baseId = homeBaseMatrixId(hb.id);
+  const firstId = order[0];
+  const lastId = order[order.length - 1];
+  const leadLeg = matrix[baseId]?.[firstId] ?? null;
+  const backLeg = matrix[lastId]?.[baseId] ?? null;
+  // A matrix cooked before the base existed (stale cache path) simply lacks
+  // the rows — behave exactly as before rather than inventing estimates in a
+  // display path.
+  if (!leadLeg && !backLeg) return rescheduleDay(day, order, matrix, settings, quality);
+  const leadMin = leadLeg ? effectiveMinutes(leadLeg, settings) : 0;
+  const backMin = backLeg ? effectiveMinutes(backLeg, settings) : 0;
+
+  const shifted: Day = { ...day, dayStartMin: day.dayStartMin + leadMin };
+  const shiftedPlan = rescheduleDay(shifted, order, matrix, settings, quality);
+  // Audit finding 2: the shift can turn an engine-planned "ok + conflict" day
+  // (anchor booked inside the lead window) into a persistent `infeasible` on a
+  // mere toggle/kept-day retime — the engine path never dead-ends, so this
+  // path must not either. Mirror the deliberate END-side leniency: fall back
+  // to the UNSHIFTED walk (pre-depot times, base legs still shown) and let the
+  // next real solve surface the conflict properly.
+  const plan =
+    shiftedPlan.status === "ok" ? shiftedPlan : rescheduleDay(day, order, matrix, settings, quality);
+  if (plan.status !== "ok") return plan;
+
+  const first = plan.entries[0];
+  const last = plan.entries[plan.entries.length - 1];
+  return {
+    ...plan,
+    totalTravelMin: plan.totalTravelMin + leadMin + backMin,
+    daySlackMin: plan.daySlackMin - backMin,
+    baseLegs: {
+      baseName: hb.name,
+      lead: {
+        fromId: HOME_BASE_KEY,
+        toId: first.stopId,
+        mode: leadLeg?.mode ?? "drive",
+        walkMin: leadLeg?.walkMin ?? null,
+        driveMin: leadLeg?.driveMin ?? leadMin,
+        effectiveMin: leadMin,
+        chosenBy: leadLeg?.chosenBy ?? "auto",
+        departMin: first.arriveMin - leadMin,
+        arriveMin: first.arriveMin,
+      },
+      back: {
+        fromId: last.stopId,
+        toId: HOME_BASE_KEY,
+        mode: backLeg?.mode ?? "drive",
+        walkMin: backLeg?.walkMin ?? null,
+        driveMin: backLeg?.driveMin ?? backMin,
+        effectiveMin: backMin,
+        chosenBy: backLeg?.chosenBy ?? "auto",
+        departMin: last.departMin,
+        arriveMin: last.departMin + backMin,
+      },
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -244,7 +333,7 @@ export function applyOverridesToPlan(
   if (applicable.length === 0) return plan;
 
   const toggled = applyLegModes(matrix, applicable);
-  const retimed = rescheduleDay(day, plan.order, toggled, settings, plan.quality);
+  const retimed = rescheduleDayWithBase(doc, day, plan.order, toggled, settings, plan.quality);
   if (retimed.status === "ok" && plan.marginNotes) {
     return { ...retimed, marginNotes: plan.marginNotes };
   }
@@ -503,7 +592,7 @@ export async function prepareDayMatrices(doc: TripDoc): Promise<PreparedDayMatri
   const rejectedMessages = new Map<number, string>();
   const matrices: EffectiveMatrix[] = [];
   for (let i = 0; i < doc.days.length; i++) {
-    const { matrix, rejectedMessage } = await matrixForDay(doc.days[i], settings);
+    const { matrix, rejectedMessage } = await matrixForDay(doc.days[i], settings, doc.homeBase);
     matrices.push(matrix);
     if (rejectedMessage) rejectedMessages.set(i, rejectedMessage);
   }
@@ -594,7 +683,7 @@ export async function solveWithPreparedMatrices(
       const manualOrder = manualOrders.get(i);
       const day = toLegacyDay(tripDay);
       if (manualOrder) {
-        const plan = rescheduleDay(day, manualOrder, matrices[i], settings, "manual");
+        const plan = rescheduleDayWithBase(doc, day, manualOrder, matrices[i], settings, "manual");
         if (plan.status !== "ok") return plan; // e.g. a manual order that breaks an anchor
         const withOverrides = applyOverridesToPlan(doc, i, day, plan, matrices[i], settings);
         return applyHoursAdvisoryToDay(doc, i, withOverrides);
@@ -681,7 +770,7 @@ export async function solveDayWithEngine(
 ): Promise<DaySolveResult> {
   const settings = settingsOf(doc);
   const tripDay = doc.days[dayIndex];
-  const { matrix, rejectedMessage } = await matrixForDay(tripDay, settings);
+  const { matrix, rejectedMessage } = await matrixForDay(tripDay, settings, doc.homeBase);
   if (rejectedMessage) {
     return { day: { status: "rejected", message: rejectedMessage }, conflicts: [], proposals: [], softViolations: [] };
   }
@@ -692,7 +781,7 @@ export async function solveDayWithEngine(
     tripDay.stops.map((s) => s.id)
   );
   if (manualOrder) {
-    const plan = rescheduleDay(day, manualOrder, matrix, settings, "manual");
+    const plan = rescheduleDayWithBase(doc, day, manualOrder, matrix, settings, "manual");
     if (plan.status !== "ok") return { day: plan, conflicts: [], proposals: [], softViolations: [] };
     const withOverrides = applyOverridesToPlan(doc, dayIndex, day, plan, matrix, settings);
     return {

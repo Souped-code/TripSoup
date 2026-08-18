@@ -71,6 +71,7 @@ export function legacyWalk(
   const byKey = new Map(problem.nodes.map((n) => [n.key, n]));
   const { travel } = problem;
   const row = travel.minutesByDay[dayIndex];
+  const base = problem.base;
 
   const out: EngineVisit[] = [];
   let clock = day.window.value.startMin;
@@ -79,7 +80,11 @@ export function legacyWalk(
     const node = byKey.get(key);
     if (!node) continue;
     const arriveMin =
-      prevKey === null ? clock : clock + row[travel.index[prevKey] * travel.n + travel.index[key]];
+      prevKey === null
+        ? // E6d — the walk leaves the base at day-open; the floor's own cost
+          // function priced this same leg, so the times must include it too.
+          clock + (base === undefined ? 0 : base.outByDay[dayIndex][travel.index[key]])
+        : clock + row[travel.index[prevKey] * travel.n + travel.index[key]];
     const startMin = node.isAnchor
       ? Math.max(node.window!.value.startMin, arriveMin)
       : arriveMin;

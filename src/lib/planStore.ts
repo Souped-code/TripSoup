@@ -42,6 +42,7 @@ import {
   crossDayPrecedenceNotes,
   matrixForDay,
   planTripWithEngine,
+  rescheduleDayWithBase,
   seedFor,
   settingsOf,
   solveDayWithEngine,
@@ -123,11 +124,11 @@ async function retimeStoredDay(
 ): Promise<DayPlan> {
   if (storedPlan.status !== "ok") return storedPlan;
   const tripDay = doc.days[i];
-  const { matrix, rejectedMessage } = await matrixForDay(tripDay, settings);
+  const { matrix, rejectedMessage } = await matrixForDay(tripDay, settings, doc.homeBase);
   if (rejectedMessage) return { status: "rejected" as const, message: rejectedMessage };
 
   const day = toLegacyDay(tripDay);
-  const base = rescheduleDay(day, storedPlan.order, matrix, settings, storedPlan.quality);
+  const base = rescheduleDayWithBase(doc, day, storedPlan.order, matrix, settings, storedPlan.quality);
   if (base.status !== "ok") return base;
   const carried = (storedPlan.marginNotes ?? []).filter(
     (n) => !REDERIVED_NOTE_PREFIXES.some((p) => n.startsWith(p))

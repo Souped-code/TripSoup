@@ -123,6 +123,7 @@ export function evaluate(problem: EngineProblem, schedule: EngineSchedule): Engi
     if (a === undefined || b === undefined || !row) return 0;
     return row[a * travel.n + b];
   };
+  const travelIndexOf = (key: string): number | undefined => travel.index[key];
 
   // ---------------------------------------------------------------------
   // Completeness. Every node in exactly one of visits/dropped, no unknowns.
@@ -400,6 +401,55 @@ export function evaluate(problem: EngineProblem, schedule: EngineSchedule): Engi
       }
     }
 
+    // E6d — depot bounds. With a home base the day physically begins and ends
+    // there: the first stop cannot start before day-open plus the lead-out
+    // travel, and the return from the last stop must land inside the day
+    // window. Both cite the day window (that is the constraint being squeezed).
+    if (problem.base) {
+      const bFirst = visits[0];
+      const bLast = visits[visits.length - 1];
+      const fi = travelIndexOf(bFirst.key);
+      const li = travelIndexOf(bLast.key);
+      // Audit finding 6: when the schedule also starts before day-open, the
+      // plain first-arrival check above already fired with the SAME
+      // code|day|path|stopKeys — two conflicts would share one id (dismissal
+      // keying assumes uniqueness). Oracle-only overlap; skip the depot form.
+      if (fi !== undefined && bFirst.arriveMin >= dw.value.startMin) {
+        const lead = problem.base.outByDay[dayIndex][fi];
+        const early = dw.value.startMin + lead - bFirst.startMin;
+        if (early > 0) {
+          push({
+            code: "day-window",
+            detail: `${dayName(dayIndex)} starts ${mins(early)} before travel from ${problem.base.name} allows`,
+            stopKeys: [bFirst.key],
+            dayIndex,
+            byMin: early,
+            hard: dw.hard,
+            weight: dw.weight,
+            ref: dw.ref,
+          });
+        }
+      }
+      // Mirror of the guard above (audit verification residual): when the
+      // last visit ITSELF overruns day end, the per-visit "runs past the end"
+      // check already fired with the same id — skip the depot form.
+      if (li !== undefined && bLast.departMin <= dw.value.endMin) {
+        const over = bLast.departMin + problem.base.backByDay[dayIndex][li] - dw.value.endMin;
+        if (over > 0) {
+          push({
+            code: "day-window",
+            detail: `returning to ${problem.base.name} runs ${mins(over)} past the end of ${dayName(dayIndex)}`,
+            stopKeys: [bLast.key],
+            dayIndex,
+            byMin: over,
+            hard: dw.hard,
+            weight: dw.weight,
+            ref: dw.ref,
+          });
+        }
+      }
+    }
+
     // Pace.
     const pace = day.pace;
     const span = visits[visits.length - 1].departMin - visits[0].arriveMin;
@@ -505,6 +555,15 @@ export function evaluate(problem: EngineProblem, schedule: EngineSchedule): Engi
       travelMin += t;
       // STRUCTURAL wait — see semantic 1 at the top of this file.
       waitMin += Math.max(0, v.startMin - prev.departMin - t);
+    }
+    // E6d — depot legs are real travel: lead-out to the first stop, return
+    // from the last. No wait term for either (you leave the base when you
+    // need to; the day simply ends when you're back).
+    if (problem.base && visits.length > 0) {
+      const fi = travelIndexOf(visits[0].key);
+      const li = travelIndexOf(visits[visits.length - 1].key);
+      if (fi !== undefined) travelMin += problem.base.outByDay[dayIndex][fi];
+      if (li !== undefined) travelMin += problem.base.backByDay[dayIndex][li];
     }
   });
 

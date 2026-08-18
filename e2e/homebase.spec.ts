@@ -18,6 +18,10 @@ test("home base: paste-detected, editable in the pocket, persisted, clearable", 
   await page.getByTestId("sidebar-pocket").locator("summary").click();
   await expect(page.getByTestId("sidebar-homebase-name")).toContainText("Market Hall");
 
+  // E6d — the day now leaves the base and returns to it, visibly.
+  await expect(page.getByTestId("sidebar-base-lead")).toContainText("Market Hall");
+  await expect(page.getByTestId("sidebar-base-back")).toContainText("Market Hall");
+
   // Override it: resolves through the fixture city and persists via PUT.
   await page.getByTestId("sidebar-homebase-change").click();
   await page.getByTestId("sidebar-homebase-input").fill("Riverside Cafe");
@@ -35,9 +39,17 @@ test("home base: paste-detected, editable in the pocket, persisted, clearable", 
   const saved = await (await page.request.get(`/api/trips/${tripId}`)).json();
   expect(saved.homeBase).toMatchObject({ id: "fx-04", source: "user" });
 
-  // Clear it — back to the empty input, and the doc drops the field.
+  // E6d — changing the base stales every day (it's in the solve projection),
+  // so the re-plan re-cooked with the NEW base's legs.
+  await expect(page.getByTestId("sidebar-base-lead")).toContainText("Riverside Cafe", {
+    timeout: 15000,
+  });
+
+  // Clear it — back to the empty input, the doc drops the field, and the
+  // depot rows leave the timeline with it.
   await page.getByTestId("sidebar-homebase-clear").click();
   await expect(page.getByTestId("sidebar-homebase-input")).toBeVisible({ timeout: 15000 });
   const cleared = await (await page.request.get(`/api/trips/${tripId}`)).json();
   expect(cleared.homeBase).toBeUndefined();
+  await expect(page.getByTestId("sidebar-base-lead")).toHaveCount(0, { timeout: 15000 });
 });

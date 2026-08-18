@@ -51,16 +51,17 @@ export type SolveProjectionDay = {
 
 export type SolveProjection = {
   days: SolveProjectionDay[];
-  settings: { walkMax: number; driveOverheadMin: number };
+  settings: {
+    walkMax: number;
+    driveOverheadMin: number;
+    // E6d — the depot block landed: the engine now reads homeBase (base
+    // travel in every day's first/last legs), so it joins the projection in
+    // the same commit — like walkMax, changing it stales EVERY day's hash
+    // (dayProjection embeds this same settings object). Identity fields only;
+    // the display name is not solve-relevant.
+    homeBase?: { id: string; location: { lat: number; lng: number } };
+  };
 };
-
-// E6c note — TripDoc.homeBase is DELIBERATELY absent from this projection:
-// the engine does not read it yet, and hashing what the solve doesn't read
-// would make "set home base" stale (and re-seed, and reshuffle) every day for
-// zero semantic reason. When the depot block lands (base travel in each day's
-// first/last legs — STATE.md E6c entry), homeBase joins the settings slice in
-// the SAME commit the engine starts reading it, so staleness and effect
-// arrive together.
 
 function projectDay(day: TripDay): SolveProjectionDay {
   return {
@@ -80,7 +81,13 @@ function projectDay(day: TripDay): SolveProjectionDay {
 }
 
 function projectSettings(doc: TripDoc): SolveProjection["settings"] {
-  return { walkMax: doc.settings.walkMax, driveOverheadMin: doc.settings.driveOverheadMin };
+  return {
+    walkMax: doc.settings.walkMax,
+    driveOverheadMin: doc.settings.driveOverheadMin,
+    ...(doc.homeBase
+      ? { homeBase: { id: doc.homeBase.id, location: doc.homeBase.location } }
+      : {}),
+  };
 }
 
 // canonicalJson (stableHash's backbone) rejects `undefined` outright, so

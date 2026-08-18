@@ -15,6 +15,7 @@
 // conflict; a day that overruns its window comes back with a negative
 // `daySlackMin` and a conflict. Never a silent cut, never a dead end.
 
+import { HOME_BASE_KEY } from "../maps/types";
 import type { DayPlan, PlanEntry, PlanLeg } from "../schedule/types";
 import type { EngineNode, EngineProblem, EngineVisit } from "./types";
 
@@ -66,11 +67,19 @@ export function assembleDay(
   let totalTravelMin = 0;
   let prevKey: string | null = null;
 
+  // E6d — depot lead-out: the first stop's structural arrival includes the
+  // travel from the base. On the SEARCH path (times present) the first
+  // arrival is then snapped to the start below — you leave the base when you
+  // need to, so a late first start is a late departure, never a wait.
+  const base = problem.base;
+  const firstIdx = base ? travel.index[order[0]] : undefined;
+  const leadMin = base && firstIdx !== undefined ? base.outByDay[dayIndex][firstIdx] : 0;
+
   for (const key of order) {
     const node = byKey.get(key);
     if (!node) throw new Error(`assembleDay: unknown node key ${key}`);
 
-    let arriveMin = clock;
+    let arriveMin = clock + (prevKey === null ? leadMin : 0);
     if (prevKey !== null) {
       const a = travel.index[prevKey];
       const b = travel.index[key];
@@ -97,6 +106,11 @@ export function assembleDay(
     }
 
     const { startMin, departMin } = resolveTimes(node, arriveMin, times);
+    if (prevKey === null && base && times) {
+      // E6d — leave-late semantics on the search path: the base departure
+      // slides to meet the first start, so the gap is never shown as a wait.
+      arriveMin = startMin;
+    }
     entries.push({
       stopId: node.stopId,
       kind: node.isAnchor ? "anchor" : "flexible",
@@ -109,6 +123,45 @@ export function assembleDay(
     prevKey = key;
   }
 
+  // E6d — the depot legs themselves, for display and for the totals: both
+  // count as travel, and the return eats into the day's slack.
+  let baseLegs: { baseName: string; lead: PlanLeg; back: PlanLeg } | undefined;
+  let backMin = 0;
+  if (base && entries.length > 0) {
+    const lastIdx = travel.index[order[order.length - 1]];
+    backMin = lastIdx !== undefined ? base.backByDay[dayIndex][lastIdx] : 0;
+    const first = entries[0];
+    const last = entries[entries.length - 1];
+    const leadLeg = firstIdx !== undefined ? base.outLegsByDay[dayIndex][firstIdx] : null;
+    const backLeg = lastIdx !== undefined ? base.backLegsByDay[dayIndex][lastIdx] : null;
+    baseLegs = {
+      baseName: base.name,
+      lead: {
+        fromId: HOME_BASE_KEY,
+        toId: first.stopId,
+        mode: leadLeg?.mode ?? "drive",
+        walkMin: leadLeg?.walkMin ?? null,
+        driveMin: leadLeg?.driveMin ?? leadMin,
+        effectiveMin: leadMin,
+        chosenBy: leadLeg?.chosenBy ?? "auto",
+        departMin: first.arriveMin - leadMin,
+        arriveMin: first.arriveMin,
+      },
+      back: {
+        fromId: last.stopId,
+        toId: HOME_BASE_KEY,
+        mode: backLeg?.mode ?? "drive",
+        walkMin: backLeg?.walkMin ?? null,
+        driveMin: backLeg?.driveMin ?? backMin,
+        effectiveMin: backMin,
+        chosenBy: backLeg?.chosenBy ?? "auto",
+        departMin: last.departMin,
+        arriveMin: last.departMin + backMin,
+      },
+    };
+    totalTravelMin += leadMin + backMin;
+  }
+
   return {
     status: "ok",
     order: order.map((k) => byKey.get(k)!.stopId),
@@ -116,7 +169,8 @@ export function assembleDay(
     legs,
     quality,
     totalTravelMin,
-    daySlackMin: day.window.value.endMin - clock,
+    daySlackMin: day.window.value.endMin - clock - backMin,
+    ...(baseLegs ? { baseLegs } : {}),
     ...(marginNotes && marginNotes.length > 0 ? { marginNotes: [...marginNotes] } : {}),
   };
 }

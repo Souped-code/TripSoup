@@ -114,7 +114,20 @@ export function solveOldClassDay(problem: EngineProblem, d: number): FloorResult
   const { travel } = problem;
   const row = travel.minutesByDay[d];
   const idx = travel.index;
-  const t = (a: string, b: string): number => row[idx[a] * travel.n + idx[b]];
+  // E6d — the home base rides the run mechanism's EXISTING endpoint slots
+  // (exactly how anchors already bound a run): a sentinel key resolves to the
+  // depot rows, the first run starts from it and the last run must return to
+  // it before the day ends. Without a base, the sentinel never appears and
+  // this function is byte-identical to its pre-depot self.
+  const base = problem.base;
+  const BASE_KEY = " __base__"; // leading space: no place id (or id@dN key) starts with one
+  const t = (a: string, b: string): number => {
+    if (base) {
+      if (a === BASE_KEY) return base.outByDay[d][idx[b]];
+      if (b === BASE_KEY) return base.backByDay[d][idx[a]];
+    }
+    return row[idx[a] * travel.n + idx[b]];
+  };
 
   if (dayNodes.length === 0) return { order: [], brokenPrecedence: [], boundaryMissed: false };
 
@@ -162,9 +175,9 @@ export function solveOldClassDay(problem: EngineProblem, d: number): FloorResult
     const best = bestRunOrder(
       runs[i],
       startAtMin,
-      prevAnchor ? prevAnchor.key : null,
+      prevAnchor ? prevAnchor.key : base ? BASE_KEY : null,
       endByMin,
-      nextAnchor ? nextAnchor.key : null,
+      nextAnchor ? nextAnchor.key : base ? BASE_KEY : null,
       withinRun.get(i) ?? [],
       t
     );

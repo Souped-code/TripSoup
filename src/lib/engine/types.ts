@@ -193,6 +193,25 @@ export type EngineTravel = {
   readonly legsByDay: readonly (readonly (EffectiveLeg | null)[])[];
 };
 
+/** E6d — the trip's home base (TripDoc.homeBase) as depot travel: every day
+ * starts with a lead-out from the base to its first stop and ends with the
+ * return from its last, both priced in the objective and both bounded by the
+ * day window. NOT a node: the base is never visited, dropped, ordered or
+ * pinned — it exists purely as per-day travel rows, index-aligned with
+ * `travel.index`. `null` legs mean the minutes are straight-line estimates
+ * (same contract as EngineTravel.legsByDay — only reachable while costing a
+ * cross-day moveDay proposal, never in an emitted plan). */
+export type EngineBase = {
+  readonly name: string;
+  readonly location: LatLng;
+  /** minutes base -> node, one Float64Array(n) per day. */
+  readonly outByDay: readonly Float64Array[];
+  /** minutes node -> base, one Float64Array(n) per day. */
+  readonly backByDay: readonly Float64Array[];
+  readonly outLegsByDay: readonly (readonly (EffectiveLeg | null)[])[];
+  readonly backLegsByDay: readonly (readonly (EffectiveLeg | null)[])[];
+};
+
 // ---------------------------------------------------------------------------
 // The problem
 // ---------------------------------------------------------------------------
@@ -204,6 +223,9 @@ export type EngineProblem = {
   readonly days: readonly EngineDay[];
   readonly relations: readonly EngineRelation[];
   readonly travel: EngineTravel;
+  /** E6d — present iff the doc has a homeBase. Absent = byte-identical
+   * pre-depot behaviour everywhere (the harnesses pin this). */
+  readonly base?: EngineBase;
   readonly pacePreset: Enforced<PacePreset>;
   /** The travel-model params (walkMax, driveOverheadMin, maxExhaustive…). The
    * engine reads only `maxExhaustive` (the floor's width) from these; the

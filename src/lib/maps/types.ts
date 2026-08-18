@@ -12,6 +12,26 @@ export type TravelMode = "driving";
 
 export type MatrixStop = { id: string; location: LatLng };
 
+/** E6d — reserved matrix-id PREFIX for the trip's home base (TripDoc.homeBase).
+ * A real Google place_id can never collide with it, and using a reserved key
+ * (rather than the base's own place id alone) keeps "staying AT a visited
+ * place" unambiguous in every matrix lookup. */
+export const HOME_BASE_KEY = "__home-base__";
+
+/** The base's MATRIX identity: prefix + the base's own place id. The audit's
+ * blocking finding: matrixSource caches pairs by `${fromId}|${toId}|${mode}`
+ * in a PERSISTENT, deployment-shared cache — a bare reserved id would serve
+ * the OLD base's minutes forever after a base change, and cross-contaminate
+ * trips whose bases differ. The place id in the key makes cache identity
+ * follow base identity. */
+export function homeBaseMatrixId(homeBaseId: string): string {
+  return `${HOME_BASE_KEY}:${homeBaseId}`;
+}
+
+export function isHomeBaseMatrixId(id: string): boolean {
+  return id.startsWith(HOME_BASE_KEY);
+}
+
 // Minutes from -> to. Diagonal entries are 0.
 export type TravelMatrix = Record<string, Record<string, number>>;
 

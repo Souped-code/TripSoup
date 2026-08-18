@@ -213,6 +213,27 @@ export function searchAlns(problem: EngineProblem, opts: SearchOptions): EngineS
   }
   const MEAN_TRAVEL = travelPairs > 0 ? travelSum / travelPairs : 0;
 
+  // E6d — depot rows, projected to the local index exactly like TRAVEL.
+  // null = no home base = byte-identical pre-depot behaviour on every path.
+  let BOUT: Float64Array[] | null = null;
+  let BBACK: Float64Array[] | null = null;
+  if (problem.base) {
+    BOUT = new Array(D);
+    BBACK = new Array(D);
+    for (let d = 0; d < D; d++) {
+      const go = problem.base.outByDay[d];
+      const gb = problem.base.backByDay[d];
+      const lo = new Float64Array(N);
+      const lb = new Float64Array(N);
+      for (let i = 0; i < N; i++) {
+        lo[i] = go[g[i]];
+        lb[i] = gb[g[i]];
+      }
+      BOUT[d] = lo;
+      BBACK[d] = lb;
+    }
+  }
+
   // Geographic distance, for Shaw relatedness only (production change 2).
   const DIST = new Float64Array(N * N);
   let MAX_DIST = 1;
@@ -463,7 +484,12 @@ export function searchAlns(problem: EngineProblem, opts: SearchOptions): EngineS
       let tIn = 0;
       let earliest: number;
       if (prev < 0) {
-        earliest = DAY_START[d];
+        // E6d — the day starts at the base: the first stop is reachable no
+        // earlier than day-open + lead-out. tIn carries the leg into the
+        // travel total; the first stop still accrues NO wait (Phase 4 treats
+        // arrive := start — you leave the base when you need to).
+        tIn = BOUT === null ? 0 : BOUT[d][s];
+        earliest = DAY_START[d] + tIn;
       } else {
         tIn = T[prev * N + s];
         earliest = prevDepart + tIn + minGap;
@@ -606,6 +632,23 @@ export function searchAlns(problem: EngineProblem, opts: SearchOptions): EngineS
         schedDepart[s] = psStart[i] + psDur[i];
       }
     }
+    // E6d — the return leg: real travel, and it must land inside the day
+    // window (the same unconditional day-window convention the slots use).
+    // Span stays visits-only — the commute home is not "active" pace time.
+    if (BBACK !== null) {
+      const back = BBACK[d][psStop[len - 1]];
+      travel += back;
+      const over = psStart[len - 1] + psDur[len - 1] + back - DAY_END[d];
+      if (over > 0) {
+        if (strict) {
+          EV.ok = false;
+          return EV;
+        }
+        breachMin += over;
+        breachCnt++;
+      }
+    }
+
     const span = psStart[len - 1] + psDur[len - 1] - psStart[0];
 
     if (span > MAX_SPAN[d]) {
@@ -793,10 +836,14 @@ export function searchAlns(problem: EngineProblem, opts: SearchOptions): EngineS
   }
 
   function travelDelta(order: number[], len: number, p: number, s: number, d: number): number {
-    if (len === 0) return 0;
+    // E6d — end insertions swap the depot leg too; without these terms the
+    // prune lower bound could exceed the true delta (BOUT[s] can be smaller
+    // than BOUT[old first]) and skip genuinely improving placements.
     const T = TRAVEL[d];
-    if (p === 0) return T[s * N + order[0]];
-    if (p === len) return T[order[len - 1] * N + s];
+    if (len === 0) return BOUT === null ? 0 : BOUT[d][s] + BBACK![d][s];
+    if (p === 0) return (BOUT === null ? 0 : BOUT[d][s] - BOUT[d][order[0]]) + T[s * N + order[0]];
+    if (p === len)
+      return T[order[len - 1] * N + s] + (BBACK === null ? 0 : BBACK[d][s] - BBACK[d][order[len - 1]]);
     const a = order[p - 1];
     const b = order[p];
     return T[a * N + s] + T[s * N + b] - T[a * N + b];

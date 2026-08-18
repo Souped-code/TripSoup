@@ -593,7 +593,7 @@ export async function* runPipeline(
       // Pairs are cached as they resolve, so re-running this pipeline on the
       // same input text — which re-derives the same stop ids — resumes from
       // cache instead of paying for every pair again. Safe to re-invoke.
-      const { matrix, rejectedMessage } = await matrixForDay(doc.days[i], settings);
+      const { matrix, rejectedMessage } = await matrixForDay(doc.days[i], settings, doc.homeBase);
       matrices.push(matrix);
       if (rejectedMessage) rejectedMessages.set(i, rejectedMessage);
     }

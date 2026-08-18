@@ -2576,3 +2576,85 @@ fullflow e2e 9/9.
 Known parse-quality items deliberately NOT code (E7 territory, unchanged): hedged times
 don't anchor; "sunset" isn't a parseable time; first-stop idle waits on infeasible days
 (projection artifact, parked F-item).
+
+## E6d — THE DEPOT BLOCK: DAYS START AND END AT THE HOME BASE (2026-08-18)
+
+Chris picked this over E7/M3 at the checkpoint. The parked design from E6c, built: every day
+now physically leaves TripDoc.homeBase and returns to it — both legs priced in the
+objective, both bounded by the day window — plus the idle-wait compaction F-item, closed.
+
+**Engine (the invariant: NO base = byte-identical pre-depot behaviour, pinned by the whole
+pre-existing determinism/differential/quality suite, all green unchanged):**
+- `EngineProblem.base` (EngineBase): per-day Float64Array depot rows index-aligned with
+  travel.index — never a node (not visitable/droppable/pinnable). buildBase reads the day
+  matrix's reserved entries, estimates cross-day pairs (null-leg marker, same contract as
+  EngineTravel.legsByDay — only reachable while costing a moveDay).
+- search.ts evalDay: first stop's `earliest = DAY_START + BOUT[s]` with `tIn` carrying the
+  leg into travel (NO first-stop wait — leave-late semantics: you depart the base when
+  needed); explicit return-leg block (travel += back; overrun = breach, strict fail);
+  travelDelta gains exact base terms at p=0/p=len/len=0 so the prune bound stays admissible.
+  Every other operator (scanInsertions, twoOpt, destroyWorst, commitDay) prices via evalDay
+  and needed nothing.
+- evaluate.ts: base legs in travelMin; two new day-window checks ("day N starts Xmin before
+  travel from <base> allows", "returning to <base> runs Xmin past the end of day N") citing
+  the day window's ref — cards/proposals flow automatically.
+- exhaustive.ts floor: the base rides the run mechanism's EXISTING endpoint slots (a
+  sentinel key resolves to depot rows; first run starts from it, last run must return by day
+  end) — small days stay "optimal" AND base-aware; solve.ts legacyWalk mirrors the lead so
+  floor times match floor costs.
+- assemble.ts: DayPlan.baseLegs {baseName, lead, back} (additive/optional wire shape);
+  lead/back in totalTravelMin; return eats daySlackMin; search-path first arrival snaps to
+  start (never a shown wait).
+
+**Matrix/plumbing:** matrixForDay takes homeBase and adds the point under
+`homeBaseMatrixId(id)` = `__home-base__:<placeid>` — the AUDIT'S BLOCKING FINDING, fixed:
+matrixSource's persistent (KV-shared) cache keys pairs by id, so a bare reserved id would
+have served the OLD base's minutes forever after a base change and cross-poisoned trips
+sharing a place id. The base's place id is now cache identity. firstMissingPair deliberately
+ignores base pairs (missing rows degrade to estimates, never reject a day). fixtureAdapter
+synthesizes a base record (accessMin 0) from the passed location. solveProjection: homeBase
+(id+location) joins the settings slice IN THIS COMMIT (the engine now reads it) — a base
+edit stales and re-seeds every day, so setting the base in the pocket immediately re-cooks.
+
+**Retime paths (audit MAJOR, fixed):** every non-engine timing path (manual orders, leg
+toggles, kept days in incremental saves) goes through planEngine.rescheduleDayWithBase —
+day-open shifted by the lead, base legs re-attached — otherwise one toggle would silently
+strip depot timing from every kept day. When the SHIFT makes the walk infeasible (anchor
+booked inside the lead window), it falls back to the UNSHIFTED walk (mirroring the
+deliberate END-side leniency): a kept day can never dead-end where the engine path says
+ok-with-conflict. Known v1 looseness (documented, not code): the legacy path doesn't flag a
+late RETURN, and the fallback shows pre-depot times until the next real solve.
+
+**Compaction (F-item closed):** alnsEngine drops the search's right-shifted times on days
+with hard day-window/anchor-start conflicts and re-times the SAME order with the greedy
+earliest walk — "waits 3h 59min" first-stop artifacts read as a morning start with the
+lateness on the stop that actually breaches. Applies to base-less days too (intended).
+Audit MINOR accepted as display trade-off: a trim-absorbed anchor can show late without its
+own conflict line on such days; the day-window conflict still marks the day.
+
+**UI:** sidebar + share timeline render "leave <base> HH:MM — mode Xh Ymin" above the rows
+and "mode Xh Ymin — back at <base> HH:MM" below (testids sidebar-base-lead/-back,
+share-base-lead/-back); dashed-left-border journal styling; no toggle on base legs in v1.
+ShareTimeline's stray "waits N min" also moved to formatDuration.
+
+**Audit (fresh-context subagent, adversarial):** 1 BLOCKING (cache identity — fixed as
+above, reproduced by the auditor both ways), 1 MAJOR (retime dead-end — fixed, reproduced),
+2 MINOR accepted/documented (compaction masking; stale-worker-bundle window — bundle
+rebuilt, npm predev/prebuild remain the guard), 2 NIT fixed (stale baseLegs comment;
+duplicate conflict id on the depot early-start AND — verification-pass residual, reproduced
+by the auditor — the mirror case on the return check, both now skipped when the plain
+day-window check already fired for that stop). VERIFICATION PASS: auditor re-ran both
+reproduction scripts against the fixed tree — cache refetches on base change (was: stale
+serve), the retime dead-end retimes ok — verdict COMMIT-READY. Everything else in its "checked, holds" list: travelDelta
+exactness, twoOpt/dirty-day handling, evaluate/search parity, floor endpoint math, worker
+structured-clone of Float64Arrays, projection staleness, proposals costing.
+
+**Gates:** tsc 0 · jest 453/453 (49 suites, +base.test.ts: 6 depot goldens incl. the
+return-overrun conflict and the compaction invariant) · full e2e 39/39 (homebase.spec now
+asserts the visible depot rows and their re-cook on base change/clear) · worker bundle
+rebuilt.
+
+**CHRIS-VERIFY (prod):** re-paste the SG trip (staying at MBS) → every day should open with
+"leave Marina Bay Sands …" and close with "… back at Marina Bay Sands"; day 3 should now
+genuinely order itself around leaving from/returning to the marina; change the base in the
+pocket → whole trip re-cooks with new legs; drag a stop → base rows survive the re-time.

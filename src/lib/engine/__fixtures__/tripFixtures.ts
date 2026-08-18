@@ -6,7 +6,7 @@ import type { ConstraintSet, WeeklyHours } from "../../constraints/types";
 import { createFixtureAdapter } from "../../maps/fixtureAdapter";
 import { FIXTURE_STOPS } from "../../maps/fixtureCity";
 import { parseGoogleHours } from "../../maps/openingHours";
-import { DEFAULT_SETTINGS, type Settings } from "../../maps/types";
+import { DEFAULT_SETTINGS, homeBaseMatrixId, type Settings } from "../../maps/types";
 import { buildEffectiveMatrix } from "../../solver/effectiveMatrix";
 import type { EffectiveMatrix } from "../../solver/types";
 import type { Day } from "../../schedule/types";
@@ -97,11 +97,12 @@ export async function matricesFor(doc: TripDoc): Promise<EffectiveMatrix[]> {
       out.push({});
       continue;
     }
-    const drive = await provider.getTravelMatrix(
-      day.stops.map((s) => ({ id: s.id, location: s.location })),
-      "driving"
-    );
-    const locations = Object.fromEntries(day.stops.map((s) => [s.id, s.location]));
+    // E6d — mirror matrixForDay: a doc with a home base gets base<->stop legs
+    // under the reserved key, exactly as production builds them.
+    const points = day.stops.map((s) => ({ id: s.id, location: s.location }));
+    if (doc.homeBase) points.push({ id: homeBaseMatrixId(doc.homeBase.id), location: doc.homeBase.location });
+    const drive = await provider.getTravelMatrix(points, "driving");
+    const locations = Object.fromEntries(points.map((p) => [p.id, p.location]));
     out.push(buildEffectiveMatrix(drive, locations, settings));
   }
   return out;
