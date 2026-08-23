@@ -110,6 +110,18 @@ type PlannerSettings = TripDoc["settings"];
 // src/lib/planShared.ts); this component only renders what it's given.
 export type TradeOffCardEntry = { conflict: Conflict; proposals: Proposal[] };
 
+// E7 — one review chip per llm/user constraint (RevealClient computes these
+// from doc.constraints + stopKeys; this component only renders). `value` is
+// the raw constraint payload, narrowed per-slot by chipLabel below.
+export type ConstraintChipEntry = {
+  target: import("@/lib/constraints/persisted").ChipTarget;
+  slot: string;
+  value: unknown;
+  source: "llm" | "user";
+  confirmed: boolean;
+  evidence?: string;
+};
+
 export interface JournalSidebarProps {
   tripId: string;
   dayIndex: number;
@@ -131,6 +143,11 @@ export interface JournalSidebarProps {
    * planner's pocket. null clears it. */
   homeBase: TripDoc["homeBase"];
   onSetHomeBase: (base: { id: string; name: string; location: { lat: number; lng: number } } | null) => void;
+  /** E7 — review chips for the active day's stops + the trip panel. */
+  constraintChips: { byStopId: Map<string, ConstraintChipEntry[]>; trip: ConstraintChipEntry[] };
+  onConfirmChip: (target: ConstraintChipEntry["target"]) => void;
+  onDeleteChip: (target: ConstraintChipEntry["target"]) => void;
+  onCompileNotes: (notes: string) => Promise<void>;
   onRemoveStop: (stopId: string) => void;
   onToggleLeg: (fromId: string, toId: string, mode: "walk" | "drive") => void;
   onSettingsChange: (settings: PlannerSettings) => void;
@@ -152,6 +169,10 @@ export function JournalSidebar({
   onOpenDecisions,
   homeBase,
   onSetHomeBase,
+  constraintChips,
+  onConfirmChip,
+  onDeleteChip,
+  onCompileNotes,
   onRemoveStop,
   onToggleLeg,
   onSettingsChange,
@@ -277,6 +298,9 @@ export function JournalSidebar({
                       timesAvailable={timesAvailable}
                       busy={busy}
                       dupLabel={dupLabelFor(stop, orderedIds)}
+                      chips={constraintChips.byStopId.get(stop.id) ?? []}
+                      onConfirmChip={onConfirmChip}
+                      onDeleteChip={onDeleteChip}
                       onRemove={onRemoveStop}
                       onToggleLeg={onToggleLeg}
                     />
@@ -353,6 +377,23 @@ export function JournalSidebar({
           </div>
         )}
 
+        {/* E7 — trip-level review chips (pace, quiet blocks): the party's own
+            facts, reviewable in one line above the decision banner. */}
+        {constraintChips.trip.length > 0 && (
+          <div className="reveal-constraint-chips reveal-constraint-chips--trip" data-testid="sidebar-trip-chips">
+            <span className="reveal-constraint-chips__label">the trip:</span>
+            {constraintChips.trip.map((chip) => (
+              <ConstraintChip
+                key={`${chip.slot}-${chip.target.scope === "quietBlock" ? chip.target.id : "t"}`}
+                chip={chip}
+                busy={busy}
+                onConfirm={onConfirmChip}
+                onDelete={onDeleteChip}
+              />
+            ))}
+          </div>
+        )}
+
         {/* E6c — the card stack became a slim banner (Chris, 2026-08-14): the
             decisions themselves live in RevealClient's TradeOffModal, which
             auto-pops once per new issue set; this banner is the persistent
@@ -393,6 +434,7 @@ export function JournalSidebar({
         <details className="reveal-pocket" data-testid="sidebar-pocket">
           <summary>planner&rsquo;s notes</summary>
           <HomeBasePocket tripId={tripId} homeBase={homeBase} busy={busy} onSetHomeBase={onSetHomeBase} />
+          <NotesPocket busy={busy} onCompile={onCompileNotes} />
           <PocketForm settings={settings} busy={busy} onApply={onSettingsChange} />
         </details>
 
@@ -408,6 +450,93 @@ export function JournalSidebar({
   );
 }
 
+// E7 — chip copy per slot, journal voice. `value` narrowed by slot; a shape
+// this function doesn't recognize renders the slot name (never crashes).
+function chipLabel(chip: ConstraintChipEntry): string {
+  const v = chip.value;
+  switch (chip.slot) {
+    case "window": {
+      const w = v as { startMin: number; endMin: number };
+      return `${fmtTime(w.startMin)}–${fmtTime(w.endMin)}`;
+    }
+    case "hours": {
+      const h = v as { lastEntryMin?: number };
+      return h.lastEntryMin !== undefined ? `last entry ${fmtTime(h.lastEntryMin)}` : "opening hours";
+    }
+    case "duration": {
+      const d = v as { typicalMin: number };
+      return `~${formatDuration(d.typicalMin)} visit`;
+    }
+    case "effort":
+      return `${String(v)} effort`;
+    case "priority":
+      return v === "must" ? "must-see" : v === "could" ? "if there's time" : "should-see";
+    case "pinnedDay": {
+      const p = v as { index: number };
+      return `day ${p.index + 1}`;
+    }
+    case "pacePreset":
+      return v === "relaxed" ? "chill pace" : v === "packed" ? "packed pace" : "balanced pace";
+    case "quietBlock": {
+      const w = v as { startMin: number; endMin: number };
+      return `quiet ${fmtTime(w.startMin)}–${fmtTime(w.endMin)}`;
+    }
+    default:
+      return chip.slot;
+  }
+}
+
+/** One review chip: label, the quote that justifies it, confirm (llm,
+ * unconfirmed only) and delete. */
+function ConstraintChip({
+  chip,
+  busy,
+  onConfirm,
+  onDelete,
+}: {
+  chip: ConstraintChipEntry;
+  busy: boolean;
+  onConfirm: (target: ConstraintChipEntry["target"]) => void;
+  onDelete: (target: ConstraintChipEntry["target"]) => void;
+}) {
+  return (
+    <span
+      className={`reveal-constraint-chip${chip.confirmed ? " reveal-constraint-chip--confirmed" : ""}`}
+      data-testid="constraint-chip"
+      data-chip-slot={chip.slot}
+      data-chip-confirmed={chip.confirmed ? "1" : "0"}
+      title={chip.evidence ? `from your notes: “${chip.evidence}”` : "you set this"}
+    >
+      <span className="reveal-constraint-chip__label">{chipLabel(chip)}</span>
+      {chip.evidence && (
+        <span className="reveal-constraint-chip__evidence">&ldquo;{chip.evidence}&rdquo;</span>
+      )}
+      {!chip.confirmed && (
+        <button
+          type="button"
+          className="reveal-constraint-chip__btn"
+          data-testid="constraint-chip-confirm"
+          aria-label={`Confirm ${chipLabel(chip)}`}
+          disabled={busy}
+          onClick={() => onConfirm(chip.target)}
+        >
+          ✓
+        </button>
+      )}
+      <button
+        type="button"
+        className="reveal-constraint-chip__btn"
+        data-testid="constraint-chip-delete"
+        aria-label={`Remove ${chipLabel(chip)}`}
+        disabled={busy}
+        onClick={() => onDelete(chip.target)}
+      >
+        ×
+      </button>
+    </span>
+  );
+}
+
 function SidebarRow({
   stop,
   index,
@@ -416,6 +545,9 @@ function SidebarRow({
   timesAvailable,
   busy,
   dupLabel,
+  chips,
+  onConfirmChip,
+  onDeleteChip,
   onRemove,
   onToggleLeg,
 }: {
@@ -426,6 +558,9 @@ function SidebarRow({
   timesAvailable: boolean;
   busy: boolean;
   dupLabel: string;
+  chips: ConstraintChipEntry[];
+  onConfirmChip: (target: ConstraintChipEntry["target"]) => void;
+  onDeleteChip: (target: ConstraintChipEntry["target"]) => void;
   onRemove: (stopId: string) => void;
   onToggleLeg: (fromId: string, toId: string, mode: "walk" | "drive") => void;
 }) {
@@ -518,6 +653,20 @@ function SidebarRow({
             </button>
           </div>
         )}
+        {/* E7 — this stop's review chips (compiled from notes / user edits). */}
+        {chips.length > 0 && (
+          <div className="reveal-constraint-chips" data-testid={`sidebar-chips-${stop.id}`}>
+            {chips.map((chip) => (
+              <ConstraintChip
+                key={`${chip.slot}`}
+                chip={chip}
+                busy={busy}
+                onConfirm={onConfirmChip}
+                onDelete={onDeleteChip}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </li>
   );
@@ -526,6 +675,45 @@ function SidebarRow({
 // T7 — the planner's notes form. Local drafts commit on Apply (not per
 // keystroke: every apply is a PUT + a re-plan of EVERY day, so it should be
 // one deliberate action). Drafts re-seed whenever the saved settings change.
+// E7 — "tell Gracie more": free-form notes -> the constraint compiler ->
+// review chips. One deliberate action (a compile is a rate-limited, possibly
+// billed call + a re-plan), mirroring PocketForm's commit-on-apply shape.
+function NotesPocket({
+  busy,
+  onCompile,
+}: {
+  busy: boolean;
+  onCompile: (notes: string) => Promise<void>;
+}) {
+  const [notes, setNotes] = useState("");
+  const submit = async () => {
+    const text = notes.trim();
+    if (text === "" || busy) return;
+    await onCompile(text);
+    setNotes("");
+  };
+  return (
+    <div className="reveal-notes-pocket" data-testid="sidebar-notes">
+      <textarea
+        className="reveal-notes-pocket__input"
+        data-testid="sidebar-notes-input"
+        placeholder="tell Gracie more — “mum walks slow”, “sunset at the park”, “last entry 5pm”…"
+        rows={2}
+        value={notes}
+        disabled={busy}
+        onChange={(e) => setNotes(e.target.value)}
+      />
+      <InkButton
+        data-testid="sidebar-notes-compile"
+        disabled={busy || notes.trim() === ""}
+        onClick={() => void submit()}
+      >
+        Read my notes
+      </InkButton>
+    </div>
+  );
+}
+
 // E6c — the "staying at" row in the planner's pocket. Detection from the
 // paste fills this automatically; here the user can set/override/clear it.
 // Resolution goes through the same metered, rate-limited server boundary

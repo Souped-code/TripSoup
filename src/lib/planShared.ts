@@ -20,6 +20,7 @@
 // doc-shape logic, matching `validManualOrder` immediately below.
 import type { DocPatch } from "./engine/types";
 import type { TripDay, TripDoc, TripStop } from "./store/types";
+import { mergeStoredPatches } from "./constraints/persisted";
 
 // A manualOrder is honored only if it is an exact permutation of the current
 // stop ids — same size, same set, no duplicates, no unknowns. Anything else
@@ -201,9 +202,25 @@ export function applyDocPatch(doc: TripDoc, patch: DocPatch): DocPatchResult {
     }
 
     case "setPacePreset":
+      // E7 closed the honest gap: the trip HAS somewhere to persist a pace now
+      // (doc.constraints.trip.pacePreset). Accepting the proposal is the user
+      // asserting the pace — source "user", hard ("use exactly this") — which
+      // outranks the derived default and any unconfirmed LLM inference, and
+      // stales every day via the solve projection.
       return {
-        ok: false,
-        reason: "Pace preferences aren't saved on this trip yet — try trimming a visit instead.",
+        ok: true,
+        doc: {
+          ...doc,
+          constraints: mergeStoredPatches(doc.constraints ?? {}, {
+            trip: {
+              pacePreset: {
+                value: patch.preset,
+                provenance: { source: "user" },
+                hardness: "hard",
+              },
+            },
+          }),
+        },
       };
   }
 }

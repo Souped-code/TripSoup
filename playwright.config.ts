@@ -41,6 +41,10 @@ export default defineConfig({
       // E6 audit finding 6: pin the prose provider so e2e $0 does not depend
       // on the invoking shell's env.
       PROSE_PROVIDER: "fixture",
+      // E7 audit finding 4: pinned for the same reason as PROSE_PROVIDER — a
+      // dev shell with CONSTRAINTS_PROVIDER=llm + a key must not make every
+      // e2e paste a billed compile.
+      CONSTRAINTS_PROVIDER: "fixture",
     },
   },
 });

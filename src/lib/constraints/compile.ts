@@ -53,6 +53,7 @@ export const DEFAULT_PACE_WEIGHT = 50;
 
 const LEGACY: Provenance = { source: "legacy" };
 const DERIVED: Provenance = { source: "derived" };
+const GOOGLE: Provenance = { source: "google" };
 
 const hard = <T>(value: T, provenance: Provenance): Constraint<T> => ({
   value,
@@ -155,6 +156,16 @@ export function compileFromDoc(doc: TripDoc): ConstraintSet {
         priority: hard("must", LEGACY),
         pinnedDay: hard({ index: dayIndex }, LEGACY),
       };
+      // E7 audit finding 2: Google hours must live in the compiled BASE (not
+      // only as buildNode's when-absent fallback) so provenance rank actually
+      // adjudicates the slot — an unconfirmed llm lastEntry (rank 40) now
+      // LOSES to the fetched fact (60) instead of evicting it, and a
+      // confirmed one (80) wins deliberately. Same value/hardness/provenance
+      // buildNode's fallback produced, so a doc without a stored patch
+      // compiles to the identical problem.
+      if (stop.hours) {
+        constraints.hours = hard(stop.hours, GOOGLE);
+      }
       if (stop.anchor) {
         // An anchor is a booked time: the visit STARTS exactly then. The
         // degenerate window is the honest reading — and the moment the model

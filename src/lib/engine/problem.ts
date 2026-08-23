@@ -156,7 +156,13 @@ function normaliseDuration(d: DurationRange): DurationRange {
 }
 
 function dropPenaltyOf(priority: Priority, hard: boolean, weight: number): number {
-  if (priority === "must") return hard ? 0 : weight; // hard must = a violation, not a price
+  // E7 audit finding 1: a SOFT must (an llm "must-see" note demoting the
+  // compiled hard must) priced dropping the stop at the note's own weight
+  // (30) — cheaper than an unmarked could-stop. A statement of importance
+  // must never make a stop MORE droppable: soft-must floors at the
+  // should-price, so the label can only raise protection above the softer
+  // classes, never below them.
+  if (priority === "must") return hard ? 0 : Math.max(weight, DROP_PENALTY_SHOULD); // hard must = a violation, not a price
   return priority === "should" ? DROP_PENALTY_SHOULD : DROP_PENALTY_COULD;
 }
 
@@ -337,6 +343,16 @@ function buildNode(
   // compiled here as a hard `google` fact (see BuildProblemOptions.hoursFromDoc).
   let hoursConstraint: Constraint<WeeklyHours> | undefined = sc?.hours;
   const hoursPath = `${path}.hours`;
+  // E7: compileFromDoc now lifts Google hours into the base set (so
+  // provenance rank adjudicates against llm emissions). `hoursFromDoc: false`
+  // must still mean what it always meant — doc-derived hours are advisory
+  // only — so a google-provenance set entry (which IS the doc's payload,
+  // just carried differently) is stripped under the flag exactly like the
+  // fallback below is skipped. User/llm-confirmed hours are statements, not
+  // doc payloads, and stay.
+  if (hoursConstraint && !hoursFromDoc && hoursConstraint.provenance.source === "google") {
+    hoursConstraint = undefined;
+  }
   if (!hoursConstraint && hoursFromDoc && stop.hours) {
     hoursConstraint = { value: stop.hours, provenance: GOOGLE, hardness: "hard" };
   }

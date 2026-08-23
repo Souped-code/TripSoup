@@ -60,6 +60,13 @@ export type SolveProjection = {
     // (dayProjection embeds this same settings object). Identity fields only;
     // the display name is not solve-relevant.
     homeBase?: { id: string; location: { lat: number; lng: number } };
+    // E7 — the persisted constraint patch is solve-relevant (merged over the
+    // compiled base by constraintSetForSolve), so it rides here too: any chip
+    // confirm/delete, compile, or pace accept stales every day. The PUT
+    // boundary stores the SANITIZED canonical form, so equivalent docs hash
+    // equal. Rides the settings slice (like homeBase) — per-day scoping of
+    // constraint staleness is a refinement E7 deliberately skips.
+    constraints?: import("../constraints/types").ConstraintPatch;
   };
 };
 
@@ -87,6 +94,7 @@ function projectSettings(doc: TripDoc): SolveProjection["settings"] {
     ...(doc.homeBase
       ? { homeBase: { id: doc.homeBase.id, location: doc.homeBase.location } }
       : {}),
+    ...(doc.constraints ? { constraints: doc.constraints } : {}),
   };
 }
 

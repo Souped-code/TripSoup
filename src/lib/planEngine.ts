@@ -28,7 +28,8 @@
 import { getMapsProvider } from "./config";
 import { DEFAULT_SETTINGS, HOME_BASE_KEY, homeBaseMatrixId, type Settings } from "./maps/types";
 import { intersectHoursWithWeekday } from "./maps/openingHours";
-import { compileFromDoc, stopKeys } from "./constraints/compile";
+import { stopKeys } from "./constraints/compile";
+import { constraintSetForSolve } from "./constraints/persisted";
 import {
   buildProblem,
   alnsEngine,
@@ -648,7 +649,10 @@ export async function solveWithPreparedMatrices(
     ...doc,
     days: doc.days.map((d, i) => (excluded.has(i) ? { ...d, stops: [] } : d)),
   };
-  const set = compileFromDoc(engineDoc);
+  // E7 — compiled base + the stored constraint patch, keyed against the
+  // FULL doc so a scoped solve can't retarget cross-day duplicates'
+  // constraints (persisted.ts, audit finding 6).
+  const set = constraintSetForSolve(engineDoc, doc);
   const problem = buildProblem(engineDoc, set, matrices);
 
   const seed = seedFor(doc);
@@ -797,7 +801,10 @@ export async function solveDayWithEngine(
     ...doc,
     days: doc.days.map((d, i) => (i === dayIndex ? d : { ...d, stops: [] })),
   };
-  const set = compileFromDoc(engineDoc);
+  // E7 — compiled base + the stored constraint patch, keyed against the
+  // FULL doc so a scoped solve can't retarget cross-day duplicates'
+  // constraints (persisted.ts, audit finding 6).
+  const set = constraintSetForSolve(engineDoc, doc);
   const matrices = doc.days.map((_, i) => (i === dayIndex ? matrix : {}));
   const problem = buildProblem(engineDoc, set, matrices);
 

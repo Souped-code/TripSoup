@@ -2658,3 +2658,97 @@ rebuilt.
 "leave Marina Bay Sands …" and close with "… back at Marina Bay Sands"; day 3 should now
 genuinely order itself around leaving from/returning to the marina; change the base in the
 pocket → whole trip re-cooks with new legs; drag a stop → base rows survive the re-time.
+
+## E7 — LLM CONSTRAINT COMPILATION (2026-08-22)
+
+Chris's checkpoint pick after E6d. The roadmap's E7, built on E2's wire shape exactly as
+designed there: notes become an evidence-tethered ConstraintPatch persisted on
+TripDoc.constraints, merged over the compiled base on every solve, reviewed as chips.
+
+**The persisted layer (constraints/persisted.ts):**
+- `sanitizeConstraintPatch` — the boundary: bounded zod wire schema; unknown stop keys /
+  out-of-range days dropped (degrade-not-corrupt); THE TETHER enforced in data (llm without
+  evidence = dropped); soft-until-confirmed enforced in data (llm-unconfirmed hard = clamped
+  soft). Runs at the PUT boundary (stores the canonical form — the solve projection hashes
+  it, so equivalent docs hash equal) and defensively before every solve merge.
+- `mergeStoredPatches` — slot-wise winner(): a re-compile updates old llm entries, never a
+  user edit (100) or a confirmed chip (80).
+- `constraintSetForSolve(engineDoc, fullDoc)` — compileFromDoc + the stored patch, with a
+  positional key REMAP for day-scoped solves (audit finding 6: emptied days shift occurrence
+  keys for cross-day repeats; constraints now follow their own visit).
+- `confirmConstraint` / `removeConstraint` — chip edits, pure. Confirm = confirmed:true +
+  hard (rank 80: "the human is overruling the world on purpose"). Delete = absence, no
+  tombstones (E2 rule 4).
+
+**The compiler (constraints/interpret/):** typed EMISSIONS vocabulary (pace, stopWindow,
+lastEntry, duration, priority, pinnedDay, quietBlock) — never raw patches from a model.
+Live adapter = claude-haiku + zod retry loop (M1's pattern verbatim: streaming, temp 0,
+retry-with-feedback, construction-time key gate); fixture adapter = deterministic keyword
+rules emitting the same evidence contract ($0 tests/e2e). Orchestrator: gated selection
+(interpret.constraints capability + CONSTRAINTS_PROVIDER=llm + key, else fixture on
+fixture-maps configs, else OFF), tether check (normalized verbatim substring — KNOWN
+LOOSENESS documented: coincidental substrings pass; the chip shows the quote so a human
+catches that class), stop-name resolution (unresolved = dropped, resolved = every
+occurrence), wire conversion (everything source:"llm", confirmed:false, soft).
+
+**Weights:** LLM_SOFT_WEIGHT 30 (below CROSS_DAY_PRECEDENCE_WEIGHT 50 — a guess bends
+before a wish). LLM_WINDOW_WEIGHT 150 for TIMED intent (windows, pins): honouring "sunset"
+usually costs wait at 0.3/min, so a 30-weight window would rationally never bend anything.
+DOCUMENTED TENSION (audit 7): 150 > could-drop 60, so a window note on a could-stop can
+price the stop out — preference outbidding existence; revisit if it bites.
+
+**Semantics worth knowing (proved in e2e):** an UNCONFIRMED window is a soft nudge — the
+schedule walk never idles for a guess (soft windows steer order, not waiting). CONFIRMING
+the chip makes it a hard window → the walk genuinely waits for sunset. The
+soft-until-confirmed ladder is therefore visible behaviour, not just provenance bookkeeping.
+
+**Entry points:** (1) the paste cook's SECOND compile pass (after resolve, before the first
+solve — the M1 parse contract untouched; the resolve checkpoint untouched; failure = null =
+no chips, never a blocked cook; llm mode adds one Haiku call of latency to a paste, with a
+progress event around it); (2) POST /api/trips/[id]/constraints (notes ≤ 4000 chars,
+"constraints" rate bucket 20/hr, merge-not-replace) — the pocket's "tell Gracie more" box.
+
+**E6 honest gap closed:** applyDocPatch setPacePreset now persists
+constraints.trip.pacePreset as user/hard — "Ease the pace"/"Accept a packed pace" chips
+actually apply, outrank any stored llm pace, and re-cook every day (constraints ride the
+solve projection).
+
+**UI:** review chips on the active day's stop rows + a trip line ("the trip: chill pace ·
+"walks slow"") — label, quoted evidence, ✓ confirm (llm-unconfirmed only), × delete; both
+through the ordinary PUT. Chips render only for llm/user sources — google/legacy/derived
+facts aren't statements to review.
+
+**Fresh-context adversarial audit — 1 BLOCKING + 5 MAJOR found, all fixed, verdicts
+verified by the auditor re-running its own repros:**
+1. (BLOCKING) "must-see" made a stop MORE droppable: soft-must priced dropping at the
+   note's weight (30) — cheaper than an unmarked could-stop. dropPenaltyOf now floors
+   soft-must at DROP_PENALTY_SHOULD; a statement of importance can only raise protection.
+   (A soft-priority day still leaves the exhaustive floor — correct by class rules.)
+2. (MAJOR) llm hours EVICTED Google's (rank never adjudicated because google hours weren't
+   in the compiled base): compileFromDoc now lifts stop.hours into the base as hard GOOGLE;
+   unconfirmed lastEntry loses 40<60, confirmed wins 80>60 with the real byWeekday carried.
+   hoursFromDoc:false strips google-provenance set hours to keep its contract.
+3. (MAJOR) an llm pinnedDay ≠ the stop's doc day broke launch mode and could vanish a stop
+   from a scoped solve: sanitize drops non-matching llm pins (cross-day pinned intent is a
+   moveDay flow, not a pin fight — E8 territory).
+4. (MAJOR) e2e/jest didn't pin the provider env (a dev shell with CONSTRAINTS_PROVIDER=llm
+   + key would bill from tests): playwright pins fixture; the test scrubs all three vars.
+5. (MAJOR) boundary 500 via explicit-undefined properties surviving prune into
+   canonicalJson: per-slot conditional assignment, no husks (incl. arrivalPins []).
+6. (MAJOR) scoped solves retargeted cross-day duplicates' constraints: the key remap above.
+Plus MINOR/NIT: compiled:0 now surfaces a friendly message; rate-bucket comment corrected;
+tether looseness documented; dead code removed; gate-matrix test added.
+
+**Gates:** tsc 0 · jest 468/468 (52 suites: +persisted, +interpretConstraints incl. gate
+matrix, +interpretGuard, planShared pace rewritten) · full e2e 41/41 (+constraints.spec:
+paste→chips→confirm-waits-for-sunset→delete; standalone notes compile).
+
+**CHRIS-VERIFY (prod):** paste the SG trip with "mum walks slow", "east coast park sunset",
+"tian tian last entry 3pm i think" style notes (set CONSTRAINTS_PROVIDER=llm + key for the
+live compiler, else nothing appears on real maps) → chips with the quoted evidence; confirm
+the sunset chip → the day re-times to hold it; delete a chip → re-plans without it; accept
+"Ease the pace" in the modal → it now actually applies; "tell Gracie more" in the pocket.
+
+NEXT at the roadmap: E8 (conversational refinement — pure composition of E5+E6+E7) or M3
+payments. The E7 contract E8 needs (compile a chat turn into a previewable patch) is now
+built and audited.

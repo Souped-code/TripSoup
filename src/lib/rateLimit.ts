@@ -29,6 +29,11 @@ const ROUTE_LIMITS: Record<string, number> = {
   // selected; fixture mode is $0. Same ceiling as DEFAULT_LIMIT, named
   // explicitly so the budget is visible here rather than an implicit fallback.
   prose: 20,
+  // E7 — standalone constraint compiles (POST /api/trips/[id]/constraints).
+  // The paste cook's second pass rides the `pipeline` bucket, not this one.
+  // One billed Haiku call per compile when the LLM provider is selected;
+  // fixture mode is $0.
+  constraints: 20,
 };
 
 export async function checkRateLimit(

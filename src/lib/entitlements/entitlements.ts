@@ -36,7 +36,13 @@ export type Capability =
   // to a deterministic fixture template with this capability off, or absent
   // an API key/PROSE_PROVIDER=llm — never a hard failure either way (prose is
   // decorative; structured cards always render without it).
-  | "explain.tradeoffs";
+  | "explain.tradeoffs"
+  // E7 — compile trip notes into persisted constraints (src/lib/constraints/
+  // interpret/). Gated for the same cost-boundary reason as explain.tradeoffs:
+  // free-form notes could fan out into billed Haiku calls. Degrades to the
+  // deterministic fixture compiler (fixture-maps configs) or to nothing —
+  // never a hard failure; a compile can never block a cook or a save.
+  | "interpret.constraints";
 
 export type Tier = "free" | "pass";
 
@@ -86,6 +92,7 @@ export const ALL_CAPABILITIES: readonly Capability[] = [
   "suggest.crossDate",
   "export.hires",
   "explain.tradeoffs",
+  "interpret.constraints",
 ];
 
 // The combined links+names spend cap the pipeline enforces per paste. Lives

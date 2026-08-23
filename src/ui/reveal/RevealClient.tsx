@@ -13,8 +13,11 @@ import type { TripDoc } from "@/lib/store/types";
 import type { DayPlan } from "@/lib/schedule/types";
 import type { Conflict, Proposal } from "@/lib/engine/types";
 import { applyDocPatch, dismissalKeyForConflict, isConflictDismissed, validManualOrder } from "@/lib/planShared";
+import { stopKeys } from "@/lib/constraints/compile";
+import { confirmConstraint, removeConstraint, type ChipTarget } from "@/lib/constraints/persisted";
+import type { Constraint } from "@/lib/constraints/types";
 import { RevealMap, type RevealStop } from "./RevealMap";
-import { JournalSidebar, type TradeOffCardEntry } from "./JournalSidebar";
+import { JournalSidebar, type ConstraintChipEntry, type TradeOffCardEntry } from "./JournalSidebar";
 import { TradeOffModal } from "./TradeOffModal";
 import { WashiTag, type WashiTone } from "@/ui/journal/WashiTag";
 import "./reveal.css";
@@ -155,6 +158,57 @@ export function RevealClient({
       }));
   }, [doc, activeDay]);
 
+  // E7 — the persisted constraints as REVIEW CHIPS: one chip per llm/user
+  // constraint (google/legacy/derived facts aren't statements to review),
+  // attached to the active day's stop rows or to the trip panel. Confirm
+  // promotes an inference to a hard, above-Google fact; delete removes it
+  // from the stored patch; both go through the ordinary PUT (the patch is in
+  // the solve projection, so every accept/delete re-cooks).
+  const constraintChips = useMemo(() => {
+    const byStopId = new Map<string, ConstraintChipEntry[]>();
+    const trip: ConstraintChipEntry[] = [];
+    const patch = doc.constraints;
+    if (!patch) return { byStopId, trip };
+    const chipOf = (
+      target: ChipTarget,
+      slot: string,
+      c: Constraint<unknown>
+    ): ConstraintChipEntry | null => {
+      const src = c.provenance.source;
+      if (src !== "llm" && src !== "user") return null;
+      return {
+        target,
+        slot,
+        value: c.value,
+        source: src,
+        confirmed: src === "user" || c.provenance.confirmed === true,
+        ...(c.provenance.evidence ? { evidence: c.provenance.evidence } : {}),
+      };
+    };
+    const keys = stopKeys(doc);
+    doc.days[activeDay]?.stops.forEach((stop, j) => {
+      const key = keys[activeDay][j];
+      const sp = patch.stops?.[key];
+      if (!sp) return;
+      for (const slot of ["window", "hours", "duration", "effort", "priority", "pinnedDay"] as const) {
+        const c = sp[slot];
+        if (!c) continue;
+        const chip = chipOf({ scope: "stop", key, slot }, slot, c as Constraint<unknown>);
+        if (chip) byStopId.set(stop.id, [...(byStopId.get(stop.id) ?? []), chip]);
+      }
+    });
+    const pace = patch.trip?.pacePreset;
+    if (pace) {
+      const chip = chipOf({ scope: "trip", slot: "pacePreset" }, "pacePreset", pace);
+      if (chip) trip.push(chip);
+    }
+    for (const qb of patch.trip?.party?.quietBlocks ?? []) {
+      const chip = chipOf({ scope: "quietBlock", id: qb.id }, "quietBlock", qb);
+      if (chip) trip.push(chip);
+    }
+    return { byStopId, trip };
+  }, [doc, activeDay]);
+
   // E6c — the decision modal (Chris, 2026-08-14). Auto-pops ONCE per new
   // issue set: the set's signature is the sorted visible conflict ids;
   // "decide later" records it in localStorage (a capped list, so revisiting
@@ -246,6 +300,67 @@ export function RevealClient({
       }
     },
     [busy, doc]
+  );
+
+  // E7 — chip mutations + the standalone notes compile.
+  const handleConfirmChip = useCallback(
+    (target: ChipTarget) => {
+      void runMutation(
+        (d) => ({ ...d, constraints: confirmConstraint(d.constraints ?? {}, target) }),
+        "That confirm didn't stick"
+      );
+    },
+    [runMutation]
+  );
+  const handleDeleteChip = useCallback(
+    (target: ChipTarget) => {
+      void runMutation((d) => {
+        const next = removeConstraint(d.constraints ?? {}, target);
+        if (Object.keys(next).length === 0) {
+          const { constraints: _dropped, ...rest } = d;
+          return rest;
+        }
+        return { ...d, constraints: next };
+      }, "That delete didn't stick");
+    },
+    [runMutation]
+  );
+  // POST to the compile endpoint, commit whatever it saved. compiled: 0 is a
+  // legitimate outcome (no constraint language found) — not an error.
+  const handleCompileNotes = useCallback(
+    async (notes: string): Promise<void> => {
+      if (busy) return;
+      setBusy(true);
+      setActionError(null);
+      try {
+        const res = await fetch(`/api/trips/${doc.tripId}/constraints`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ notes }),
+        });
+        const body = (await res.json().catch(() => null)) as
+          | { doc?: TripDoc; compiled?: number; error?: string }
+          | null;
+        if (!res.ok || !body?.doc) {
+          throw new Error(body?.error ?? `compile failed: ${res.status}`);
+        }
+        setDoc(body.doc);
+        if (body.doc.plan) setPlans(body.doc.plan.days);
+        if (!body.compiled) {
+          // audit finding 8: compiled: 0 must not read as a mute success —
+          // say what happened without treating it as a failure.
+          setActionError(
+            "Gracie read your notes but didn't find anything to hold her to — try naming a stop, a time, or the pace."
+          );
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setActionError(`Gracie couldn't read those notes — ${msg}. Try again?`);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, doc.tripId]
   );
 
   const handleReorder = useCallback(
@@ -491,6 +606,10 @@ export function RevealClient({
           onOpenDecisions={handleOpenDecisions}
           homeBase={doc.homeBase}
           onSetHomeBase={handleSetHomeBase}
+          constraintChips={constraintChips}
+          onConfirmChip={handleConfirmChip}
+          onDeleteChip={handleDeleteChip}
+          onCompileNotes={handleCompileNotes}
           onRemoveStop={handleRemoveStop}
           onToggleLeg={handleToggleLeg}
           onSettingsChange={handleSettingsChange}

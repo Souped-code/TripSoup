@@ -83,6 +83,15 @@ export type TripDoc = {
   tripId: string;
   days: TripDay[];
   settings: { walkMax: number; driveOverheadMin: number };
+  // E7 (2026-08-22) — the persisted constraint layer: a stored ConstraintPatch
+  // (src/lib/constraints/types.ts — E2's wire shape) merged over the compiled
+  // base on every solve (constraintSetForSolve). Written by the LLM compiler
+  // (source "llm", confirmed false, evidence-tethered), by chip
+  // confirm/delete/edit (source "user" / confirmed true), and by the E6
+  // pace-proposal accept. Sanitized + normalized at the PUT boundary
+  // (sanitizeConstraintPatch); solve-relevant, so it rides the solve
+  // projection — any change stales every day.
+  constraints?: import("../constraints/types").ConstraintPatch;
   // E6c (2026-08-14) — where the trip sleeps. Detected from the paste (the LLM
   // adapter's `accommodationRef`) or set/overridden in the sidebar pocket;
   // `source` records which, so a user edit is distinguishable from detection.

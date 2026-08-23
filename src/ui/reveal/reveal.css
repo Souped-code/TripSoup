@@ -481,6 +481,77 @@
   font-weight: 700;
 }
 
+/* E7 — constraint review chips + the notes pocket --------------------------- */
+.reveal-constraint-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 2px;
+}
+.reveal-constraint-chips--trip {
+  margin: 6px 0 10px;
+}
+.reveal-constraint-chips__label {
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+}
+.reveal-constraint-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  font-family: var(--font-body);
+  font-size: 0.74rem;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px dashed var(--ink-soft);
+  border-radius: 3px 6px 4px 6px;
+  padding: 1px 6px;
+}
+.reveal-constraint-chip--confirmed {
+  border-style: solid;
+  border-color: var(--action);
+}
+.reveal-constraint-chip__evidence {
+  color: var(--ink-soft);
+  font-style: italic;
+  max-width: 11em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reveal-constraint-chip__btn {
+  font: inherit;
+  color: var(--action);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.reveal-constraint-chip__btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.reveal-notes-pocket {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 4px 0 12px;
+}
+.reveal-notes-pocket__input {
+  width: 100%;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 6px 8px;
+  background: var(--paper);
+  border: 1px solid var(--ink-soft);
+  border-radius: 3px;
+  color: var(--ink);
+  resize: vertical;
+}
+
 /* E6c — "staying at" row in the planner's pocket ---------------------------- */
 .reveal-homebase {
   display: flex;

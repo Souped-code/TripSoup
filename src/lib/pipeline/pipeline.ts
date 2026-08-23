@@ -33,6 +33,7 @@
 import { randomBytes } from "crypto";
 import { parseItinerary } from "../parse/parseItinerary";
 import { repairDayAssignments } from "../parse/repairDayAssignments";
+import { compileConstraintPatch } from "../constraints/interpret/interpretConstraints";
 import { getMapsProvider, getTripStore } from "../config";
 import { getEntitlements, type Entitlements } from "../entitlements/entitlements";
 import {
@@ -555,7 +556,7 @@ export async function* runPipeline(
         ? undefined
         : resolvedByItemIndex.get(parsed.accommodationRef);
 
-    const doc: TripDoc = {
+    const preConstraintsDoc: TripDoc = {
       tripId,
       days,
       settings: { walkMax: 10, driveOverheadMin: 10 },
@@ -571,6 +572,20 @@ export async function* runPipeline(
         : {}),
       legOverrides: [],
     };
+
+    // E7 — the SECOND compile pass (the M1 parse contract above is untouched):
+    // the same paste that named the places also carries the constraint
+    // language ("mum walks slow", "east coast park sunset", "last entry
+    // 5pm"). Compiled AFTER resolution (evidence quotes come from the raw
+    // text; stop names resolve against the real stops), gated + adapter-
+    // selected inside compileConstraintPatch, and NEVER blocking: a null
+    // compile just means no chips. Runs before the first solve so the cook
+    // already honours what the notes said.
+    yield { stage: "resolve", pct: 55, detail: "Reading your notes for constraints…" };
+    const constraintPatch = await compileConstraintPatch(text, preConstraintsDoc, entitlements);
+    const doc: TripDoc = constraintPatch
+      ? { ...preConstraintsDoc, constraints: constraintPatch }
+      : preConstraintsDoc;
 
     await getTripStore().put(doc);
 

@@ -132,13 +132,39 @@ describe("applyDocPatch — setDayWindow / setDuration / moveStop", () => {
   });
 });
 
-describe("applyDocPatch — setPacePreset (honest gap)", () => {
-  it("is reported as not-applicable rather than silently accepted-but-inert", () => {
+describe("applyDocPatch — setPacePreset (E7 closed the honest gap)", () => {
+  it("persists the pace as a hard user constraint on doc.constraints", () => {
     const doc = baseDoc();
     const result = applyDocPatch(doc, { op: "setPacePreset", preset: "packed" });
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.reason).toMatch(/pace/i);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.doc.constraints?.trip?.pacePreset).toEqual({
+      value: "packed",
+      provenance: { source: "user" },
+      hardness: "hard",
+    });
+    // input doc untouched (pure)
+    expect(doc.constraints).toBeUndefined();
+  });
+
+  it("a user pace accept outranks a stored unconfirmed LLM pace", () => {
+    const doc: TripDoc = {
+      ...baseDoc(),
+      constraints: {
+        trip: {
+          pacePreset: {
+            value: "relaxed",
+            provenance: { source: "llm", confirmed: false, evidence: "keep it chill" },
+            hardness: { soft: { weight: 30 } },
+          },
+        },
+      },
+    };
+    const result = applyDocPatch(doc, { op: "setPacePreset", preset: "packed" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.doc.constraints?.trip?.pacePreset?.value).toBe("packed");
+    expect(result.doc.constraints?.trip?.pacePreset?.provenance.source).toBe("user");
   });
 });
 

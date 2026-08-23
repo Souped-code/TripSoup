@@ -17,6 +17,7 @@ import { getTripStore } from "@/lib/config";
 import { savePlanned } from "@/lib/planStore";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { isValidWeeklyHoursShape } from "@/lib/maps/openingHours";
+import { sanitizeConstraintPatch } from "@/lib/constraints/persisted";
 import type { TripDoc } from "@/lib/store/types";
 
 // A full multi-day re-plan is a real engine solve now (up to ENGINE_BUDGET_MS
@@ -114,6 +115,18 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
   const doc = (await req.json()) as TripDoc;
   const bad = malformed(doc, id);
   if (bad) return NextResponse.json({ error: `malformed trip document: ${bad}` }, { status: 400 });
+  // E7 — the constraint patch is boundary-normalized: structurally invalid →
+  // 400; stale/ruleless parts (unknown stops, llm-without-evidence,
+  // llm-unconfirmed-hard) are dropped/clamped so what's STORED is canonical
+  // (the solve projection hashes it — equivalent docs must hash equal).
+  if (doc.constraints !== undefined) {
+    const sane = sanitizeConstraintPatch(doc.constraints, doc);
+    if (sane === null) {
+      return NextResponse.json({ error: "malformed trip document: constraints" }, { status: 400 });
+    }
+    if (Object.keys(sane).length === 0) delete doc.constraints;
+    else doc.constraints = sane;
+  }
   const saved = await savePlanned(doc);
   return NextResponse.json({ doc: saved });
 }
