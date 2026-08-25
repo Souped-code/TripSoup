@@ -2752,3 +2752,25 @@ the sunset chip → the day re-times to hold it; delete a chip → re-plans with
 NEXT at the roadmap: E8 (conversational refinement — pure composition of E5+E6+E7) or M3
 payments. The E7 contract E8 needs (compile a chat turn into a previewable patch) is now
 built and audited.
+
+## E7.1 — TRIP-COHERENT DATE INFERENCE (2026-08-25, prod verify round 3)
+
+Round-3 verify was otherwise CLEAN — depot legs on every day ("leave Marina Bay Sands
+09:06 … back at 21:20", leave-late departures), day assignments holding, durations
+formatted, and correctly NO modal (the day genuinely fit; pace overruns are soft = margin
+notes by design). One real finding: Chris pasted "24 aug" one day after Aug 24 passed —
+per-day year inference rolled DAY 1 to 2027 (header read "Tuesday, Aug 24") while days 2–3
+stayed 2026: consecutive trip days dated a year apart, and the Monday-closed machinery had
+nothing to fire on (Aug 24 2027 is a Tuesday).
+
+Two rules added (pipeline.ts):
+- resolveDayDate RECENT-PAST GRACE: an explicit day+month within the last 7 days keeps the
+  reference year ("yesterday" is this week's trip, not 364 days away); older still rolls
+  forward. Existing goldens unaffected (they test ≥ 17 days past).
+- enforceMonotonicDates: a trip's REAL dates must be non-decreasing — each subsequent real
+  date bumps forward in whole years until ≥ its predecessor (also fixes Dec→Jan trips);
+  label days pass through untouched.
+
+Also confirmed from the round: E7 chips absent on prod because CONSTRAINTS_PROVIDER=llm is
+not set in Vercel env — expected dormancy, CHRIS-STEP to enable. Gates: tsc 0 · jest
+475/475 · interpretation/hours/constraints/tradeoffs e2e 12/12.

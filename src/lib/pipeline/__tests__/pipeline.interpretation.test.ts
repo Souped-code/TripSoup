@@ -10,7 +10,7 @@
 import * as os from "os";
 import * as fs from "fs";
 import * as path from "path";
-import { runPipeline, resolveDayDate, type PipelineResult } from "../pipeline";
+import { runPipeline, resolveDayDate, enforceMonotonicDates, type PipelineResult } from "../pipeline";
 import * as config from "../../config";
 import * as parseModule from "../../parse/parseItinerary";
 import type { ParsedItinerary } from "../../parse/types";
@@ -308,6 +308,44 @@ describe("resolveDayDate (M1.5)", () => {
     expect(resolveDayDate("12 Jul", REF, "Day 1")).toEqual({ date: "2027-07-12" });
     // Today itself counts as future.
     expect(resolveDayDate("29 Jul", REF, "Day 1")).toEqual({ date: "2026-07-29" });
+  });
+
+  it("recent-past grace (2026-08-25 live finding): a date a few days back is this week, not next year", () => {
+    // Yesterday and up to 7 days back stay in the reference year…
+    expect(resolveDayDate("28 Jul", REF, "Day 1")).toEqual({ date: "2026-07-28" });
+    expect(resolveDayDate("22 Jul", REF, "Day 1")).toEqual({ date: "2026-07-22" });
+    // …8 days back rolls forward as before.
+    expect(resolveDayDate("21 Jul", REF, "Day 1")).toEqual({ date: "2027-07-21" });
+  });
+
+  it("enforceMonotonicDates: a trip's real dates never run backwards", () => {
+    // The live incoherence: day 1 rolled to next year, days 2-3 not.
+    expect(
+      enforceMonotonicDates([
+        { date: "2027-08-24" },
+        { date: "2026-08-25" },
+        { date: "2026-08-26" },
+      ])
+    ).toEqual([{ date: "2027-08-24" }, { date: "2027-08-25" }, { date: "2027-08-26" }]);
+    // A year boundary inside a trip bumps forward once.
+    expect(
+      enforceMonotonicDates([{ date: "2026-12-31" }, { date: "2026-01-01" }])
+    ).toEqual([{ date: "2026-12-31" }, { date: "2027-01-01" }]);
+    // Labels pass through and don't participate.
+    expect(
+      enforceMonotonicDates([
+        { date: "2026-08-25" },
+        { date: REF, dayLabel: "Day 2" },
+        { date: "2026-08-27" },
+      ])
+    ).toEqual([
+      { date: "2026-08-25" },
+      { date: REF, dayLabel: "Day 2" },
+      { date: "2026-08-27" },
+    ]);
+    // Already coherent = untouched.
+    const ok = [{ date: "2026-08-25" }, { date: "2026-08-26" }];
+    expect(enforceMonotonicDates(ok)).toEqual(ok);
   });
 
   it("accepts month-first and long month names, with or without an explicit year", () => {

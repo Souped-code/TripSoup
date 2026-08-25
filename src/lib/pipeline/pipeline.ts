@@ -193,18 +193,61 @@ export function resolveDayDate(
   }
 
   // Year inference: the soonest year in which this month/day is a real date
-  // that has not already passed. Normally that is this year or next; the wider
-  // window exists solely for "29 Feb", whose next occurrence can be up to four
-  // years out. The user gave an explicit day and month, so the honest answer is
-  // the next time that date actually happens — not a label, and never 1 March.
+  // that has not already passed — with a RECENT-PAST GRACE (live-verify
+  // finding, 2026-08-25): "24 aug" pasted on Aug 25 is overwhelmingly "this
+  // week's trip", not "364 days from now". A date within the last GRACE_DAYS
+  // keeps this year; anything older rolls forward as before. The wider search
+  // window exists solely for "29 Feb", whose next occurrence can be up to
+  // four years out.
   const refYear = parseInt(refToday.slice(0, 4), 10);
-  for (let year = refYear; year <= refYear + 4; year++) {
+  for (let year = refYear - 1; year <= refYear + 4; year++) {
     if (day > daysInMonth(year, month)) continue; // e.g. 29 Feb in a non-leap year
     const candidate = iso(year, month, day);
-    if (candidate >= refToday) return { date: candidate }; // ISO strings compare lexicographically
+    // ISO strings compare lexicographically.
+    if (candidate >= refToday || withinGraceDays(candidate, refToday)) {
+      return { date: candidate };
+    }
   }
 
   return { date: refToday, dayLabel: cleanLabel(hint) };
+}
+
+/** The recent-past window resolveDayDate tolerates (see its comment). */
+const GRACE_DAYS = 7;
+
+function withinGraceDays(candidate: string, refToday: string): boolean {
+  const c = Date.parse(`${candidate}T12:00:00Z`);
+  const r = Date.parse(`${refToday}T12:00:00Z`);
+  if (Number.isNaN(c) || Number.isNaN(r)) return false;
+  const diffDays = (r - c) / 86_400_000;
+  return diffDays > 0 && diffDays <= GRACE_DAYS;
+}
+
+/** Trip-level date coherence (same live-verify finding): per-day year
+ * inference can date consecutive days a YEAR apart (day 1 rolled forward,
+ * day 2 not). A trip's real dates must be non-decreasing, so each real date
+ * after the first is bumped forward in whole years until it is >= its
+ * predecessor. Label days (no real date) pass through untouched and don't
+ * participate. Pure; mutates nothing. */
+export function enforceMonotonicDates(
+  resolved: ReadonlyArray<{ date: string; dayLabel?: string }>
+): Array<{ date: string; dayLabel?: string }> {
+  let prevReal: string | null = null;
+  return resolved.map((entry) => {
+    if (entry.dayLabel !== undefined) return entry;
+    let date = entry.date;
+    if (prevReal !== null && date < prevReal) {
+      for (let bump = 0; bump < 5 && date < prevReal; bump++) {
+        const year = parseInt(date.slice(0, 4), 10) + 1;
+        const month = parseInt(date.slice(5, 7), 10);
+        const dayNum = parseInt(date.slice(8, 10), 10);
+        if (dayNum > daysInMonth(year, month)) return entry; // 29 Feb — give up, keep as resolved
+        date = iso(year, month, dayNum);
+      }
+    }
+    prevReal = date;
+    return date === entry.date ? entry : { ...entry, date };
+  });
 }
 
 // Flag same-place duplicates within a single day (D2.3 T4b — SUPERSEDES T4's
@@ -488,8 +531,11 @@ export async function* runPipeline(
         },
       ];
     } else {
+      const resolvedDates = enforceMonotonicDates(
+        parsed.days.map((d, i) => resolveDayDate(d.dateHint, refToday, `Day ${i + 1}`))
+      );
       days = parsed.days.map((d, i) => {
-        const { date, dayLabel } = resolveDayDate(d.dateHint, refToday, `Day ${i + 1}`);
+        const { date, dayLabel } = resolvedDates[i];
         return {
           date,
           ...(dayLabel ? { dayLabel } : {}),
