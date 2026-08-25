@@ -212,6 +212,12 @@ export function deriveProposals(
   const baseConflictIds = new Set(base.conflicts.map((c) => c.id));
 
   const out: Proposal[] = [];
+  // Every evaluated candidate is cached so the rough-fix pass below never
+  // pays a second solve for the same patch.
+  const evaluated = new Map<
+    string,
+    { cand: Candidate; scored: ReturnType<typeof quickScore>; resolves: string[] }
+  >();
   let evals = 0;
   for (const [sig, cand] of [...candidates.entries()].sort((a, b) =>
     a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0
@@ -223,6 +229,7 @@ export function deriveProposals(
     const scored = quickScore(patched, quick);
     const stillThere = new Set(scored.conflicts.map((c) => c.id));
     const resolves = [...cand.targets].filter((id) => !stillThere.has(id)).sort();
+    evaluated.set(sig, { cand, scored, resolves });
     if (resolves.length === 0) continue;
     // A fix that swaps one conflict for another is not a fix. E6 renders these
     // as "accept" buttons; a button that trades the user's museum problem for a
@@ -235,6 +242,52 @@ export function deriveProposals(
       resolves,
       costDeltaMin: round2(scored.score - baseScore),
       message: cand.message,
+    });
+  }
+
+  // ---- the rough-fix tier (E7.2, Chris's "Skip it can't be the only
+  // option") -------------------------------------------------------------
+  // A conflict whose ONLY clean proposal is dropStop (or nothing at all)
+  // gets its least-bad CONSTRUCTIVE candidate anyway: it must still resolve
+  // the conflict, and among those the smallest introduced breach (then
+  // lowest score) wins. Labeled `imperfect` and priced honestly — the user
+  // decides whether the new pinch beats losing the stop.
+  const constructive = new Set<string>();
+  for (const p of out) {
+    if (p.kind === "dropStop") continue;
+    for (const id of p.resolves) constructive.add(id);
+  }
+  const emitted = new Set(out.map((p) => p.id));
+  for (const conflict of conflicts.slice(0, MAX_CONFLICTS_CONSIDERED)) {
+    if (constructive.has(conflict.id)) continue;
+    let best: { sig: string; cand: Candidate; scored: ReturnType<typeof quickScore>; pain: number } | null =
+      null;
+    for (const [sig, ev] of evaluated) {
+      if (ev.cand.kind === "dropStop") continue;
+      if (!ev.resolves.includes(conflict.id)) continue;
+      const introduced = ev.scored.conflicts.filter((c) => !baseConflictIds.has(c.id));
+      const pain = introduced.reduce((s, c) => s + Math.max(1, c.violatedByMin), 0);
+      if (
+        best === null ||
+        pain < best.pain ||
+        (pain === best.pain && ev.scored.score < best.scored.score) ||
+        (pain === best.pain && ev.scored.score === best.scored.score && sig < best.sig)
+      ) {
+        best = { sig, cand: ev.cand, scored: ev.scored, pain };
+      }
+    }
+    if (!best) continue;
+    const id = `${best.cand.kind}:${best.sig}`;
+    if (emitted.has(id)) continue; // already offered (for another conflict)
+    emitted.add(id);
+    out.push({
+      id,
+      kind: best.cand.kind,
+      patch: best.cand.patch,
+      resolves: [conflict.id],
+      costDeltaMin: round2(best.scored.score - baseScore),
+      message: best.cand.message,
+      imperfect: true,
     });
   }
 

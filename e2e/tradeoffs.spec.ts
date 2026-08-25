@@ -53,14 +53,28 @@ test.describe("trade-off cards (E6b)", () => {
   });
 
   test("dismissing a card hides it and it survives a reload, until the day's settings change", async ({ page }) => {
-    await pasteMondayClosedTrip(page);
+    const tripId = await pasteMondayClosedTrip(page);
 
     const card = firstCard(page);
     await expect(card).toBeVisible({ timeout: 15000 });
     const dismissBtn = card.locator('[data-testid^="tradeoff-dismiss-"]');
     await dismissBtn.click();
 
+    // E7.2 — the card hides INSTANTLY (optimistic queue) while the persist
+    // runs in the background…
     await expect(page.locator('[data-testid^="tradeoff-card-"]')).toHaveCount(0, { timeout: 15000 });
+
+    // …so wait for the server to actually hold the dismissal before
+    // reloading (a reload mid-flight would abort the background PUT).
+    await expect
+      .poll(
+        async () => {
+          const doc = await (await page.request.get(`/api/trips/${tripId}`)).json();
+          return (doc.dismissedProposals ?? []).length;
+        },
+        { timeout: 15000 }
+      )
+      .toBeGreaterThan(0);
 
     // Survives a reload — the dismissal is persisted on the doc, not client state.
     await page.reload();

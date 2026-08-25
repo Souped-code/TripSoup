@@ -75,6 +75,10 @@ export interface TradeOffModalProps {
   cards: TradeOffCardEntry[];
   index: number;
   busy: boolean;
+  /** E7.2 — a background re-cook is in flight (decisions stay usable). */
+  syncing: boolean;
+  /** Decorative day prose ("A few things need a decision, starting with…"). */
+  prose: string | null;
   onAccept: (proposal: Proposal) => void;
   onDismiss: (conflict: Conflict) => void;
   onPrev: () => void;
@@ -86,6 +90,8 @@ export function TradeOffModal({
   cards,
   index,
   busy,
+  syncing,
+  prose,
   onAccept,
   onDismiss,
   onPrev,
@@ -133,6 +139,11 @@ export function TradeOffModal({
           <p className="reveal-decision-issue__who" data-testid="tradeoff-card-who">
             {provenanceLabel(conflict)} — {byHowMuchText(conflict)}.
           </p>
+          {prose && (
+            <p className="reveal-decision-issue__prose" data-testid="decision-modal-prose">
+              {prose}
+            </p>
+          )}
         </header>
 
         {/* arrows either side cycle previous/next issue (mock); hidden when
@@ -165,7 +176,12 @@ export function TradeOffModal({
                 >
                   <span className="reveal-decision-pick__kind">{kindLabel(p.kind, p.patch)}</span>
                   <span className="reveal-decision-pick__message">{p.message}</span>
-                  <span className="reveal-decision-pick__cost">{costDeltaLabel(p.costDeltaMin)}</span>
+                  <span className="reveal-decision-pick__cost">
+                    {costDeltaLabel(p.costDeltaMin)}
+                    {p.imperfect && (
+                      <span className="reveal-decision-pick__rough"> · rough fix — something else will pinch</span>
+                    )}
+                  </span>
                 </button>
               ))}
             </div>
@@ -207,6 +223,12 @@ export function TradeOffModal({
         >
           Decide later
         </InkButton>
+
+        {syncing && (
+          <p className="reveal-decision-syncing" data-testid="decision-modal-syncing">
+            Gracie&rsquo;s re-cooking in the background…
+          </p>
+        )}
       </div>
     </div>
   );

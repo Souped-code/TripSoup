@@ -132,6 +132,9 @@ export interface JournalSidebarProps {
   actionError: string | null;
   settings: PlannerSettings;
   tradeOffCards: TradeOffCardEntry[];
+  /** E7.2 — decorative day prose, fetched by RevealClient (shared with the
+   * decision modal's header). */
+  prose: string | null;
   onReorder: (nextOrder: string[]) => void;
   onReoptimizeDay: () => void;
   onRecookTrip: () => void;
@@ -163,6 +166,7 @@ export function JournalSidebar({
   actionError,
   settings,
   tradeOffCards,
+  prose,
   onReorder,
   onReoptimizeDay,
   onRecookTrip,
@@ -181,37 +185,8 @@ export function JournalSidebar({
   const [recookTripConfirming, setRecookTripConfirming] = useState(false);
   useEffect(() => setRecookTripConfirming(false), [dayIndex]);
 
-  // E6b — decorative prose (src/lib/prose/explainTradeoffs.ts), fetched
-  // lazily ONLY when there are cards to explain, cached per (day, card set) so
-  // an unrelated re-render never re-fetches. Silent on failure: `prose` just
-  // stays null and the cards render exactly as fully without it (brief:
-  // "decorative; structured cards always render even if the call fails").
-  const cardsKey = tradeOffCards.map((c) => c.conflict.id).sort().join("|");
-  const [prose, setProse] = useState<string | null>(null);
-  const fetchedKeyRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (cardsKey === "") {
-      setProse(null);
-      fetchedKeyRef.current = null;
-      return;
-    }
-    const key = `${dayIndex}:${cardsKey}`;
-    if (fetchedKeyRef.current === key) return;
-    fetchedKeyRef.current = key;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch(`/api/trips/${tripId}/explain?day=${dayIndex}`);
-        const body = await res.json().catch(() => null);
-        if (!cancelled && res.ok) setProse((body as { prose: string | null } | null)?.prose ?? null);
-      } catch {
-        // decorative — silent, cards render without it
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [tripId, dayIndex, cardsKey]);
+  // E7.2 — prose is fetched by RevealClient now (shared with the modal
+  // header); this component just renders whatever it was given.
   const timesAvailable = plan.status === "ok";
   const entriesById = useMemo(() => {
     const map = new Map<string, PlanEntry>();

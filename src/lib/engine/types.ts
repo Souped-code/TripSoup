@@ -282,6 +282,9 @@ export type Conflict = {
   readonly closedDay?: boolean;
 };
 
+// (Proposal lives further down; see its `imperfect` field for the E7.2
+// rough-fix tier.)
+
 /** A minimal, typed description of a change an E6 UI can apply.
  *
  * Two appliers, on purpose (./patch): doc-level ops rewrite the TripDoc,
@@ -341,6 +344,11 @@ export type Proposal = {
   readonly resolves: readonly string[];
   readonly costDeltaMin: number;
   readonly message: string;
+  /** E7.2 — a ROUGH FIX: it resolves its conflict but introduces a smaller
+   * breach elsewhere (the clean-fix filter found nothing better). Surfaced
+   * so "Skip it" is never a conflict's only card; the UI labels it and the
+   * price is honest. */
+  readonly imperfect?: boolean;
 };
 
 export type ObjectiveBreakdown = {

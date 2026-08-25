@@ -8,10 +8,10 @@
 // RevealMap plays the pencil-scribble sfx and re-sketches on its own
 // whenever its orderedIds prop changes — nothing here triggers either.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TripDoc } from "@/lib/store/types";
 import type { DayPlan } from "@/lib/schedule/types";
-import type { Conflict, Proposal } from "@/lib/engine/types";
+import type { Conflict, DocPatch, Proposal } from "@/lib/engine/types";
 import { applyDocPatch, dismissalKeyForConflict, isConflictDismissed, validManualOrder } from "@/lib/planShared";
 import { stopKeys } from "@/lib/constraints/compile";
 import { confirmConstraint, removeConstraint, type ChipTarget } from "@/lib/constraints/persisted";
@@ -146,17 +146,24 @@ export function RevealClient({
   // dismissal to the conflict's OWN day hash, so an edit to that day silently
   // expires it). One card per conflict; its chips are the proposals whose
   // `resolves` includes that conflict's id.
+  // E7.2 — conflicts the user has ALREADY decided (accepted a fix or
+  // dismissed) but whose background re-cook hasn't landed yet: hidden
+  // immediately so the modal advances without waiting on the solve.
+  const [resolvedLocally, setResolvedLocally] = useState<ReadonlySet<string>>(new Set());
+  const [syncing, setSyncing] = useState(false);
+
   const tradeOffCards: TradeOffCardEntry[] = useMemo(() => {
     const allConflicts = doc.plan?.conflicts ?? [];
     const allProposals = doc.plan?.proposals ?? [];
     return allConflicts
       .filter((c) => c.dayIndex === activeDay || c.dayIndex === undefined)
       .filter((c) => !isConflictDismissed(doc, c))
+      .filter((c) => !resolvedLocally.has(c.id))
       .map((conflict) => ({
         conflict,
         proposals: allProposals.filter((p) => p.resolves.includes(conflict.id)),
       }));
-  }, [doc, activeDay]);
+  }, [doc, activeDay, resolvedLocally]);
 
   // E7 — the persisted constraints as REVIEW CHIPS: one chip per llm/user
   // constraint (google/legacy/derived facts aren't statements to review),
@@ -208,6 +215,39 @@ export function RevealClient({
     }
     return { byStopId, trip };
   }, [doc, activeDay]);
+
+  // E7.2 — decorative prose for the active day's decisions, lifted from
+  // JournalSidebar so BOTH the banner and the modal header can show it.
+  // Fetched lazily only when there are cards, cached per (day, card set).
+  const [prose, setProse] = useState<string | null>(null);
+  const proseKeyRef = useRef<string | null>(null);
+  const cardsKey = tradeOffCards
+    .map((c) => c.conflict.id)
+    .sort()
+    .join("|");
+  useEffect(() => {
+    if (cardsKey === "") {
+      setProse(null);
+      proseKeyRef.current = null;
+      return;
+    }
+    const key = `${activeDay}:${cardsKey}`;
+    if (proseKeyRef.current === key) return;
+    proseKeyRef.current = key;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/trips/${doc.tripId}/explain?day=${activeDay}`);
+        const body = await res.json().catch(() => null);
+        if (!cancelled && res.ok) setProse((body as { prose: string | null } | null)?.prose ?? null);
+      } catch {
+        // decorative — silent
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [doc.tripId, activeDay, cardsKey]);
 
   // E6c — the decision modal (Chris, 2026-08-14). Auto-pops ONCE per new
   // issue set: the set's signature is the sorted visible conflict ids;
@@ -282,7 +322,7 @@ export function RevealClient({
   // double-drag, a drag racing Re-optimize, etc.) can never interleave.
   const runMutation = useCallback(
     async (buildNextDoc: (d: TripDoc) => TripDoc, failureVerb: string) => {
-      if (busy) return;
+      if (busy || pumping.current) return; // never race the decision pump
       setBusy(true);
       setActionError(null);
       try {
@@ -427,53 +467,104 @@ export function RevealClient({
     })();
   }, [busy, doc.tripId]);
 
-  // E6b — accept a trade-off proposal: apply its DocPatch CLIENT-SIDE first
-  // (src/lib/planShared.ts's applyDocPatch — validates as it goes), then hand
-  // the resulting doc through the ordinary PUT/re-plan round-trip. A stale
-  // patch (the stop/day it targets already changed) is NEVER PUT — it shows a
-  // margin error and refreshes the doc from the server instead, per the
-  // brief's "never a misapply".
+  // E7.2 — DECISIONS ARE INSTANT (Chris: "smooth, seamless, frictionless").
+  // Accept/dismiss no longer block on the re-plan round-trip: the decided
+  // conflict hides immediately (resolvedLocally), the modal advances, and the
+  // patch joins a queue a background pump drains — coalescing several
+  // decisions into as few PUTs as possible. A patch that has gone stale by
+  // the time its batch applies (the earlier re-cook already made it moot) is
+  // skipped silently; a failed PUT refetches the server doc and surfaces one
+  // error. Known trade-off, accepted: closing the tab mid-sync loses queued
+  // decisions (standard optimistic-UI caveat; the syncing whisper is visible
+  // until the flush lands).
+  type Decision = { kind: "patch"; patch: DocPatch } | { kind: "dismiss"; conflict: Conflict };
+  const docLive = useRef(doc);
+  useEffect(() => {
+    docLive.current = doc;
+  }, [doc]);
+  const busyLive = useRef(busy);
+  useEffect(() => {
+    busyLive.current = busy;
+  }, [busy]);
+  const decisionQueue = useRef<Decision[]>([]);
+  const pumping = useRef(false);
+
+  const pumpDecisions = useCallback(() => {
+    if (pumping.current) return;
+    pumping.current = true;
+    setSyncing(true);
+    void (async () => {
+      try {
+        while (decisionQueue.current.length > 0) {
+          if (busyLive.current) {
+            // a sidebar mutation is mid-flight — yield briefly, never race it
+            await new Promise((r) => setTimeout(r, 250));
+            continue;
+          }
+          const batch = decisionQueue.current.splice(0);
+          let next = docLive.current;
+          for (const d of batch) {
+            if (d.kind === "patch") {
+              const r = applyDocPatch(next, d.patch);
+              if (r.ok) next = r.doc; // stale → the re-cook already made it moot
+            } else {
+              const key = dismissalKeyForConflict(next, d.conflict);
+              if (key !== null) {
+                next = {
+                  ...next,
+                  dismissedProposals: [
+                    ...(next.dismissedProposals ?? []).filter((x) => x.id !== d.conflict.id),
+                    { id: d.conflict.id, dayHash: key },
+                  ],
+                };
+              }
+            }
+          }
+          const savedDoc = await putDoc(next);
+          docLive.current = savedDoc;
+          setDoc(savedDoc);
+          if (savedDoc.plan) setPlans(savedDoc.plan.days);
+        }
+        setResolvedLocally(new Set()); // server state is authoritative again
+      } catch (e) {
+        decisionQueue.current = [];
+        setResolvedLocally(new Set());
+        const msg = e instanceof Error ? e.message : String(e);
+        setActionError(`A decision didn't stick — ${msg}. Showing the saved plan.`);
+        const fresh = await fetchDoc(docLive.current.tripId);
+        if (fresh) {
+          docLive.current = fresh;
+          setDoc(fresh);
+          if (fresh.plan) setPlans(fresh.plan.days);
+        }
+      } finally {
+        pumping.current = false;
+        setSyncing(false);
+        if (decisionQueue.current.length > 0) pumpDecisions();
+      }
+    })();
+  }, []);
+
   const handleAcceptProposal = useCallback(
     (proposal: Proposal) => {
-      if (busy) return;
-      const result = applyDocPatch(doc, proposal.patch);
-      if (!result.ok) {
-        setActionError(`That trade-off couldn't be applied — ${result.reason} Refreshing…`);
-        void (async () => {
-          const fresh = await fetchDoc(doc.tripId);
-          if (fresh) {
-            setDoc(fresh);
-            if (fresh.plan) setPlans(fresh.plan.days);
-          }
-        })();
-        return;
-      }
-      const patched = result.doc;
-      void runMutation(() => patched, "That trade-off didn't stick");
+      setResolvedLocally((prev) => {
+        const next = new Set(prev);
+        for (const id of proposal.resolves) next.add(id);
+        return next;
+      });
+      decisionQueue.current.push({ kind: "patch", patch: proposal.patch });
+      pumpDecisions();
     },
-    [busy, doc, runMutation]
+    [pumpDecisions]
   );
 
-  // E6b — dismiss a trade-off card. Card-level, not per-chip (see
-  // src/lib/store/types.ts's `dismissedProposals` doc comment): keyed to the
-  // conflict's OWN day's CURRENT hash, so it rides through the cheap toggle
-  // fast path (dismissedProposals isn't in solveProjection) rather than
-  // forcing a real re-plan, and auto-expires the moment that day changes.
   const handleDismissConflict = useCallback(
     (conflict: Conflict) => {
-      void runMutation((d) => {
-        const key = dismissalKeyForConflict(d, conflict);
-        if (key === null) return d; // no stored plan to key against — nothing to dismiss yet
-        return {
-          ...d,
-          dismissedProposals: [
-            ...(d.dismissedProposals ?? []).filter((x) => x.id !== conflict.id),
-            { id: conflict.id, dayHash: key },
-          ],
-        };
-      }, "That dismiss didn't stick");
+      setResolvedLocally((prev) => new Set(prev).add(conflict.id));
+      decisionQueue.current.push({ kind: "dismiss", conflict });
+      pumpDecisions();
     },
-    [runMutation]
+    [pumpDecisions]
   );
 
   // E6c — set/override/clear the trip's home base (already resolved by the
@@ -561,7 +652,7 @@ export function RevealClient({
   );
 
   return (
-    <div>
+    <div data-syncing={syncing ? "1" : "0"}>
       {doc.days.length > 1 && (
         <div className="reveal-tabs">
           {doc.days.map((d, i) => (
@@ -600,6 +691,7 @@ export function RevealClient({
           actionError={actionError}
           settings={doc.settings}
           tradeOffCards={tradeOffCards}
+          prose={prose}
           onReorder={handleReorder}
           onReoptimizeDay={handleReoptimize}
           onRecookTrip={handleRecookTrip}
@@ -621,6 +713,8 @@ export function RevealClient({
           cards={tradeOffCards}
           index={decisionIndex}
           busy={busy}
+          syncing={syncing}
+          prose={prose}
           onAccept={handleAcceptProposal}
           onDismiss={handleDismissConflict}
           onPrev={handlePrevDecision}

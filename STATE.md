@@ -2774,3 +2774,34 @@ Two rules added (pipeline.ts):
 Also confirmed from the round: E7 chips absent on prod because CONSTRAINTS_PROVIDER=llm is
 not set in Vercel env — expected dormancy, CHRIS-STEP to enable. Gates: tsc 0 · jest
 475/475 · interpretation/hours/constraints/tradeoffs e2e 12/12.
+
+## E7.2 — INSTANT DECISIONS + ROUGH FIXES (2026-08-25, Chris UX feedback)
+
+Round 4 (compiler now live on prod) surfaced two experience defects Chris called out
+directly: (1) picking a decision blocked the modal on the full re-cook round-trip ("brief
+delay and lag"); (2) two conflicts offered ONLY "Skip it" — a booked, closed-Monday
+restaurant with no way to keep it ("these options are not acceptable… leaves me stumped").
+
+**1. Optimistic decision queue (RevealClient).** Accept/dismiss hide their conflict
+INSTANTLY (`resolvedLocally`) and the modal advances; the patch/dismissal joins a queue a
+background pump drains — coalescing several decisions into as few PUTs as possible, never
+racing runMutation (mutual guards), stale patches skipped silently (the earlier re-cook
+made them moot), one legible error + doc refetch on failure. "Gracie's re-cooking in the
+background…" whisper while syncing; `data-syncing` attribute for tests. KNOWN TRADE-OFF
+(documented): closing the tab mid-sync loses queued decisions — the tradeoffs e2e now
+polls the server for the dismissal before reloading for exactly this reason. Prose was
+lifted from JournalSidebar to RevealClient so the modal header shows it too (the "why").
+
+**2. The rough-fix tier (deriveProposals).** Root cause of Skip-only cards: the clean-fix
+filter ("a fix that swaps one conflict for another is not a fix") is RIGHT as a preference
+and WRONG as an absolute — when every constructive candidate introduces some smaller
+breach, the user saw only dropStop. Second pass: for a conflict with no clean constructive
+proposal, the least-bad candidate that still RESOLVES it (ranked by introduced
+violatedByMin, then score, then sig — deterministic) is emitted with `imperfect: true`,
+priced honestly, rendered as "· rough fix — something else will pinch" (soup-orange). The
+evaluated-candidates cache means the tier costs no extra solves. "Skip it" can now never
+be a conflict's only card when any constructive candidate exists.
+
+Tests: roughFix.test.ts (tight-second-day fixture: closed-Monday museum gets Skip AND an
+imperfect moveDay; roomy fixture: the clean move stays unflagged). Gates: tsc 0 · jest
+477/477 · tradeoffs/constraints/reveal/homebase e2e 13/13.
