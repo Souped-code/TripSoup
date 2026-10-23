@@ -29,6 +29,7 @@ import type { TripDay, TripDoc, TripStop } from "@/lib/store/types";
 import type { DayPlan, PlanEntry, PlanLeg } from "@/lib/schedule/types";
 import type { Conflict, Proposal } from "@/lib/engine/types";
 import { formatDuration } from "@/lib/util/duration";
+import { DEFAULT_SETTINGS } from "@/lib/maps/types";
 import { WashiTag, type WashiTone } from "@/ui/journal/WashiTag";
 import { InkButton } from "@/ui/journal/InkButton";
 import { fmtTime } from "@/ui/time";
@@ -296,7 +297,7 @@ export function JournalSidebar({
         {plan.status === "ok" && plan.quality === "manual" && (
           <p className="reveal-quality">Your order — Gracie&rsquo;s re-timed it.</p>
         )}
-        {plan.status === "ok" && plan.quality === "heuristic" && (
+        {plan.status === "ok" && plan.quality === "heuristic" && plan.entries.length > DEFAULT_SETTINGS.maxExhaustive && (
           <p className="reveal-quality">Big day — this is Gracie&rsquo;s best quick route.</p>
         )}
 

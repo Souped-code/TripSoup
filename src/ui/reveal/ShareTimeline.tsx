@@ -20,6 +20,7 @@ import { WashiTag, type WashiTone } from "@/ui/journal/WashiTag";
 import { AnchorGlyph } from "./JournalSidebar";
 import { fmtTime } from "@/ui/time";
 import { formatDuration } from "@/lib/util/duration";
+import { DEFAULT_SETTINGS } from "@/lib/maps/types";
 import "./reveal.css";
 
 const TONE_CYCLE: WashiTone[] = ["coral", "sky", "pink", "leaf"];
@@ -198,7 +199,7 @@ export function ShareTimeline({ day, plan, orderedIds }: ShareTimelineProps) {
         {plan.status === "ok" && plan.quality === "manual" && (
           <p className="reveal-quality">Their order — Gracie&rsquo;s re-timed it.</p>
         )}
-        {plan.status === "ok" && plan.quality === "heuristic" && (
+        {plan.status === "ok" && plan.quality === "heuristic" && plan.entries.length > DEFAULT_SETTINGS.maxExhaustive && (
           <p className="reveal-quality">Big day — this is Gracie&rsquo;s best quick route.</p>
         )}
 
