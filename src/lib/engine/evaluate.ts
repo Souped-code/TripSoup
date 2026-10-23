@@ -421,7 +421,8 @@ export function evaluate(problem: EngineProblem, schedule: EngineSchedule): Engi
       // plain first-arrival check above already fired with the SAME
       // code|day|path|stopKeys — two conflicts would share one id (dismissal
       // keying assumes uniqueness). Oracle-only overlap; skip the depot form.
-      if (fi !== undefined && bFirst.arriveMin >= dw.value.startMin) {
+      // Same tolerance as push(): a filtered noise breach must not skip it.
+      if (fi !== undefined && bFirst.arriveMin >= dw.value.startMin - VIOLATION_EPSILON_MIN) {
         const lead = problem.base.outByDay[dayIndex][fi];
         const early = dw.value.startMin + lead - bFirst.startMin;
         if (early > 0) {
@@ -440,7 +441,7 @@ export function evaluate(problem: EngineProblem, schedule: EngineSchedule): Engi
       // Mirror of the guard above (audit verification residual): when the
       // last visit ITSELF overruns day end, the per-visit "runs past the end"
       // check already fired with the same id — skip the depot form.
-      if (li !== undefined && bLast.departMin <= dw.value.endMin) {
+      if (li !== undefined && bLast.departMin <= dw.value.endMin + VIOLATION_EPSILON_MIN) {
         const over = bLast.departMin + problem.base.backByDay[dayIndex][li] - dw.value.endMin;
         if (over > 0) {
           push({

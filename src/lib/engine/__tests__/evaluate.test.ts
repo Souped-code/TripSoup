@@ -109,6 +109,32 @@ describe("float noise is not a violation", () => {
     const schedule: EngineSchedule = { visits: [visit("fx-12", 0, startMin, startMin, departMin)], dropped: [] };
     expect(evaluate(problem, schedule).violations).toEqual([]);
   });
+
+  it("a noise-sized day-window breach still lets the home-base legs report theirs", async () => {
+    // The depot checks are skipped when the plain day-window check fired; a
+    // filtered noise breach must not skip them too and hide a real overrun.
+    const doc = {
+      ...docOf([{ date: "2026-07-07", dayStartMin: 540, dayEndMin: 1200, stops: [tripStop("fx-12", 60)] }]),
+      homeBase: { id: "base-old-inn", name: "The Old Inn", location: { lat: 51.452, lng: -2.595 }, source: "user" as const },
+    };
+    const problem = await problemFor(doc);
+
+    const lateBack: EngineSchedule = {
+      visits: [visit("fx-12", 0, 1140.0000000000002, 1140.0000000000002, 1200.0000000000002)],
+      dropped: [],
+    };
+    expect(evaluate(problem, lateBack).violations.map((v) => v.detail)).toEqual([
+      expect.stringContaining("returning to The Old Inn runs"),
+    ]);
+
+    const earlyOut: EngineSchedule = {
+      visits: [visit("fx-12", 0, 539.9999999999999, 539.9999999999999, 599.9999999999999)],
+      dropped: [],
+    };
+    expect(evaluate(problem, earlyOut).violations.map((v) => v.detail)).toEqual([
+      expect.stringContaining("before travel from The Old Inn allows"),
+    ]);
+  });
 });
 
 describe("E5a objective: wait, travel and compression", () => {
