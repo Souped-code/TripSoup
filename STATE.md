@@ -2860,7 +2860,7 @@ Walking: our estimator is straight line × 1.3 (already cuts through blocks) —
 Verified: router goldens (USS→Chinatown = Sentosa Express + NEL; Jewel→Bugis = CG→EW at Tanah
 Merah cross-platform; Zoo→Botanic Gardens = bus 138 feeder + TEL; Tiong Bahru→Somerset = direct
 bus 16), invariants over 200 random trips, 20×20 matrix ~30 ms; seeded SG trip rendered and
-screenshotted (desktop + phone). Gates: tsc 0 · jest 507/507 · e2e 41/41 (trip.spec:182 known
+screenshotted (desktop + phone). Gates: tsc 0 · jest 498/498 · e2e 41/41 (trip.spec:182 known
 flake, passed on rerun).
 NOT verified: a live paste (needs the preview: real Google matrix for the drive alternative);
 interactive toggles on an SG trip locally (fixture provider can't price SG stops).
