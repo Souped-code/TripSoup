@@ -21,7 +21,9 @@ export function buildEffectiveLeg(
   transit: Journey | null = null
 ): EffectiveLeg {
   if (transit) {
-    return isWalkEligible(walkMin, settings)
+    // Walk when it's comfortable OR simply not slower: a 19-min walk beats a
+    // 31-min train ride with a change and a long exit walk.
+    return isWalkEligible(walkMin, settings) || walkMin <= transit.minutes
       ? { mode: "walk", walkMin, driveMin, transit, chosenBy: "auto" }
       : { mode: "transit", walkMin: null, driveMin, transit, chosenBy: "auto" };
   }

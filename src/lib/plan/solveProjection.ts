@@ -27,6 +27,7 @@
 // persist, return) absorbs it for free on next read, at zero Google spend
 // (the travel matrix is still cached). No migration needed or wanted.
 
+import { inSingapore } from "../transit/sg/region";
 import type { LatLng } from "../maps/types";
 import type { WeeklyHours } from "../constraints/types";
 import type { TripDay, TripDoc } from "../store/types";
@@ -67,6 +68,7 @@ export type SolveProjection = {
     // equal. Rides the settings slice (like homeBase) — per-day scoping of
     // constraint staleness is a refinement E7 deliberately skips.
     constraints?: import("../constraints/types").ConstraintPatch;
+    travelModel?: string;
   };
 };
 
@@ -87,10 +89,19 @@ function projectDay(day: TripDay): SolveProjectionDay {
   };
 }
 
+/** Bumped when the travel model a trip is planned with changes, so stored
+ * plans re-solve once. Only Singapore trips carry it (public transport,
+ * 2026-10-23) — every other trip's hashes stay byte-identical. */
+const SG_TRAVEL_MODEL = "sg-transit-1";
+
 function projectSettings(doc: TripDoc): SolveProjection["settings"] {
+  const sg =
+    (doc.homeBase && inSingapore(doc.homeBase.location)) ||
+    doc.days.some((d) => d.stops.some((s) => inSingapore(s.location)));
   return {
     walkMax: doc.settings.walkMax,
     driveOverheadMin: doc.settings.driveOverheadMin,
+    ...(sg ? { travelModel: SG_TRAVEL_MODEL } : {}),
     ...(doc.homeBase
       ? { homeBase: { id: doc.homeBase.id, location: doc.homeBase.location } }
       : {}),

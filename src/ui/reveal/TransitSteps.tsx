@@ -33,7 +33,7 @@ function Step({ step }: { step: JourneyStep }) {
     case "mrt":
       return (
         <>
-          <Badge text={step.line} color={step.color} /> {step.from} → {step.to} ·{" "}
+          <Badge text={step.badge} color={step.color} /> {step.from} → {step.to} ·{" "}
           {step.towards ? `towards ${step.towards}` : `next stop ${step.nextStop}`} · {step.stops}{" "}
           {step.stops === 1 ? "stop" : "stops"} · {formatDuration(step.minutes)}
         </>

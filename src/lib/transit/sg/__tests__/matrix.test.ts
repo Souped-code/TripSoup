@@ -67,3 +67,43 @@ describe("outside Singapore", () => {
     expect(() => applyLegModes(m, [{ fromId: "a", toId: "b", mode: "transit" }])).toThrow(/transit-eligible/);
   });
 });
+
+describe("walking beats a slower ride", () => {
+  it("walks Merlion → Gardens by the Bay (19 min) rather than a 30-min transit trip", () => {
+    const pts = { merlion: { lat: 1.2868, lng: 103.8545 }, gardens: { lat: 1.2816, lng: 103.8636 } };
+    const m = buildEffectiveMatrix(drive(Object.keys(pts)), pts, settings, sgTransitFor(settings));
+    const leg = m.merlion.gardens;
+    expect(leg.transit!.minutes).toBeGreaterThan(leg.walkMin!);
+    expect(leg.mode).toBe("walk");
+    expect(leg.walkMin).toBeGreaterThan(settings.walkMax);
+  });
+});
+
+describe("home-base legs keep their journey through a re-time", () => {
+  it("rescheduleDayWithBase carries lead/back transit steps", async () => {
+    const { rescheduleDayWithBase } = await import("../../../planEngine");
+    const { homeBaseMatrixId } = await import("../../../maps/types");
+    const base = { id: "mbs", name: "Marina Bay Sands", location: sg.mbs, source: "paste" as const };
+    const pts = { [homeBaseMatrixId("mbs")]: sg.mbs, orchard: sg.orchard, gardens: sg.gardens };
+    const m = buildEffectiveMatrix(drive(Object.keys(pts)), pts, settings, sgTransitFor(settings));
+    const day = {
+      date: "2026-11-02",
+      dayStartMin: 540,
+      dayEndMin: 1320,
+      stops: [{ id: "orchard", name: "Orchard", durationMin: 60 }],
+    };
+    const doc = {
+      tripId: "t",
+      legOverrides: [],
+      settings: { walkMax: 10, driveOverheadMin: 10 },
+      homeBase: base,
+      days: [{ ...day, stops: [{ ...day.stops[0], location: sg.orchard }] }],
+    };
+    const plan = rescheduleDayWithBase(doc, day, ["orchard"], m, settings, "manual");
+    expect(plan.status).toBe("ok");
+    if (plan.status !== "ok") return;
+    expect(plan.baseLegs!.lead.mode).toBe("transit");
+    expect(plan.baseLegs!.lead.transit?.steps.length).toBeGreaterThan(0);
+    expect(plan.baseLegs!.back.transit?.steps.length).toBeGreaterThan(0);
+  });
+});

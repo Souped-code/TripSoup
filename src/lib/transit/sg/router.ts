@@ -38,6 +38,8 @@ export type JourneyStep =
   | {
       kind: "mrt";
       line: LineId;
+      /** What the signs say ("CC" for both Circle Line services). */
+      badge: string;
       lineName: string;
       color: string;
       from: string;
@@ -398,10 +400,11 @@ function viaMrt(net: Network, a: LatLng, b: LatLng, s: Settings): Option | null 
       const z = Math.floor(path[j] / L);
       const order = net.lineOrder[line];
       const towards =
-        line === "CC" ? undefined : net.stations[order[order.indexOf(next) > order.indexOf(a) ? order.length - 1 : 0]].name;
+        line === "CR" ? undefined : net.stations[order[order.indexOf(next) > order.indexOf(a) ? order.length - 1 : 0]].name;
       steps.push({
         kind: "mrt",
         line,
+        badge: LINES[line].badge,
         lineName: LINES[line].name,
         color: LINES[line].color,
         from: net.stations[a].name,

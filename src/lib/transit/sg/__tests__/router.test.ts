@@ -111,8 +111,19 @@ describe("SG router — rules hold on 200 random trips", () => {
 describe("inSingapore", () => {
   it("is a bounding box around the island", () => {
     expect(inSingapore(P.zoo)).toBe(true);
-    expect(inSingapore({ lat: 1.4655, lng: 103.7578 })).toBe(true); // Woodlands edge
+    expect(inSingapore({ lat: 1.448, lng: 103.77 })).toBe(true); // Woodlands Checkpoint
     expect(inSingapore({ lat: 1.4927, lng: 103.7414 })).toBe(false); // Johor Bahru
     expect(inSingapore({ lat: 51.45, lng: -2.6 })).toBe(false);
+  });
+});
+
+describe("inSingapore excludes Johor", () => {
+  it("JB Sentral, Danga Bay and Legoland Malaysia are out; Woodlands and Kranji are in", () => {
+    expect(inSingapore({ lat: 1.4628, lng: 103.7643 })).toBe(false); // JB Sentral
+    expect(inSingapore({ lat: 1.4652, lng: 103.7187 })).toBe(false); // Danga Bay
+    expect(inSingapore({ lat: 1.4269, lng: 103.6296 })).toBe(false); // Legoland Malaysia
+    expect(inSingapore({ lat: 1.4536, lng: 103.7802 })).toBe(true); // Woodlands Waterfront
+    expect(inSingapore({ lat: 1.4466, lng: 103.7299 })).toBe(true); // Sungei Buloh
+    expect(inSingapore({ lat: 1.3, lng: 103.63 })).toBe(true); // Tuas
   });
 });

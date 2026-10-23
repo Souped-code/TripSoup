@@ -14,17 +14,23 @@ type RawData = {
   busPatterns: Array<{ svc: string; dir: number; stops: number[]; km: number[] }>;
 };
 
-export type LineId = "NS" | "EW" | "CG" | "NE" | "CC" | "DT" | "TE" | "SE";
+/** A train SERVICE, not just a coloured line: the Circle Line is two —
+ * "CC" runs Dhoby Ghaut–HarbourFront, "CR" runs the loop (Promenade → … →
+ * HarbourFront → Keppel → Marina Bay → Bayfront → Promenade). No train runs
+ * Esplanade → Promenade → Bayfront (it would have to reverse), so that move
+ * is a change at Promenade. ASSUMPTION about post-CCL6 operations — confirm. */
+export type LineId = "NS" | "EW" | "CG" | "NE" | "CC" | "CR" | "DT" | "TE" | "SE";
 
-export const LINES: Record<LineId, { name: string; color: string }> = {
-  NS: { name: "North South Line", color: "#d42e12" },
-  EW: { name: "East West Line", color: "#009645" },
-  CG: { name: "East West Line (Changi Airport branch)", color: "#009645" },
-  NE: { name: "North East Line", color: "#9900aa" },
-  CC: { name: "Circle Line", color: "#fa9e0d" },
-  DT: { name: "Downtown Line", color: "#005ec4" },
-  TE: { name: "Thomson-East Coast Line", color: "#9d5b25" },
-  SE: { name: "Sentosa Express", color: "#e2007a" },
+export const LINES: Record<LineId, { name: string; color: string; badge: string }> = {
+  NS: { name: "North South Line", color: "#d42e12", badge: "NS" },
+  EW: { name: "East West Line", color: "#009645", badge: "EW" },
+  CG: { name: "East West Line (Changi Airport branch)", color: "#009645", badge: "EW" },
+  NE: { name: "North East Line", color: "#9900aa", badge: "NE" },
+  CC: { name: "Circle Line", color: "#fa9e0d", badge: "CC" },
+  CR: { name: "Circle Line (loop via Marina Bay)", color: "#fa9e0d", badge: "CC" },
+  DT: { name: "Downtown Line", color: "#005ec4", badge: "DT" },
+  TE: { name: "Thomson-East Coast Line", color: "#9d5b25", badge: "TE" },
+  SE: { name: "Sentosa Express", color: "#e2007a", badge: "SE" },
 };
 
 // ---------------------------------------------------------------------------
@@ -82,6 +88,7 @@ const DEFAULT_INTERCHANGE_WALK_MIN = 4;
 
 export function interchangeWalkMin(station: string, a: LineId, b: LineId): number {
   const key = [a, b].sort().join("-");
+  if (key === "CC-CR") return 1; // the other Circle Line service, same platforms
   return INTERCHANGE_WALK_MIN[station]?.[key] ?? DEFAULT_INTERCHANGE_WALK_MIN;
 }
 
@@ -113,15 +120,20 @@ export type Network = {
   busDataUpdated: string;
 };
 
-const lineOf = (code: string): LineId | null => {
-  const prefix = code.match(/^[A-Z]+/)?.[0];
-  return prefix && prefix in LINES ? (prefix as LineId) : null;
-};
 const numberOf = (code: string): number => Number(code.replace(/^[A-Z]+/, "") || 0);
+/** The services stopping at a station code (see LineId on the Circle Line). */
+const servicesOf = (code: string): LineId[] => {
+  const prefix = code.match(/^[A-Z]+/)?.[0];
+  if (prefix === "CC") {
+    const n = numberOf(code);
+    return [...(n <= 29 ? (["CC"] as const) : []), ...(n >= 4 ? (["CR"] as const) : [])];
+  }
+  return prefix && prefix in LINES ? [prefix as LineId] : [];
+};
 
-/** Track the topology can't infer from code order: after CCL6 the Circle Line
- * closes its loop Marina Bay (CC33) – Bayfront (CC34) – Promenade (CC4). */
-const EXTRA_EDGES: Array<[LineId, string, string]> = [["CC", "CC34", "CC4"]];
+/** Track the topology can't infer from code order: the loop service closes
+ * Marina Bay (CC33) – Bayfront (CC34) – Promenade (CC4). */
+const EXTRA_EDGES: Array<[LineId, string, string]> = [["CR", "CC34", "CC4"]];
 
 /** The Sentosa Express monorail isn't in LTA's rail data. Its VivoCity
  * terminal is modelled as part of HarbourFront (the walk is the interchange
@@ -140,7 +152,7 @@ export function sgNetwork(): Network {
 
   const stations: Station[] = data.stations.map((s) => ({
     name: s.name,
-    lines: [...new Set(s.codes.map(lineOf).filter((l): l is LineId => l !== null))],
+    lines: [...new Set(s.codes.flatMap(servicesOf))],
     point: { lat: s.lat, lng: s.lng },
     exits: s.exits.map(([name, lat, lng]) => ({ name, point: { lat, lng } })),
   }));
@@ -158,7 +170,7 @@ export function sgNetwork(): Network {
     (adj.get(b) ?? adj.set(b, []).get(b)!).push({ to: a, minutes });
   };
   for (const line of Object.keys(LINES) as LineId[]) {
-    const codes = [...byCode.keys()].filter((c) => lineOf(c) === line).sort((a, b) => numberOf(a) - numberOf(b));
+    const codes = [...byCode.keys()].filter((c) => servicesOf(c).includes(line)).sort((a, b) => numberOf(a) - numberOf(b));
     lineOrder[line] = codes.map((c) => byCode.get(c)!);
     rail[line] = new Map();
     for (let i = 1; i < codes.length; i++) link(line, byCode.get(codes[i - 1])!, byCode.get(codes[i])!);
@@ -192,7 +204,4 @@ export function sgNetwork(): Network {
   return cached;
 }
 
-/** Inside Singapore's bounding box — the only place this network applies. */
-export function inSingapore(p: LatLng): boolean {
-  return p.lat > 1.15 && p.lat < 1.48 && p.lng > 103.59 && p.lng < 104.1;
-}
+export { inSingapore } from "./region";
