@@ -2,6 +2,9 @@
 // Anchors are marked inline on stops; a day's stop list is ordered, and runs of
 // flexible stops between anchors (in list order) form the solver segments.
 
+import type { LegMode } from "../solver/types";
+import type { Journey } from "../transit/sg/router";
+
 export type DayStop = {
   id: string;
   name: string;
@@ -31,9 +34,10 @@ export type PlanEntry = {
 export type PlanLeg = {
   fromId: string;
   toId: string;
-  mode: "walk" | "drive";
+  mode: LegMode;
   walkMin: number | null; // both times retained on eligible legs (§2 decide-then-offer)
   driveMin: number;
+  transit?: Journey; // the step-by-step public-transport option (Singapore)
   effectiveMin: number; // active mode's schedule time (walk est. | drive + overhead)
   chosenBy: "auto" | "user";
   departMin: number;

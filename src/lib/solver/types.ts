@@ -1,11 +1,18 @@
 // Solver domain types — §1/§2 (LOCKED).
 
+import type { Journey } from "../transit/sg/router";
+
+/** "transit" exists only where a public-transport network is modelled
+ * (Singapore, src/lib/transit/sg) — elsewhere legs stay walk/drive. */
+export type LegMode = "walk" | "drive" | "transit";
+
 // One leg of the effective matrix (§2, decide-then-offer). Eligible legs retain
 // BOTH times so the UI can show them side by side with a per-leg toggle.
 export type EffectiveLeg = {
-  mode: "walk" | "drive";
+  mode: LegMode;
   walkMin: number | null; // null when the pair is not walk-eligible
   driveMin: number; // raw drive minutes (API/fixture) — overhead NOT folded in
+  transit?: Journey; // both ends in Singapore: the MRT-first journey, its minutes door to door
   chosenBy: "auto" | "user";
 };
 

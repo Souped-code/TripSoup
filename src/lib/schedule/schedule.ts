@@ -5,9 +5,9 @@
 // applyLegModes + rescheduleDay walk the SAME order with the flipped matrix.
 
 import type { Settings } from "../maps/types";
-import { effectiveMinutes } from "../solver/effectiveMatrix";
+import { effectiveMinutes, legOffers } from "../solver/effectiveMatrix";
 import { optimize } from "../solver/solver";
-import type { EffectiveMatrix, PrecedencePair } from "../solver/types";
+import type { EffectiveMatrix, LegMode, PrecedencePair } from "../solver/types";
 import type { Day, DayPlan, DayStop, PlanEntry, PlanLeg } from "./types";
 
 const cmpPair = (x: PrecedencePair, y: PrecedencePair): number =>
@@ -150,6 +150,7 @@ export function rescheduleDay(
         mode: leg.mode,
         walkMin: leg.walkMin,
         driveMin: leg.driveMin,
+        ...(leg.transit ? { transit: leg.transit } : {}),
         effectiveMin,
         chosenBy: leg.chosenBy,
         departMin: clock,
@@ -202,12 +203,13 @@ export function rescheduleDay(
   };
 }
 
-// Flip leg modes per user toggles (§2 decide-then-offer). Only eligible legs
-// (walkMin retained) can be toggled; asking for an ineligible walk is a user
-// input error surfaced loudly. Returns a new matrix; input is not mutated.
+// Flip leg modes per user toggles (§2 decide-then-offer). Only modes the leg
+// offers can be chosen; asking for an ineligible walk (or transit where there
+// is none) is a user input error surfaced loudly. Returns a new matrix; input
+// is not mutated.
 export function applyLegModes(
   matrix: EffectiveMatrix,
-  overrides: { fromId: string; toId: string; mode: "walk" | "drive" }[]
+  overrides: { fromId: string; toId: string; mode: LegMode }[]
 ): EffectiveMatrix {
   const next: EffectiveMatrix = {};
   for (const from of Object.keys(matrix)) {
@@ -216,8 +218,8 @@ export function applyLegModes(
   for (const o of overrides) {
     const leg = next[o.fromId]?.[o.toId];
     if (!leg) throw new Error(`no such leg: ${o.fromId} -> ${o.toId}`);
-    if (o.mode === "walk" && leg.walkMin === null) {
-      throw new Error(`leg ${o.fromId} -> ${o.toId} is not walk-eligible`);
+    if (!legOffers(leg, o.mode)) {
+      throw new Error(`leg ${o.fromId} -> ${o.toId} is not ${o.mode}-eligible`);
     }
     next[o.fromId][o.toId] = { ...leg, mode: o.mode, chosenBy: "user" };
   }

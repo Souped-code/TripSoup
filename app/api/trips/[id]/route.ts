@@ -78,7 +78,7 @@ function malformed(doc: TripDoc, id: string): string | null {
   for (const o of doc.legOverrides) {
     if (!isNum(o.dayIndex) || typeof o.fromId !== "string" || typeof o.toId !== "string")
       return "override shape";
-    if (o.mode !== "walk" && o.mode !== "drive") return "override mode";
+    if (o.mode !== "walk" && o.mode !== "drive" && o.mode !== "transit") return "override mode";
   }
   // E6c — additive/optional home base (src/lib/store/types.ts): same
   // boundary philosophy as `hours`/`dismissedProposals` below.

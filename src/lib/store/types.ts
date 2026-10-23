@@ -70,7 +70,7 @@ export type LegOverride = {
   dayIndex: number;
   fromId: string;
   toId: string;
-  mode: "walk" | "drive";
+  mode: import("../solver/types").LegMode;
 };
 
 // E4 — persisted plan state (src/lib/planStore.ts is the sole writer). The

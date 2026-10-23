@@ -48,7 +48,8 @@ import { hoursNoteFor } from "./plan/hoursAdvisory";
 import { formatDuration } from "./util/duration";
 import { dayProjection, solveProjection } from "./plan/solveProjection";
 import { applyDocPatch, validManualOrder } from "./planShared";
-import { buildEffectiveMatrix, effectiveMinutes } from "./solver/effectiveMatrix";
+import { buildEffectiveMatrix, effectiveMinutes, legOffers } from "./solver/effectiveMatrix";
+import { sgTransitFor } from "./transit/sg/router";
 import { applyLegModes, rescheduleDay } from "./schedule/schedule";
 import { stableHash } from "./util/stableHash";
 import type { EffectiveMatrix } from "./solver/types";
@@ -209,7 +210,7 @@ export async function matrixForDay(
     if (homeBase) points.push({ id: homeBaseMatrixId(homeBase.id), location: homeBase.location });
     const driveMatrix = await provider.getTravelMatrix(points, "driving");
     const locations = Object.fromEntries(points.map((p) => [p.id, p.location]));
-    const matrix = buildEffectiveMatrix(driveMatrix, locations, settings);
+    const matrix = buildEffectiveMatrix(driveMatrix, locations, settings, sgTransitFor(settings));
     const missing = firstMissingPair(tripDay.stops, matrix);
     if (missing) {
       return {
@@ -328,7 +329,7 @@ export function applyOverridesToPlan(
 
   const legPairs = new Set(plan.legs.map((l) => `${l.fromId}|${l.toId}`));
   const applicable = overrides.filter(
-    (o) => legPairs.has(`${o.fromId}|${o.toId}`) && (o.mode === "drive" || matrix[o.fromId][o.toId].walkMin !== null)
+    (o) => legPairs.has(`${o.fromId}|${o.toId}`) && legOffers(matrix[o.fromId][o.toId], o.mode)
   );
   if (applicable.length === 0) return plan;
 

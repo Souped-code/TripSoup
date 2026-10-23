@@ -4,6 +4,7 @@
 // without day headers. Usage: ENGINE_IN_WORKER=0 npx tsx bench/sg-probe.ts
 import { solveWithPreparedMatrices, type PreparedDayMatrices } from "../src/lib/planEngine";
 import { buildEffectiveMatrix } from "../src/lib/solver/effectiveMatrix";
+import { sgTransitFor } from "../src/lib/transit/sg/router";
 import { haversineMeters } from "../src/lib/maps/walkEstimator";
 import { DEFAULT_SETTINGS, homeBaseMatrixId } from "../src/lib/maps/types";
 import type { TripDoc, TripDay, TripStop } from "../src/lib/store/types";
@@ -57,7 +58,7 @@ async function run(label: string, doc: TripDoc) {
     if (doc.homeBase) pts.push({ id: homeBaseMatrixId(doc.homeBase.id), location: doc.homeBase.location });
     const drive: Record<string, Record<string, number>> = {};
     for (const a of pts) { drive[a.id] = {}; for (const b of pts) drive[a.id][b.id] = a.id === b.id ? 0 : driveMin(a.location, b.location); }
-    return buildEffectiveMatrix(drive, Object.fromEntries(pts.map((p) => [p.id, p.location])), settings);
+    return buildEffectiveMatrix(drive, Object.fromEntries(pts.map((p) => [p.id, p.location])), settings, sgTransitFor(settings));
   });
   const prepared: PreparedDayMatrices = { matrices, rejectedMessages: new Map(), manualOrders: new Map() };
   const t0 = Date.now();
@@ -70,7 +71,7 @@ async function run(label: string, doc: TripDoc) {
     const names = Object.fromEntries(doc.days[i].stops.map((s) => [s.id, s.name]));
     d.entries.forEach((e: any, j: number) => {
       const leg = d.legs?.[j - 1];
-      const legTxt = leg ? `  <- ${leg.mode} ${Math.round(leg.mode === "walk" ? leg.walkMin : leg.driveMin + settings.driveOverheadMin)}m` : "";
+      const legTxt = leg ? `  <- ${leg.mode} ${Math.round(leg.effectiveMin)}m${leg.mode === "transit" ? " [" + leg.transit.steps.filter((s: any) => s.kind !== "walk").map((s: any) => s.kind === "mrt" ? s.line : s.kind === "bus" ? "bus " + s.service : "chg").join(" > ") + "]" : ""}` : "";
       console.log(`   ${hm(e.arriveMin ?? e.arrive)}→${hm(e.departMin ?? e.depart)}  ${names[e.stopId ?? e.id] ?? JSON.stringify(e).slice(0, 80)}${legTxt}`);
     });
     if (d.baseLegs) console.log(`    leave base ${hm(d.baseLegs.lead?.departMin ?? -1)}, back ${hm(d.baseLegs.ret?.arriveMin ?? d.baseLegs.return?.arriveMin ?? -1)}`);

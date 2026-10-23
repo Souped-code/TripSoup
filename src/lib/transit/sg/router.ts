@@ -24,6 +24,7 @@ import {
   BUS_WAIT_MIN,
   LINES,
   MRT_WAIT_MIN,
+  inSingapore,
   interchangeWalkMin,
   sgNetwork,
   type LineId,
@@ -427,6 +428,13 @@ function viaMrt(net: Network, a: LatLng, b: LatLng, s: Settings): Option | null 
   }
   steps.push(...sinks.get(lastSt)!.steps);
   return { gen: bestGen, minutes: time[bestNode] + sinks.get(lastSt)!.minutes, steps };
+}
+
+/** `transitFor` for buildEffectiveMatrix: a journey only when both ends are
+ * in Singapore. */
+export function sgTransitFor(settings: Settings) {
+  return (a: LatLng, b: LatLng): Journey | null =>
+    inSingapore(a) && inSingapore(b) ? planSgJourney(a, b, settings) : null;
 }
 
 /** The best public-transport journey from `a` to `b`, or null when neither

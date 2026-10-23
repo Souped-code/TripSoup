@@ -7,7 +7,8 @@
 import { getMapsProvider } from "./config";
 import { DEFAULT_SETTINGS, type Settings } from "./maps/types";
 import { validManualOrder } from "./planShared";
-import { buildEffectiveMatrix } from "./solver/effectiveMatrix";
+import { buildEffectiveMatrix, legOffers } from "./solver/effectiveMatrix";
+import { sgTransitFor } from "./transit/sg/router";
 import { applyLegModes, planDay, rescheduleDay } from "./schedule/schedule";
 import type { Day, DayPlan } from "./schedule/types";
 import type { TripDoc } from "./store/types";
@@ -55,7 +56,7 @@ export async function planTripDay(doc: TripDoc, dayIndex: number): Promise<DayPl
     "driving"
   );
   const locations = Object.fromEntries(tripDay.stops.map((s) => [s.id, s.location]));
-  const auto = buildEffectiveMatrix(driveMatrix, locations, settings);
+  const auto = buildEffectiveMatrix(driveMatrix, locations, settings, sgTransitFor(settings));
 
   // Manual order (D2.3, audit finding 12): when the user has pinned an order via
   // drag-reorder, skip the solver entirely and retime THAT exact order. Only a
@@ -79,7 +80,7 @@ export async function planTripDay(doc: TripDoc, dayIndex: number): Promise<DayPl
   // the boundary, surface the rest.
   const legPairs = new Set(plan.legs.map((l) => `${l.fromId}|${l.toId}`));
   const applicable = overrides.filter(
-    (o) => legPairs.has(`${o.fromId}|${o.toId}`) && (o.mode === "drive" || auto[o.fromId][o.toId].walkMin !== null)
+    (o) => legPairs.has(`${o.fromId}|${o.toId}`) && legOffers(auto[o.fromId][o.toId], o.mode)
   );
   if (applicable.length === 0) return plan;
 
