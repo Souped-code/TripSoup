@@ -133,9 +133,14 @@ export function RevealClient({
     return validManualOrder(tripDay.manualOrder, stopIds) ?? stopIds;
   }, [pendingOrder, plan, tripDay.manualOrder, stopIds]);
 
+  // Keyed on content, not identity: every save returns a fresh doc, and a new
+  // stops array makes RevealMap rebuild the scene and replay the ~9 s intro
+  // after a mere leg toggle (UX audit 2026-10-23).
+  const mapStopsKey = tripDay.stops.map((s) => `${s.id}|${s.name}|${s.location.lat}|${s.location.lng}`).join("\n");
   const mapStops: RevealStop[] = useMemo(
     () => tripDay.stops.map((s) => ({ id: s.id, name: s.name, lat: s.location.lat, lng: s.location.lng })),
-    [tripDay.stops]
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mapStopsKey is the content of tripDay.stops
+    [mapStopsKey]
   );
   const bookedId = tripDay.stops.find((s) => s.anchor)?.id ?? null;
 
