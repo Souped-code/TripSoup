@@ -373,8 +373,8 @@ export function RevealClient({
   // POST to the compile endpoint, commit whatever it saved. compiled: 0 is a
   // legitimate outcome (no constraint language found) — not an error.
   const handleCompileNotes = useCallback(
-    async (notes: string): Promise<void> => {
-      if (busy) return;
+    async (notes: string): Promise<boolean> => {
+      if (busy) return false;
       setBusy(true);
       setActionError(null);
       try {
@@ -398,9 +398,11 @@ export function RevealClient({
             "Gracie read your notes but didn't find anything to hold her to — try naming a stop, a time, or the pace."
           );
         }
+        return true;
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         setActionError(`Gracie couldn't read those notes — ${msg}. Try again?`);
+        return false;
       } finally {
         setBusy(false);
       }
@@ -493,6 +495,15 @@ export function RevealClient({
   }, [busy]);
   const decisionQueue = useRef<Decision[]>([]);
   const pumping = useRef(false);
+
+  // Queued decisions live only in this tab until the PUT lands — reloading or
+  // following the share link mid-sync lost them and re-asked the question.
+  useEffect(() => {
+    if (!syncing) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [syncing]);
 
   const pumpDecisions = useCallback(() => {
     if (pumping.current) return;
@@ -692,7 +703,7 @@ export function RevealClient({
           day={tripDay}
           plan={plan}
           orderedIds={orderedIds}
-          busy={busy}
+          busy={busy || syncing}
           actionError={actionError}
           settings={doc.settings}
           tradeOffCards={tradeOffCards}
@@ -719,6 +730,7 @@ export function RevealClient({
           index={decisionIndex}
           busy={busy}
           syncing={syncing}
+          error={actionError}
           prose={prose}
           onAccept={handleAcceptProposal}
           onDismiss={handleDismissConflict}

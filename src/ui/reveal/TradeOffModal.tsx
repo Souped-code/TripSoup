@@ -78,6 +78,8 @@ export interface TradeOffModalProps {
   busy: boolean;
   /** E7.2 — a background re-cook is in flight (decisions stay usable). */
   syncing: boolean;
+  /** A failed save re-opens the modal over the sidebar's margin note. */
+  error: string | null;
   /** Decorative day prose ("A few things need a decision, starting with…"). */
   prose: string | null;
   onAccept: (proposal: Proposal) => void;
@@ -92,6 +94,7 @@ export function TradeOffModal({
   index,
   busy,
   syncing,
+  error,
   prose,
   onAccept,
   onDismiss,
@@ -228,6 +231,11 @@ export function TradeOffModal({
         {syncing && (
           <p className="reveal-decision-syncing" data-testid="decision-modal-syncing">
             Gracie&rsquo;s re-cooking in the background…
+          </p>
+        )}
+        {error && !syncing && (
+          <p className="reveal-decision-syncing" data-testid="decision-modal-error" role="alert">
+            {error}
           </p>
         )}
       </div>

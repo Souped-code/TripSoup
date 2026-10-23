@@ -151,7 +151,7 @@ export interface JournalSidebarProps {
   constraintChips: { byStopId: Map<string, ConstraintChipEntry[]>; trip: ConstraintChipEntry[] };
   onConfirmChip: (target: ConstraintChipEntry["target"]) => void;
   onDeleteChip: (target: ConstraintChipEntry["target"]) => void;
-  onCompileNotes: (notes: string) => Promise<void>;
+  onCompileNotes: (notes: string) => Promise<boolean>;
   onRemoveStop: (stopId: string) => void;
   onToggleLeg: (fromId: string, toId: string, mode: "walk" | "drive") => void;
   onSettingsChange: (settings: PlannerSettings) => void;
@@ -659,14 +659,13 @@ function NotesPocket({
   onCompile,
 }: {
   busy: boolean;
-  onCompile: (notes: string) => Promise<void>;
+  onCompile: (notes: string) => Promise<boolean>;
 }) {
   const [notes, setNotes] = useState("");
   const submit = async () => {
     const text = notes.trim();
     if (text === "" || busy) return;
-    await onCompile(text);
-    setNotes("");
+    if (await onCompile(text)) setNotes(""); // a failed compile keeps what they typed
   };
   return (
     <div className="reveal-notes-pocket" data-testid="sidebar-notes">
