@@ -50,7 +50,8 @@ function kindLabel(kind: ProposalKind, patch: Proposal["patch"]): string {
     case "dropStop":
       return "Skip it";
     case "shiftWindow":
-      return patch.op === "setDayWindow" ? "Run the day later" : "Shift the booking";
+      if (patch.op !== "setDayWindow") return "Shift the booking";
+      return patch.startMin !== undefined ? "Start the day earlier" : "Run the day later";
     case "moveDay":
       return patch.op === "moveStop" ? `Move to day ${patch.toDayIndex + 1}` : "Move it";
     case "trimDuration":

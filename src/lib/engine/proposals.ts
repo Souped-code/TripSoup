@@ -45,6 +45,8 @@ const MAX_CANDIDATE_EVALS = 80;
 const MOVE_DAY_LIMIT = 3;
 /** Other stops on the conflicted day offered up for shortening. */
 const MAX_TRIM_CANDIDATES = 3;
+/** An earlier start is never proposed before this — a 4am departure is not a fix. */
+const EARLIEST_DAY_START_MIN = 6 * 60;
 
 type Candidate = {
   kind: ProposalKind;
@@ -173,6 +175,23 @@ export function deriveProposals(
             },
             [conflict.id]
           );
+        }
+        // A 9am booking 50 minutes from the hotel is missed because the day
+        // opens at 9 — the human fix is leaving earlier, not skipping the
+        // booking. The resolution check below drops this when the day's
+        // start isn't what made the booking late (e.g. two tight bookings).
+        if (conflict.code === "anchor-start" && conflict.violatedByMin > 0) {
+          const startMin = day.window.value.startMin - Math.ceil(conflict.violatedByMin);
+          if (startMin >= EARLIEST_DAY_START_MIN) {
+            add(
+              {
+                kind: "shiftWindow",
+                patch: { op: "setDayWindow", dayIndex: conflict.dayIndex, startMin },
+                message: `Start day ${conflict.dayIndex + 1} at ${hhmm(startMin)}.`,
+              },
+              [conflict.id]
+            );
+          }
         }
         if (conflict.code === "day-window" && conflict.violatedByMin > 0) {
           add(

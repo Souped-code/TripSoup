@@ -201,6 +201,40 @@ describe("E5a: an impossible constraint yields a plan, a conflict and a way out"
     expect(after.conflicts.map((c) => c.id)).not.toContain(conflict!.id);
   }, 120_000);
 
+  it("a booking the day's opening can't reach offers starting the day earlier", async () => {
+    // The zoo is booked for 09:00, the day opens at 09:00, and the hotel is a
+    // drive away: leaving at 09:00 can only land late. Skipping the zoo or
+    // moving the booking are the wrong first answers — leaving earlier is.
+    const doc: TripDoc = {
+      ...docOf([
+        {
+          date: TUESDAY,
+          dayStartMin: 9 * 60,
+          dayEndMin: 20 * 60,
+          stops: [tripStop("fx-18", 120, 9 * 60), tripStop("fx-01", 30)],
+        },
+      ]),
+      homeBase: { id: "base-old-inn", name: "The Old Inn", location: { lat: 51.452, lng: -2.595 }, source: "user" },
+    };
+
+    const solution = await solve(doc);
+    const conflict = solution.conflicts.find((c) => c.code === "anchor-start");
+    expect(conflict).toBeDefined();
+
+    const earlier = solution.proposals.find(
+      (p) => p.patch.op === "setDayWindow" && p.resolves.includes(conflict!.id)
+    );
+    expect(earlier).toBeDefined();
+    expect(earlier!.patch).toEqual({
+      op: "setDayWindow",
+      dayIndex: 0,
+      startMin: 9 * 60 - Math.ceil(conflict!.violatedByMin),
+    });
+
+    const after = await solve(applyDocPatch(doc, earlier!.patch));
+    expect(after.conflicts).toHaveLength(0);
+  }, 120_000);
+
   it("a HARD pace the day cannot keep yields relaxPace, and relaxing it works", async () => {
     // Five hour-and-a-half visits: 450 minutes of visiting plus travel, against
     // a `relaxed` budget of 480 minutes of day SPAN and 8 effort points.
