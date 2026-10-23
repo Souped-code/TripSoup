@@ -145,9 +145,15 @@ exhaustive floor's travel-only objective in favour of the full one, or add a lat
 days don't begin at 12:50 to avoid waiting. Verify: probe days start 09:00–10:00, meals in
 windows, no idle gap > 60 min before an evening booking.
 
-**P5 — Transit (≈ 1–2 weeks).** "How do you get around? Grab · MRT + walk · mix" setting;
-TRANSIT + WALK matrices for nearest-neighbour pairs; EffectiveLeg gains `transit`; UI toggle.
-Verify: test-bill one trip first; probe SG trip legs match Google Maps within ~15%.
+**P5 — Transit: Singapore BUILT (branch `sg-transit`, 2026-10-23).** Not Google's transit
+matrix — Chris's rules can't be expressed there. Our own MRT-first router on LTA data
+(`src/lib/transit/sg/`), $0 per request, ~30 ms for a 20-stop day: line changes priced with
+each interchange's real walk, buses only direct or as a feeder when no station is walkable,
+every step names exit / line + terminus / bus stop + code + service + direction. Legs too far
+to walk default to it; Grab stays a per-leg switch. Still estimates (to replace with LTA
+DataMall GTFS rail times + bus frequencies once Chris has a DataMall key): run times, waits,
+the interchange walk table, Sentosa Express station positions. No LRT yet. Verify on a real
+paste on the preview.
 
 **P6 — Remaining UX items** U6, U9, U11–U15, and an unroutable pair (ferry-only) degrading to an
 estimated leg instead of rejecting the whole day (E10).

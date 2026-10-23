@@ -2834,3 +2834,35 @@ failed matrix request left 3 workers fetching) + 4 nits — all fixed except the
 banner being disabled for the ~1 s of a background sync (kept: one more prop for a brief
 window) and the 20-stop caveat above (documented). Its flakes: multiday.spec:8 and
 trip.spec:182 (legacy /debug board, untouched here) failed once, passed on rerun.
+
+## SG PUBLIC TRANSPORT (2026-10-23, branch `sg-transit` on top of `reliability-pass`, NOT merged)
+
+Chris: MRT/bus, Singapore first. MRT primary (fewest changes / least time, inter-station
+times vary); interchange walks differ (Dhoby Ghaut NS↔NE long, City Hall cross-platform);
+walks a minimal last mile; buses only if direct or the nearest MRT is too far; bus stop /
+direction / number must be unambiguous; Google's walking over-estimates.
+
+Built: `src/lib/transit/sg/` — `network.ts` (MRT graph from station-code order + CCL loop
+edge + hand-added Sentosa Express; run time = 1 + 1.15·km; MRT wait 3, bus wait 6, bus 18
+km/h; INTERCHANGE_WALK_MIN table — ESTIMATES for Chris to correct), `router.ts` (Dijkstra over
+station×line on generalised cost: walk ×1.5, +4 min per change, bus +5 min per boarding,
+feeder bus riding ×1.5; one direct bus OR one feeder per end when no station within 10 min;
+steps carry exit, line+terminus/next stop, bus stop name+code+road, service, terminus, stops).
+Data: `scripts/build-sg-transit.ts` → `sgTransit.data.json` (547 KB: 146 stations, 545 exits,
+5,210 stops, 510 daytime trunk patterns) from LTA DataMall bus stops/routes + LTA station/exit
+data via cheeaun/sgbusdata + sgraildata (licences + required credit: `src/lib/transit/sg/DATA.md`).
+Engine: leg mode "transit" (EffectiveLeg/PlanLeg/LegOverride), injected via
+`buildEffectiveMatrix(…, transitFor)` so non-SG is byte-identical and the worker bundle stays
+89 KB. Walkable (≤ walkMax) = walk; else transit; Grab = per-leg switch. UI: TransitSteps on
+legs, hotel rows and share page, LTA credit.
+Walking: our estimator is straight line × 1.3 (already cuts through blocks) — no Google walking.
+
+Verified: router goldens (USS→Chinatown = Sentosa Express + NEL; Jewel→Bugis = CG→EW at Tanah
+Merah cross-platform; Zoo→Botanic Gardens = bus 138 feeder + TEL; Tiong Bahru→Somerset = direct
+bus 16), invariants over 200 random trips, 20×20 matrix ~30 ms; seeded SG trip rendered and
+screenshotted (desktop + phone). Gates: tsc 0 · jest 507/507 · e2e 41/41 (trip.spec:182 known
+flake, passed on rerun).
+NOT verified: a live paste (needs the preview: real Google matrix for the drive alternative);
+interactive toggles on an SG trip locally (fixture provider can't price SG stops).
+Gaps: no LRT (Sengkang/Punggol/Bukit Panjang); fares not shown; time-of-day frequencies; the
+map pen still draws the road route for transit legs.
