@@ -2816,7 +2816,8 @@ paste days hard-pinned, no place types) — and it spent 100–200× the compute
 
 Shipped on the branch (each with a test/probe that failed first): float-noise conflicts;
 "start the day earlier" proposal; ALNS iteration cap 500k → 10k (day re-solve 2–16 s →
-0.1–0.4 s, same scores; policy test in `bench/iteration-policies.ts`); 4 concurrent matrix
+0.1–0.4 s, same scores; policy test in `bench/iteration-policies.ts`; review caveat: an
+overfull 20-stop single day was up to 6% worse on 2/7 seeds, where the old cap took ~55 s); 4 concurrent matrix
 requests (live Routes path UNVERIFIED); 09:60 clock; "Big day" note > 9 stops only; map no
 longer dies when `document.fonts.load` rejects on a device without Arial (this was the M0 "CI
 artifact" — e2e 27/41 → 41/41 without the Arial shim); phone touch drag (emulated — real
@@ -2827,3 +2828,9 @@ the reveal. Gates: tsc 0 · jest 482/482 · e2e 41/41.
 Found, not fixed (see plan): Sentry has no DSN in Vercel env (prod is blind; Hobby logs 1 h);
 share link = edit access (PUT unauthenticated, same id); slow-network texture timeouts;
 share page animates every day's map at once; worker-crash / no error.tsx paths.
+
+Fresh-context review of the branch: 2 should-fix (noise filter hid a real home-base overrun;
+failed matrix request left 3 workers fetching) + 4 nits — all fixed except the decisions
+banner being disabled for the ~1 s of a background sync (kept: one more prop for a brief
+window) and the 20-stop caveat above (documented). Its flakes: multiday.spec:8 and
+trip.spec:182 (legacy /debug board, untouched here) failed once, passed on rerun.

@@ -43,7 +43,7 @@ Latency: `bench/iteration-policies.ts` (46 random fixture problems × 2 seeds).
 |---|---|---|
 | L1 | One day-scoped re-solve at the prod budget: 4 stops 2.1 s, 6 stops 6.3 s, 8 stops 12 s, 10 stops 16 s (this box). A 2,000-iteration solve reaches the **identical score** in 29–95 ms | [Measured] — **fixed**: 98 / 152 / 286 / 437 ms, same scores |
 | L2 | Across 14 problems × 3 seeds (quality fixtures, 42-stop/6-day, single days 5–12 stops, tight days): 2k iterations = 0.00% gap to prod's 165k–500k | [Measured] |
-| L3 | The iteration cap was sized to FILL a 20 s budget (`iterCapFor`), and the loop never stops on convergence (`search.ts:1410`). Policy test: prod mean gap 0.088% at median 9.9 s / p95 30.8 s; fixed 10k 0.108% at 186 ms / 853 ms; best-of-3 × 5k 0.044% at 291 ms / 1.4 s | [Measured] — **fixed**: cap 10k |
+| L3 | The iteration cap was sized to FILL a 20 s budget (`iterCapFor`), and the loop never stops on convergence (`search.ts:1410`). Policy test: prod mean gap 0.088% at median 9.9 s / p95 30.8 s; fixed 10k 0.108% at 186 ms / 853 ms; best-of-3 × 5k 0.044% at 291 ms / 1.4 s. **Caveat (fresh-context review):** on an overfull 20-stop single day (7 conflicts), 10k was up to 6% worse on 2 of 7 seeds — the old cap took ~55 s per solve on that day and also varied by seed. Overfull single days are P3's problem (day assignment), not the iteration count's | [Measured] — **fixed**: cap 10k |
 | L4 | Paste pipeline is serial end to end: place resolution one link at a time (`resolvePlaces.ts:183`), matrix one origin at a time (`matrixSource.ts`, **fixed: 4 in flight**), then a Haiku constraints call, then the 20 s-budget solve | [Code] |
 
 Observability: [Measured via Vercel API] no `SENTRY_DSN`/`NEXT_PUBLIC_SENTRY_DSN` in the
