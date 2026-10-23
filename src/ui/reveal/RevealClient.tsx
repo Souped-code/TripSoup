@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TripDoc } from "@/lib/store/types";
 import type { DayPlan } from "@/lib/schedule/types";
+import type { LegMode } from "@/lib/solver/types";
 import type { Conflict, DocPatch, Proposal } from "@/lib/engine/types";
 import { applyDocPatch, dismissalKeyForConflict, isConflictDismissed, validManualOrder } from "@/lib/planShared";
 import { stopKeys } from "@/lib/constraints/compile";
@@ -655,7 +656,7 @@ export function RevealClient({
   // for this day+leg, append the new pick; planService re-times the fixed
   // order (never re-orders) and marks the leg chosenBy "user".
   const handleToggleLeg = useCallback(
-    (fromId: string, toId: string, mode: "walk" | "drive") => {
+    (fromId: string, toId: string, mode: LegMode) => {
       void runMutation(
         (d) => ({
           ...d,

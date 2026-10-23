@@ -20,6 +20,7 @@ import { WashiTag, type WashiTone } from "@/ui/journal/WashiTag";
 import { AnchorGlyph } from "./JournalSidebar";
 import { fmtTime } from "@/ui/time";
 import { formatDuration } from "@/lib/util/duration";
+import { TransitCredit, TransitSteps, legModeLabel } from "./TransitSteps";
 import { DEFAULT_SETTINGS } from "@/lib/maps/types";
 import "./reveal.css";
 
@@ -120,8 +121,11 @@ export function ShareTimeline({ day, plan, orderedIds }: ShareTimelineProps) {
             {plan.status === "ok" && plan.baseLegs && timesAvailable && (
               <div className="reveal-base-leg" data-testid="share-base-lead">
                 leave <strong>{plan.baseLegs.baseName}</strong>{" "}
-                {fmtTime(plan.baseLegs.lead.departMin)} — {plan.baseLegs.lead.mode}{" "}
+                {fmtTime(plan.baseLegs.lead.departMin)} — {legModeLabel(plan.baseLegs.lead)}{" "}
                 {formatDuration(plan.baseLegs.lead.effectiveMin)}
+                {plan.baseLegs.lead.mode === "transit" && plan.baseLegs.lead.transit && (
+                  <TransitSteps journey={plan.baseLegs.lead.transit} />
+                )}
               </div>
             )}
           <ol className="reveal-rows" data-testid="share-rows">
@@ -150,17 +154,20 @@ export function ShareTimeline({ day, plan, orderedIds }: ShareTimelineProps) {
                     {leg && (
                       <div className="reveal-leg" data-testid={`leg-${leg.fromId}-${leg.toId}`}>
                         <span className="reveal-leg__mode" data-testid="leg-mode">
-                          {leg.mode}
+                          {legModeLabel(leg)}
                         </span>
                         <span>
-                          {leg.walkMin !== null
-                            ? `walk ${Math.round(leg.walkMin)} min · drive ${Math.round(leg.driveMin)} min`
-                            : `drive ${Math.round(leg.driveMin)} min`}
+                          {leg.transit
+                            ? `${formatDuration(leg.effectiveMin)}`
+                            : leg.walkMin !== null
+                              ? `walk ${Math.round(leg.walkMin)} min · drive ${Math.round(leg.driveMin)} min`
+                              : `drive ${Math.round(leg.driveMin)} min`}
                           {leg.chosenBy === "user" ? " — your pick" : ""}
                         </span>
                         {/* no toggle button — read-only */}
                       </div>
                     )}
+                    {leg?.mode === "transit" && leg.transit && <TransitSteps journey={leg.transit} />}
                     <div className="reveal-row__head">
                       {/* entry-time is deliberately ALWAYS startMin–departMin
                           (never the sidebar's "anchored HH:MM" wording) — this
@@ -188,11 +195,15 @@ export function ShareTimeline({ day, plan, orderedIds }: ShareTimelineProps) {
           </ol>
             {plan.status === "ok" && plan.baseLegs && timesAvailable && (
               <div className="reveal-base-leg" data-testid="share-base-back">
-                {plan.baseLegs.back.mode} {formatDuration(plan.baseLegs.back.effectiveMin)} — back
+                {legModeLabel(plan.baseLegs.back)} {formatDuration(plan.baseLegs.back.effectiveMin)} — back
                 at <strong>{plan.baseLegs.baseName}</strong>{" "}
                 {fmtTime(plan.baseLegs.back.arriveMin)}
+                {plan.baseLegs.back.mode === "transit" && plan.baseLegs.back.transit && (
+                  <TransitSteps journey={plan.baseLegs.back.transit} />
+                )}
               </div>
             )}
+            {plan.status === "ok" && plan.legs.some((l) => l.transit) && <TransitCredit />}
           </>
         )}
 

@@ -656,3 +656,34 @@
   .reveal-sidebar__scroll { padding: 18px 16px 18px 22px; }
   .reveal-sidebar__heading { font-size: 1.6rem; }
 }
+
+/* Singapore public-transport legs: the steps a rider follows ------------- */
+.reveal-transit {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0 0 0 10px;
+  border-left: 2px dotted var(--ink-soft);
+  font-family: var(--font-body);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--ink);
+}
+.reveal-transit li + li {
+  margin-top: 3px;
+}
+.reveal-transit__badge {
+  display: inline-block;
+  min-width: 1.9em;
+  padding: 0 5px;
+  border-radius: 4px;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.72rem;
+  text-align: center;
+}
+.reveal-transit__credit {
+  font-family: var(--font-body);
+  font-size: 0.68rem;
+  color: var(--ink-soft);
+  margin: 8px 0 0;
+}

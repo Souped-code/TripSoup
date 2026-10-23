@@ -33,6 +33,8 @@ import { DEFAULT_SETTINGS } from "@/lib/maps/types";
 import { WashiTag, type WashiTone } from "@/ui/journal/WashiTag";
 import { InkButton } from "@/ui/journal/InkButton";
 import { fmtTime } from "@/ui/time";
+import type { LegMode } from "@/lib/solver/types";
+import { TransitCredit, TransitSteps, legModeLabel } from "./TransitSteps";
 import "./reveal.css";
 
 const TONE_CYCLE: WashiTone[] = ["coral", "sky", "pink", "leaf"];
@@ -155,7 +157,7 @@ export interface JournalSidebarProps {
   onDeleteChip: (target: ConstraintChipEntry["target"]) => void;
   onCompileNotes: (notes: string) => Promise<boolean>;
   onRemoveStop: (stopId: string) => void;
-  onToggleLeg: (fromId: string, toId: string, mode: "walk" | "drive") => void;
+  onToggleLeg: (fromId: string, toId: string, mode: LegMode) => void;
   onSettingsChange: (settings: PlannerSettings) => void;
 }
 
@@ -260,8 +262,11 @@ export function JournalSidebar({
             {plan.status === "ok" && plan.baseLegs && timesAvailable && (
               <div className="reveal-base-leg" data-testid="sidebar-base-lead">
                 leave <strong>{plan.baseLegs.baseName}</strong>{" "}
-                {fmtTime(plan.baseLegs.lead.departMin)} — {plan.baseLegs.lead.mode}{" "}
+                {fmtTime(plan.baseLegs.lead.departMin)} — {legModeLabel(plan.baseLegs.lead)}{" "}
                 {formatDuration(plan.baseLegs.lead.effectiveMin)}
+                {plan.baseLegs.lead.mode === "transit" && plan.baseLegs.lead.transit && (
+                  <TransitSteps journey={plan.baseLegs.lead.transit} testId="sidebar-base-lead-steps" />
+                )}
               </div>
             )}
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -289,11 +294,15 @@ export function JournalSidebar({
             </DndContext>
             {plan.status === "ok" && plan.baseLegs && timesAvailable && (
               <div className="reveal-base-leg" data-testid="sidebar-base-back">
-                {plan.baseLegs.back.mode} {formatDuration(plan.baseLegs.back.effectiveMin)} — back
+                {legModeLabel(plan.baseLegs.back)} {formatDuration(plan.baseLegs.back.effectiveMin)} — back
                 at <strong>{plan.baseLegs.baseName}</strong>{" "}
                 {fmtTime(plan.baseLegs.back.arriveMin)}
+                {plan.baseLegs.back.mode === "transit" && plan.baseLegs.back.transit && (
+                  <TransitSteps journey={plan.baseLegs.back.transit} testId="sidebar-base-back-steps" />
+                )}
               </div>
             )}
+            {plan.status === "ok" && plan.legs.some((l) => l.transit) && <TransitCredit />}
           </>
         )}
 
@@ -521,6 +530,57 @@ function ConstraintChip({
   );
 }
 
+// Singapore legs: every way this leg can be travelled, a switch to each
+// alternative, and — on a public-transport leg — the steps to follow.
+const MODE_LABEL: Record<LegMode, string> = { transit: "MRT/bus", drive: "drive", walk: "walk" };
+const SWITCH_LABEL: Record<LegMode, string> = { transit: "take the MRT/bus", drive: "take a Grab", walk: "walk it" };
+
+function TransitLeg({
+  leg,
+  busy,
+  onToggleLeg,
+}: {
+  leg: PlanLeg;
+  busy: boolean;
+  onToggleLeg: (fromId: string, toId: string, mode: LegMode) => void;
+}) {
+  const options: Array<[LegMode, number]> = [
+    ["transit", leg.transit!.minutes],
+    ["drive", leg.driveMin],
+    ...(leg.walkMin !== null ? [["walk", leg.walkMin] as [LegMode, number]] : []),
+  ];
+  return (
+    <div data-testid={`sidebar-leg-${leg.fromId}-${leg.toId}`}>
+      <div className="reveal-leg">
+        <span className="reveal-leg__mode" data-testid="sidebar-leg-mode">
+          {legModeLabel(leg)}
+        </span>
+        <span data-testid="sidebar-leg-times">
+          {options.map(([m, min]) => `${MODE_LABEL[m]} ${formatDuration(min)}`).join(" · ")}
+          {leg.chosenBy === "user" ? " — your pick" : ""}
+        </span>
+        {options
+          .filter(([m]) => m !== leg.mode)
+          .map(([m]) => (
+            <button
+              key={m}
+              type="button"
+              className="reveal-leg__toggle"
+              data-testid={`sidebar-toggle-${leg.fromId}-${leg.toId}-${m}`}
+              onClick={() => onToggleLeg(leg.fromId, leg.toId, m)}
+              disabled={busy}
+            >
+              {SWITCH_LABEL[m]}
+            </button>
+          ))}
+      </div>
+      {leg.mode === "transit" && (
+        <TransitSteps journey={leg.transit!} testId={`sidebar-steps-${leg.fromId}-${leg.toId}`} />
+      )}
+    </div>
+  );
+}
+
 function SidebarRow({
   stop,
   index,
@@ -546,7 +606,7 @@ function SidebarRow({
   onConfirmChip: (target: ConstraintChipEntry["target"]) => void;
   onDeleteChip: (target: ConstraintChipEntry["target"]) => void;
   onRemove: (stopId: string) => void;
-  onToggleLeg: (fromId: string, toId: string, mode: "walk" | "drive") => void;
+  onToggleLeg: (fromId: string, toId: string, mode: LegMode) => void;
 }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
     id: stop.id,
@@ -581,7 +641,10 @@ function SidebarRow({
       <div className="reveal-row__body">
         {/* T7 — the leg from the previous stop: mode + BOTH times when the
             walk is eligible (§2 decide-then-offer), toggle persists the pick */}
-        {leg && (
+        {leg?.transit && (
+          <TransitLeg leg={leg} busy={busy} onToggleLeg={onToggleLeg} />
+        )}
+        {leg && !leg.transit && (
           <div className="reveal-leg" data-testid={`sidebar-leg-${leg.fromId}-${leg.toId}`}>
             <span className="reveal-leg__mode" data-testid="sidebar-leg-mode">
               {leg.mode}
