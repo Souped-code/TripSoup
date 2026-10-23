@@ -2866,3 +2866,13 @@ NOT verified: a live paste (needs the preview: real Google matrix for the drive 
 interactive toggles on an SG trip locally (fixture provider can't price SG stops).
 Gaps: no LRT (Sengkang/Punggol/Bukit Panjang); fares not shown; time-of-day frequencies; the
 map pen still draws the road route for transit legs.
+
+Fresh-context review of sg-transit: 1 BLOCKING (Circle Line ran through Promenade — Esplanade
+→ Bayfront without a change, a reversal no train makes) + 5 should-fix (transit chosen when
+slower than walking in 1,460/2,729 random 10–20 min walks; hotel legs lost their journey on
+re-time; SG plans stored pre-transit never re-solved; licence credit incomplete; bus→MRT→bus)
++ nits (loop buses "towards" their own start, exit not named on the way out, JB inside the SG
+box, …). Fixed: all but bus→MRT→bus (allowed when BOTH ends are > 10 min from a station —
+literally Chris's rule; his call) and three debug-board/test-id nits. Circle Line is now two
+services (CC Dhoby Ghaut–HarbourFront, CR loop via Marina Bay) — an ASSUMPTION about post-CCL6
+operations. Gates after fixes: tsc 0 · jest 504/504 · e2e 41/41.
