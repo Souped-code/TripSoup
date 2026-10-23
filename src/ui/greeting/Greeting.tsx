@@ -66,7 +66,16 @@ export function Greeting() {
   useEffect(() => {
     if (state.phase === "done" && !navigatedRef.current) {
       navigatedRef.current = true;
-      router.push(`/trip/${state.result.tripId}`);
+      const { tripId, failures } = state.result;
+      // The reveal shows these once — see RevealClient's couldNotPlace.
+      if (failures.length > 0) {
+        try {
+          sessionStorage.setItem(`ts-failures-${tripId}`, JSON.stringify(failures));
+        } catch {
+          // storage off — the reveal just won't mention them
+        }
+      }
+      router.push(`/trip/${tripId}`);
     }
   }, [state, router]);
 

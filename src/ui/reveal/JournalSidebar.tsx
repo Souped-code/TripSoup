@@ -131,6 +131,8 @@ export interface JournalSidebarProps {
   orderedIds: string[];
   busy: boolean;
   actionError: string | null;
+  /** Places from the paste that couldn't be found — shown once per cook. */
+  notice: string | null;
   settings: PlannerSettings;
   tradeOffCards: TradeOffCardEntry[];
   /** E7.2 — decorative day prose, fetched by RevealClient (shared with the
@@ -165,6 +167,7 @@ export function JournalSidebar({
   orderedIds,
   busy,
   actionError,
+  notice,
   settings,
   tradeOffCards,
   prose,
@@ -392,6 +395,11 @@ export function JournalSidebar({
         {marginMessage && (
           <p className="reveal-margin-note" data-testid="sidebar-margin-note">
             {marginMessage}
+          </p>
+        )}
+        {notice && (
+          <p className="reveal-margin-note" data-testid="sidebar-unplaced-note">
+            {notice}
           </p>
         )}
 

@@ -91,6 +91,23 @@ async function fetchDoc(tripId: string): Promise<TripDoc | null> {
   return (await res.json()) as TripDoc;
 }
 
+function couldNotPlace(failures: Array<{ source: string; reason: string }>): string {
+  const overflow = failures.find((f) => f.reason.startsWith("That's a lot of places"));
+  const missing = failures.filter((f) => f !== overflow && !f.reason.startsWith("That's a lot of places"));
+  const parts: string[] = [];
+  if (missing.length > 0) {
+    const names = missing.slice(0, 4).map((f) => {
+      const fromLink = f.source.match(/\/maps\/place\/([^/@?]+)/)?.[1];
+      const name = fromLink ? decodeURIComponent(fromLink.replace(/\+/g, " ")) : f.source;
+      return name.length > 40 ? `${name.slice(0, 39)}…` : name;
+    });
+    const more = missing.length > 4 ? ` and ${missing.length - 4} more` : "";
+    parts.push(`Gracie couldn't find ${names.join(", ")}${more} — check the spelling or the link.`);
+  }
+  if (overflow) parts.push(overflow.reason);
+  return parts.join(" ");
+}
+
 export function RevealClient({
   initialDoc,
   initialPlans,
@@ -110,6 +127,10 @@ export function RevealClient({
   const [pendingOrder, setPendingOrder] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  // The modal shows only decision-save failures, never an older sidebar error.
+  const [decisionError, setDecisionError] = useState<string | null>(null);
+  const [unplaced, setUnplaced] = useState<string | null>(null);
+
 
   // A drag/re-optimize/remove result belongs to the day it ran on — switching
   // tabs must not leak a stale transient error or optimistic order onto a
@@ -118,6 +139,21 @@ export function RevealClient({
     setPendingOrder(null);
     setActionError(null);
   }, [activeDay]);
+
+  // Places the paste named that Gracie couldn't find: the greeting hands them
+  // over once, so they no longer vanish without a word (UX audit finding 8).
+  useEffect(() => {
+    try {
+      const key = `ts-failures-${doc.tripId}`;
+      const raw = sessionStorage.getItem(key);
+      if (!raw) return;
+      sessionStorage.removeItem(key);
+      const failures = JSON.parse(raw) as Array<{ source: string; reason: string }>;
+      if (failures.length > 0) setUnplaced(couldNotPlace(failures));
+    } catch {
+      // storage off or malformed — nothing to show
+    }
+  }, [doc.tripId]);
 
   const tripDay = doc.days[activeDay];
   const plan = plans[activeDay];
@@ -547,6 +583,7 @@ export function RevealClient({
         setResolvedLocally(new Set());
         const msg = e instanceof Error ? e.message : String(e);
         setActionError(`A decision didn't stick — ${msg}. Showing the saved plan.`);
+        setDecisionError(`A decision didn't stick — ${msg}. Showing the saved plan.`);
         const fresh = await fetchDoc(docLive.current.tripId);
         if (fresh) {
           docLive.current = fresh;
@@ -563,6 +600,7 @@ export function RevealClient({
 
   const handleAcceptProposal = useCallback(
     (proposal: Proposal) => {
+      setDecisionError(null);
       setResolvedLocally((prev) => {
         const next = new Set(prev);
         for (const id of proposal.resolves) next.add(id);
@@ -576,6 +614,7 @@ export function RevealClient({
 
   const handleDismissConflict = useCallback(
     (conflict: Conflict) => {
+      setDecisionError(null);
       setResolvedLocally((prev) => new Set(prev).add(conflict.id));
       decisionQueue.current.push({ kind: "dismiss", conflict });
       pumpDecisions();
@@ -705,6 +744,7 @@ export function RevealClient({
           orderedIds={orderedIds}
           busy={busy || syncing}
           actionError={actionError}
+          notice={unplaced}
           settings={doc.settings}
           tradeOffCards={tradeOffCards}
           prose={prose}
@@ -730,7 +770,7 @@ export function RevealClient({
           index={decisionIndex}
           busy={busy}
           syncing={syncing}
-          error={actionError}
+          error={decisionError}
           prose={prose}
           onAccept={handleAcceptProposal}
           onDismiss={handleDismissConflict}
