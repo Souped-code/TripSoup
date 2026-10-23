@@ -104,7 +104,18 @@ export type Station = {
 };
 export type RailEdge = { to: number; minutes: number };
 export type BusStop = { code: string; name: string; road: string; point: LatLng };
-export type BusPattern = { service: string; stops: number[]; km: number[]; towards: string };
+/** `loopVia`: a loop service ends where it starts, so its terminus says
+ * nothing about direction — riders read "loop via <its far end>" instead. */
+export type BusPattern = {
+  service: string;
+  stops: number[];
+  km: number[];
+  towards: string;
+  loopVia?: string;
+  /** Position of the loop's far end: boarding at or after it, the bus is
+   * heading back and `towards` (the start) is what its display says. */
+  loopViaPos?: number;
+};
 
 export type Network = {
   stations: Station[];
@@ -191,12 +202,21 @@ export function sgNetwork(): Network {
   }
 
   const busStops: BusStop[] = data.busStops.map(([code, name, road, lat, lng]) => ({ code, name, road, point: { lat, lng } }));
-  const busPatterns: BusPattern[] = data.busPatterns.map((p) => ({
-    service: p.svc,
-    stops: p.stops,
-    km: p.km,
-    towards: busStops[p.stops[p.stops.length - 1]].name,
-  }));
+  const busPatterns: BusPattern[] = data.busPatterns.map((p) => {
+    const first = busStops[p.stops[0]];
+    const last = busStops[p.stops[p.stops.length - 1]];
+    const pattern: BusPattern = { service: p.svc, stops: p.stops, km: p.km, towards: last.name };
+    if (first.code === last.code) {
+      let farPos = 0;
+      p.stops.forEach((i, pos) => {
+        const d = haversineMeters(first.point, busStops[i].point);
+        if (d > haversineMeters(first.point, busStops[p.stops[farPos]].point)) farPos = pos;
+      });
+      pattern.loopVia = busStops[p.stops[farPos]].name;
+      pattern.loopViaPos = farPos;
+    }
+    return pattern;
+  });
   const patternsAtStop: Array<Array<[number, number]>> = busStops.map(() => []);
   busPatterns.forEach((p, pi) => p.stops.forEach((s, pos) => patternsAtStop[s].push([pi, pos])));
 

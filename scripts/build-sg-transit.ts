@@ -29,7 +29,7 @@ for (const f of rail.features) {
   if (codes.length === 0) continue;
   const [lng, lat] = f.geometry.coordinates;
   stationByCodes.set(f.properties.station_codes, stations.length);
-  stations.push({ name: f.properties.name, codes, lat: round6(lat), lng: round6(lng), exits: [] });
+  stations.push({ name: f.properties.name.trim(), codes, lat: round6(lat), lng: round6(lng), exits: [] });
 }
 for (const f of rail.features) {
   if (f.properties.stop_type !== "entrance") continue;
@@ -56,7 +56,7 @@ const busStops: Array<[string, string, string, number, number]> = [];
 for (const s of dmStops) {
   if (!Number.isFinite(s.Latitude) || !Number.isFinite(s.Longitude) || s.Latitude === 0) continue;
   stopIndex.set(s.BusStopCode, busStops.length);
-  busStops.push([s.BusStopCode, s.Description, s.RoadName, round6(s.Latitude), round6(s.Longitude)]);
+  busStops.push([s.BusStopCode, s.Description.trim(), s.RoadName.trim(), round6(s.Latitude), round6(s.Longitude)]);
 }
 
 // Daytime services only (running by 09:00 and still at 19:00): a peak-hour

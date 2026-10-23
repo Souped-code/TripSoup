@@ -6,6 +6,11 @@ import type { Journey, JourneyStep } from "@/lib/transit/sg/router";
 import type { PlanLeg } from "@/lib/schedule/types";
 import { formatDuration } from "@/lib/util/duration";
 
+/** Does any leg of this plan (incl. the hotel lead/back) carry a journey? */
+export function planHasTransit(legs: PlanLeg[], baseLegs?: { lead: PlanLeg; back: PlanLeg }): boolean {
+  return legs.some((l) => l.transit) || !!baseLegs?.lead.transit || !!baseLegs?.back.transit;
+}
+
 /** "MRT" when the journey rides a train, else "bus"; the plain mode otherwise. */
 export function legModeLabel(leg: PlanLeg): string {
   if (leg.mode !== "transit" || !leg.transit) return leg.mode;
@@ -21,7 +26,7 @@ function Badge({ text, color }: { text: string; color: string }) {
 }
 
 function changeNote(walkMin: number): string {
-  if (walkMin <= 1) return " (same platform, other side)";
+  if (walkMin <= 1) return " (often straight across the platform)";
   if (walkMin >= 6) return " (long walk)";
   return "";
 }
@@ -48,7 +53,8 @@ function Step({ step }: { step: JourneyStep }) {
     case "bus":
       return (
         <>
-          <Badge text={step.service} color="var(--ink)" /> towards {step.towards} · board at {step.board.name} (
+          <Badge text={step.service} color="var(--ink)" />{" "}
+          {step.loopVia ? `loop service via ${step.loopVia}` : `towards ${step.towards}`} · board at {step.board.name} (
           {step.board.code}), {step.board.road} · {step.stops} {step.stops === 1 ? "stop" : "stops"} · get off at{" "}
           {step.alight.name} ({step.alight.code}) · {formatDuration(step.minutes)}
         </>
@@ -71,7 +77,9 @@ export function TransitSteps({ journey, testId }: { journey: Journey; testId?: s
 export function TransitCredit() {
   return (
     <p className="reveal-transit__credit">
-      Bus and train data: LTA DataMall, Singapore Open Data Licence v1.0. Times are estimates.
+      Contains information from LTA DataMall accessed on 1 October 2026 from https://datamall.lta.gov.sg, made
+      available under the terms of the Singapore Open Data Licence version 1.0. Station locations © OpenStreetMap
+      contributors. Public-transport times are estimates.
     </p>
   );
 }

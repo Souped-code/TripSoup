@@ -34,7 +34,7 @@ import { WashiTag, type WashiTone } from "@/ui/journal/WashiTag";
 import { InkButton } from "@/ui/journal/InkButton";
 import { fmtTime } from "@/ui/time";
 import type { LegMode } from "@/lib/solver/types";
-import { TransitCredit, TransitSteps, legModeLabel } from "./TransitSteps";
+import { TransitCredit, TransitSteps, legModeLabel, planHasTransit } from "./TransitSteps";
 import "./reveal.css";
 
 const TONE_CYCLE: WashiTone[] = ["coral", "sky", "pink", "leaf"];
@@ -287,6 +287,7 @@ export function JournalSidebar({
                       onDeleteChip={onDeleteChip}
                       onRemove={onRemoveStop}
                       onToggleLeg={onToggleLeg}
+                      driveOverheadMin={settings.driveOverheadMin}
                     />
                   ))}
                 </ol>
@@ -302,7 +303,7 @@ export function JournalSidebar({
                 )}
               </div>
             )}
-            {plan.status === "ok" && plan.legs.some((l) => l.transit) && <TransitCredit />}
+            {plan.status === "ok" && planHasTransit(plan.legs, plan.baseLegs) && <TransitCredit />}
           </>
         )}
 
@@ -532,21 +533,24 @@ function ConstraintChip({
 
 // Singapore legs: every way this leg can be travelled, a switch to each
 // alternative, and — on a public-transport leg — the steps to follow.
-const MODE_LABEL: Record<LegMode, string> = { transit: "MRT/bus", drive: "drive", walk: "walk" };
+const MODE_LABEL: Record<LegMode, string> = { transit: "MRT/bus", drive: "Grab", walk: "walk" };
 const SWITCH_LABEL: Record<LegMode, string> = { transit: "take the MRT/bus", drive: "take a Grab", walk: "walk it" };
 
 function TransitLeg({
   leg,
   busy,
+  driveOverheadMin,
   onToggleLeg,
 }: {
   leg: PlanLeg;
   busy: boolean;
+  /** Transit minutes are door to door, so the Grab figure includes the wait. */
+  driveOverheadMin: number;
   onToggleLeg: (fromId: string, toId: string, mode: LegMode) => void;
 }) {
   const options: Array<[LegMode, number]> = [
     ["transit", leg.transit!.minutes],
-    ["drive", leg.driveMin],
+    ["drive", leg.driveMin + driveOverheadMin],
     ...(leg.walkMin !== null ? [["walk", leg.walkMin] as [LegMode, number]] : []),
   ];
   return (
@@ -594,6 +598,7 @@ function SidebarRow({
   onDeleteChip,
   onRemove,
   onToggleLeg,
+  driveOverheadMin,
 }: {
   stop: TripStop;
   index: number;
@@ -607,6 +612,7 @@ function SidebarRow({
   onDeleteChip: (target: ConstraintChipEntry["target"]) => void;
   onRemove: (stopId: string) => void;
   onToggleLeg: (fromId: string, toId: string, mode: LegMode) => void;
+  driveOverheadMin: number;
 }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
     id: stop.id,
@@ -642,7 +648,7 @@ function SidebarRow({
         {/* T7 — the leg from the previous stop: mode + BOTH times when the
             walk is eligible (§2 decide-then-offer), toggle persists the pick */}
         {leg?.transit && (
-          <TransitLeg leg={leg} busy={busy} onToggleLeg={onToggleLeg} />
+          <TransitLeg leg={leg} busy={busy} driveOverheadMin={driveOverheadMin} onToggleLeg={onToggleLeg} />
         )}
         {leg && !leg.transit && (
           <div className="reveal-leg" data-testid={`sidebar-leg-${leg.fromId}-${leg.toId}`}>

@@ -53,7 +53,18 @@ export type JourneyStep =
       minutes: number;
     }
   | { kind: "change"; at: string; toLine: LineId; toLineName: string; walkMin: number }
-  | { kind: "bus"; service: string; towards: string; board: StopRef; alight: StopRef; stops: number; waitMin: number; minutes: number };
+  | {
+      kind: "bus";
+      service: string;
+      towards: string;
+      /** Set on loop services, where `towards` is just the start again. */
+      loopVia?: string;
+      board: StopRef;
+      alight: StopRef;
+      stops: number;
+      waitMin: number;
+      minutes: number;
+    };
 
 export type Journey = { minutes: number; steps: JourneyStep[] };
 
@@ -166,6 +177,7 @@ function busStep(net: Network, leg: BusLeg): JourneyStep {
     kind: "bus",
     service: p.service,
     towards: p.towards,
+    ...(p.loopVia && leg.from < p.loopViaPos! ? { loopVia: p.loopVia } : {}),
     board: stopRef(net, p.stops[leg.from]),
     alight: stopRef(net, p.stops[leg.to]),
     stops: leg.to - leg.from,
@@ -296,7 +308,7 @@ function viaMrt(net: Network, a: LatLng, b: LatLng, s: Settings): Option | null 
     sink(acc.station, {
       gen: acc.walkMin * WALK_WEIGHT,
       minutes: acc.walkMin,
-      steps: [{ kind: "walk", minutes: acc.walkMin, to: "your destination" }],
+      steps: [{ kind: "walk", minutes: acc.walkMin, to: `your destination${acc.exit ? ` (leave by Exit ${acc.exit})` : ""}` }],
     });
   }
   if (!nearB.some((x) => x.walkMin <= MRT_TOO_FAR_MIN)) {
@@ -306,7 +318,7 @@ function viaMrt(net: Network, a: LatLng, b: LatLng, s: Settings): Option | null 
         gen: (f.walkMin + f.station.walkMin) * WALK_WEIGHT + BUS_WAIT_MIN + f.bus.minutes * FEEDER_RIDE_WEIGHT + BUS_PENALTY,
         minutes: f.station.walkMin + BUS_WAIT_MIN + f.bus.minutes + f.walkMin,
         steps: [
-          { kind: "walk", minutes: f.station.walkMin, to: stopLabel(net, stopIdx) },
+          { kind: "walk", minutes: f.station.walkMin, to: `${stopLabel(net, stopIdx)}${f.station.exit ? ` (leave by Exit ${f.station.exit})` : ""}` },
           busStep(net, f.bus),
           { kind: "walk", minutes: f.walkMin, to: "your destination" },
         ],

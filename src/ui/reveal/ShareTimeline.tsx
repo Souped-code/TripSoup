@@ -20,7 +20,7 @@ import { WashiTag, type WashiTone } from "@/ui/journal/WashiTag";
 import { AnchorGlyph } from "./JournalSidebar";
 import { fmtTime } from "@/ui/time";
 import { formatDuration } from "@/lib/util/duration";
-import { TransitCredit, TransitSteps, legModeLabel } from "./TransitSteps";
+import { TransitCredit, TransitSteps, legModeLabel, planHasTransit } from "./TransitSteps";
 import { DEFAULT_SETTINGS } from "@/lib/maps/types";
 import "./reveal.css";
 
@@ -157,7 +157,7 @@ export function ShareTimeline({ day, plan, orderedIds }: ShareTimelineProps) {
                           {legModeLabel(leg)}
                         </span>
                         <span>
-                          {leg.transit
+                          {leg.mode === "transit"
                             ? `${formatDuration(leg.effectiveMin)}`
                             : leg.walkMin !== null
                               ? `walk ${Math.round(leg.walkMin)} min · drive ${Math.round(leg.driveMin)} min`
@@ -203,7 +203,7 @@ export function ShareTimeline({ day, plan, orderedIds }: ShareTimelineProps) {
                 )}
               </div>
             )}
-            {plan.status === "ok" && plan.legs.some((l) => l.transit) && <TransitCredit />}
+            {plan.status === "ok" && planHasTransit(plan.legs, plan.baseLegs) && <TransitCredit />}
           </>
         )}
 

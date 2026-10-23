@@ -127,3 +127,19 @@ describe("inSingapore excludes Johor", () => {
     expect(inSingapore({ lat: 1.3, lng: 103.63 })).toBe(true); // Tuas
   });
 });
+
+describe("bus directions riders can match to the bus display", () => {
+  it("a loop service names its far end, not the interchange it started from", () => {
+    const j = planSgJourney({ lat: 1.3504, lng: 103.8487 }, P.zoo); // Bishan -> Zoo
+    const bus = buses(j).find((b) => b.service === "138");
+    expect(bus).toBeDefined();
+    expect(bus!.loopVia).toBeTruthy();
+    expect(bus!.loopVia).not.toBe(bus!.towards);
+  });
+
+  it("names the exit on the way out of a station", () => {
+    const j = planSgJourney(P.jewel, P.bugisJunction);
+    const last = j!.steps[j!.steps.length - 1];
+    expect(last.kind === "walk" && last.to).toMatch(/Exit/);
+  });
+});
