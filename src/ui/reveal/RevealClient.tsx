@@ -98,7 +98,14 @@ function couldNotPlace(failures: Array<{ source: string; reason: string }>): str
   if (missing.length > 0) {
     const names = missing.slice(0, 4).map((f) => {
       const fromLink = f.source.match(/\/maps\/place\/([^/@?]+)/)?.[1];
-      const name = fromLink ? decodeURIComponent(fromLink.replace(/\+/g, " ")) : f.source;
+      let name = f.source;
+      if (fromLink) {
+        try {
+          name = decodeURIComponent(fromLink.replace(/\+/g, " "));
+        } catch {
+          name = fromLink; // a stray "%" must not hide the whole note
+        }
+      }
       return name.length > 40 ? `${name.slice(0, 39)}…` : name;
     });
     const more = missing.length > 4 ? ` and ${missing.length - 4} more` : "";
@@ -138,6 +145,7 @@ export function RevealClient({
   useEffect(() => {
     setPendingOrder(null);
     setActionError(null);
+    setDecisionError(null);
   }, [activeDay]);
 
   // Places the paste named that Gracie couldn't find: the greeting hands them
@@ -333,6 +341,7 @@ export function RevealClient({
   }, [tradeOffCards.length]);
 
   const handleOpenDecisions = useCallback(() => {
+    setDecisionError(null);
     setDecisionIndex(0);
     setDecisionsOpen(true);
   }, []);
@@ -346,6 +355,7 @@ export function RevealClient({
   }, [tradeOffCards.length]);
   const handleDecideLater = useCallback(() => {
     setDecisionsOpen(false);
+    setDecisionError(null);
     if (decisionKey !== null) {
       try {
         const seen = [...readSeenKeys().filter((k) => k !== decisionKey), decisionKey];
