@@ -93,6 +93,24 @@ describe("E5a objective: hours", () => {
   });
 });
 
+describe("float noise is not a violation", () => {
+  // Real drive times are fractional (Google seconds / 60), so start + duration
+  // can come back as 60.00000000000011 minutes of stay. That surfaced as a
+  // conflict reading `gets 1h 1min — it needs 1h–1h` with drop/move proposals.
+  it("a stay that is its exact duration up to float rounding raises nothing", async () => {
+    const doc = docOf([
+      { date: "2026-07-07", dayStartMin: 9 * 60, dayEndMin: 22 * 60, stops: [tripStop("fx-12", 60)] },
+    ]);
+    const problem = await problemFor(doc);
+    const startMin = 1021.3305598119695;
+    const departMin = startMin + 60; // 1081.3305598119696 — 1.1e-13 over
+    expect(departMin - startMin).toBeGreaterThan(60);
+
+    const schedule: EngineSchedule = { visits: [visit("fx-12", 0, startMin, startMin, departMin)], dropped: [] };
+    expect(evaluate(problem, schedule).violations).toEqual([]);
+  });
+});
+
 describe("E5a objective: wait, travel and compression", () => {
   it("wait is the idle gap AFTER travel, and travel comes from the matrix", async () => {
     const problem = await twoStopProblem();

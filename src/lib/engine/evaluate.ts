@@ -108,9 +108,16 @@ export type EngineEvaluation = {
   breakdown: ObjectiveBreakdown;
 };
 
+/** Measured breaches at or below this many minutes are float noise, not
+ * violations: real travel minutes are fractional (Google seconds / 60), so
+ * `start + 60` can read back as a 60.00000000000011-minute stay. Structural
+ * violations carry byMin 0 and are never filtered. */
+export const VIOLATION_EPSILON_MIN = 1e-6;
+
 export function evaluate(problem: EngineProblem, schedule: EngineSchedule): EngineEvaluation {
   const violations: EngineViolation[] = [];
   const push = (v: EngineViolation): void => {
+    if (v.byMin > 0 && v.byMin <= VIOLATION_EPSILON_MIN) return;
     violations.push(v);
   };
 
