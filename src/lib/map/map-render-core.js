@@ -1247,9 +1247,14 @@ export async function buildScene(rawConfig, decoded, textures, opts = {}) {
   const ctx = work.getContext('2d');
   const rc = rough.canvas(work);
 
-  // load BOTH styles of the hand face (loading is per-face, not per-size)
-  await document.fonts.load('16px ' + config.FONT_FAMILY_HAND);
-  await document.fonts.load('italic 16px ' + config.FONT_FAMILY_HAND);
+  // load BOTH styles of the hand face (loading is per-face, not per-size).
+  // A rejected load must not kill the map: next/font's fallback face is
+  // `local("Arial")`, and on a device without Arial the WHOLE load rejects
+  // ("A network error occurred") even though Gochi Hand itself loaded.
+  await Promise.all([
+    document.fonts.load('16px ' + config.FONT_FAMILY_HAND),
+    document.fonts.load('italic 16px ' + config.FONT_FAMILY_HAND),
+  ]).catch(() => {});
   await document.fonts.ready;
 
   const mkPattern = (img) => {
