@@ -106,3 +106,25 @@ describe("batching", () => {
     for (const c of calls) expect(c.destIds.length).toBe(3);
   });
 });
+
+describe("concurrency", () => {
+  // A cold 20-stop day is 20 per-origin requests; one at a time that is
+  // 20 round trips before the solve can even start.
+  it("per-origin requests run in parallel, at most 4 in flight", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const fetcher: PairFetcher = async (origins, destinations) => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight--;
+      return origins.flatMap((o) =>
+        destinations.map((d) => ({ fromId: o.id, toId: d.id, minutes: fakeMinutes(o.id, d.id) }))
+      );
+    };
+    const many = Array.from({ length: 10 }, (_, i) => stop(String.fromCharCode(97 + i), i * 0.01, 0));
+    const m = await createMatrixSource(fetcher)(many, "driving");
+    expect(maxInFlight).toBe(4);
+    expect(m.a.j).toBe(fakeMinutes("a", "j"));
+  });
+});

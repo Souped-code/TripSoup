@@ -44,6 +44,9 @@ export function createMapMatrixCache(map: Map<string, number> = new Map()): Matr
 
 // Max destinations per request — keeps each request within API element limits.
 const MAX_DESTINATIONS_PER_REQUEST = 25;
+// Requests in flight at once. A cold 20-stop day is 20 per-origin requests;
+// serially that is 20 round trips before the solve can start.
+const MAX_CONCURRENT_REQUESTS = 4;
 
 // Cache-first matrix assembly. Cached pairs are NEVER included in any fetch
 // (§3: never re-fetched on cache hit). Uncached pairs are grouped per origin
@@ -89,10 +92,16 @@ export function createMatrixSource(
       }
     }
 
+    const requests: { origin: MatrixStop; chunk: string[] }[] = [];
     for (const [originId, destIds] of missing) {
-      const origin = byId.get(originId)!;
       for (let i = 0; i < destIds.length; i += MAX_DESTINATIONS_PER_REQUEST) {
-        const chunk = destIds.slice(i, i + MAX_DESTINATIONS_PER_REQUEST);
+        requests.push({ origin: byId.get(originId)!, chunk: destIds.slice(i, i + MAX_DESTINATIONS_PER_REQUEST) });
+      }
+    }
+    let next = 0;
+    const drain = async (): Promise<void> => {
+      while (next < requests.length) {
+        const { origin, chunk } = requests[next++];
         const results = await fetcher(
           [origin],
           chunk.map((id) => byId.get(id)!),
@@ -108,7 +117,8 @@ export function createMatrixSource(
         }
         await cache.setMany(batchEntries);
       }
-    }
+    };
+    await Promise.all(Array.from({ length: Math.min(MAX_CONCURRENT_REQUESTS, requests.length) }, drain));
 
     // Boundary validation (§8): a fetcher that fails to cover its pairs is a
     // Google-API-shaped problem, surface it rather than emit a holey matrix.
