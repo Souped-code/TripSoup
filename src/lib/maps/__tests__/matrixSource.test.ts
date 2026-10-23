@@ -128,3 +128,25 @@ describe("concurrency", () => {
     expect(m.a.j).toBe(fakeMinutes("a", "j"));
   });
 });
+
+describe("failure", () => {
+  // Each request is a billed Routes call: once one fails, the call is over —
+  // nothing may keep fetching (or writing the cache) behind the caller's back.
+  it("stops issuing requests after one fails, and settles before rejecting", async () => {
+    let calls = 0;
+    const fetcher: PairFetcher = async (origins, destinations) => {
+      calls++;
+      await new Promise((r) => setTimeout(r, 5));
+      if (origins[0].id === "a") throw new Error("Routes API 429");
+      return origins.flatMap((o) =>
+        destinations.map((d) => ({ fromId: o.id, toId: d.id, minutes: fakeMinutes(o.id, d.id) }))
+      );
+    };
+    const many = Array.from({ length: 20 }, (_, i) => stop(String.fromCharCode(97 + i), i * 0.01, 0));
+    await expect(createMatrixSource(fetcher)(many, "driving")).rejects.toThrow("429");
+    const atReject = calls;
+    await new Promise((r) => setTimeout(r, 50));
+    expect(calls).toBe(atReject);
+    expect(calls).toBe(4);
+  });
+});

@@ -99,14 +99,18 @@ export function createMatrixSource(
       }
     }
     let next = 0;
+    let failed = false; // a failed (billed) call ends the fetch — no new requests
     const drain = async (): Promise<void> => {
-      while (next < requests.length) {
+      while (!failed && next < requests.length) {
         const { origin, chunk } = requests[next++];
         const results = await fetcher(
           [origin],
           chunk.map((id) => byId.get(id)!),
           mode
-        );
+        ).catch((e) => {
+          failed = true;
+          throw e;
+        });
         // Cache after each per-origin batch so a retry resumes from partial
         // progress rather than re-fetching pairs already paid for (§3).
         const batchEntries: { key: string; minutes: number }[] = [];
@@ -118,7 +122,13 @@ export function createMatrixSource(
         await cache.setMany(batchEntries);
       }
     };
-    await Promise.all(Array.from({ length: Math.min(MAX_CONCURRENT_REQUESTS, requests.length) }, drain));
+    // allSettled: in-flight requests finish before we report, so nothing
+    // outlives this call.
+    const settled = await Promise.allSettled(
+      Array.from({ length: Math.min(MAX_CONCURRENT_REQUESTS, requests.length) }, drain)
+    );
+    const rejected = settled.find((r): r is PromiseRejectedResult => r.status === "rejected");
+    if (rejected) throw rejected.reason;
 
     // Boundary validation (§8): a fetcher that fails to cover its pairs is a
     // Google-API-shaped problem, surface it rather than emit a holey matrix.
