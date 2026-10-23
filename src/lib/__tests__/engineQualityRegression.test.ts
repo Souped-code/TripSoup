@@ -201,7 +201,10 @@ describe("engine quality regression (E5b MUST-DO 5)", () => {
 // number a real solve actually produces. A future divergence between the two
 // numbers is exactly the class of regression this test exists to catch.
 const PROD_BUDGET_MS = 20_000; // planEngine.ts's DEFAULT_ENGINE_BUDGET_MS
-const PROD_ITER_CAP = iterCapFor(25, PROD_BUDGET_MS); // 245,714 at today's formula constants
+// 2026-10-23: ITER_CAP_MAX dropped 500k -> 10k (measured: no quality gain past
+// it, see STATE.md), so prod now runs FEWER iterations than the suite's 60k —
+// the F10 risk inverted. This case still pins the trajectory prod really runs.
+const PROD_ITER_CAP = iterCapFor(25, PROD_BUDGET_MS); // 10,000 at today's formula constants
 const PROD_BASELINE_SCORE = 240.62855526476727;
 
 describe("engine quality regression — prod trajectory (F10)", () => {
@@ -214,9 +217,9 @@ describe("engine quality regression — prod trajectory (F10)", () => {
   // argument), not a file-wide `jest.setTimeout`, so a hang anywhere ELSE in
   // this file still fails fast in the ordinary 5s.
   it(
-    "fixture A stays within 1% of its pinned score at the REAL prod iterCap (245,714, not the suite's 60,000)",
+    "fixture A stays within 1% of its pinned score at the REAL prod iterCap (10,000, not the suite's 60,000)",
     async () => {
-      expect(PROD_ITER_CAP).toBeGreaterThan(ITER_CAP); // the whole premise of this test
+      expect(PROD_ITER_CAP).not.toBe(ITER_CAP); // the whole premise of this test
       const problem = await fixtureA();
       expect(problem.nodes.length).toBe(25);
 

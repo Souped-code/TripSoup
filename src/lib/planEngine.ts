@@ -93,10 +93,9 @@ const DEFAULT_ENGINE_BUDGET_MS = 20_000;
 // same iterCap: ~90k iterations at n=4 took ~300ms under tsx but 2-4s under
 // jest) — almost certainly ts-jest's transform/VM context, not the engine.
 // 500ms keeps every fixture-sized (single-digit to low-teens stops) test doc
-// at the ITER_CAP formula's 20k-iteration FLOOR (the formula's minimum,
-// regardless of budget — see ITER_CAP_MIN below), which measured ~500-700ms
-// even under that jest overhead — comfortable under jest's default 5s
-// per-test timeout, including tests that trigger two solves. Tests that want
+// at or near the ITER_CAP formula's 10k CEILING (see ITER_CAP_MAX below) —
+// comfortable under jest's default 5s per-test timeout, including tests that
+// trigger two solves. Tests that want
 // a bigger, deliberately-ALNS-bound problem (scale.test.ts, this file's own
 // quality-regression harness) call the engine directly with their own
 // explicit iterCap/timeBudgetMs and never go through this function at all.
@@ -123,8 +122,8 @@ export function engineBudgetMs(): number {
 // computed OUTSIDE the engine is exactly as deterministic as one computed
 // inside it, since it is the same formula over the same inputs.
 const ITER_CAP_RATE = 430;
-const ITER_CAP_MIN = 20_000;
-const ITER_CAP_MAX = 500_000;
+const ITER_CAP_MIN = 5_000;
+const ITER_CAP_MAX = 10_000;
 
 export function iterCapFor(n: number, budgetMs: number): number {
   const raw = Math.round((ITER_CAP_RATE * budgetMs) / (n + 10));

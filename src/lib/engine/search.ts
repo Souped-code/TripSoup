@@ -90,10 +90,13 @@ const PROGRESS_MS = 250;
 /** ITER_CAP = clamp(round(RATE * budgetMs / (n + 10)), MIN, MAX) — see the
  * spike's header for the calibration. The answer is byte-identical for a given
  * (problem, seed, budget) on any machine fast enough to exhaust the cap;
- * `opts.iterCap` removes the machine from the equation entirely. */
+ * `opts.iterCap` removes the machine from the equation entirely.
+ * MAX was 500k: measured 2026-10-23 (STATE.md) on 46 random problems, 10k
+ * matched the old 165k–500k caps within 0.02% mean score at ~2% of the time —
+ * every day-scoped edit had been waiting 2–16 s for nothing. */
 const ITER_CAP_RATE = 430;
-const ITER_CAP_MIN = 20_000;
-const ITER_CAP_MAX = 500_000;
+const ITER_CAP_MIN = 5_000;
+const ITER_CAP_MAX = 10_000;
 
 const PRIORITY_RANK: Record<string, number> = { must: 0, should: 1, could: 2 };
 
