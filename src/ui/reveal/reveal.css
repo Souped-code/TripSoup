@@ -123,6 +123,9 @@
   min-width: 30px;
   text-align: center;
   white-space: nowrap;
+  /* dnd-kit's PointerSensor never activates on touch if the browser claims
+   * the gesture for scrolling first — the phone drag just scrolled the page. */
+  touch-action: none;
 }
 /* Empty (non-booked) handles are portrait tape strips, like the board's
  * row-tab tape; the booked handle keeps its "✓ Booked" content width. */
